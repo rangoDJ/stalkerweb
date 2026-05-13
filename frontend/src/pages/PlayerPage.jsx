@@ -1,204 +1,342 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
+import {
+  Play, Pause, Volume2, VolumeX, Maximize, Minimize,
+  List, Search, Loader2, AlertCircle, Tv2,
+} from 'lucide-react'
+import { Slider } from '@/components/ui/slider'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
+import { cn } from '@/lib/utils'
 import { getChannels, getStreamUrl } from '../stalkerApi'
 
+// ── Controls bar ──────────────────────────────────────────────────────────
+function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent">
+      {/* Left */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onPlayPause}
+          className="text-white/90 hover:text-white transition-colors p-1"
+          aria-label={playing ? 'Pause' : 'Play'}
+        >
+          {playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
+        </button>
+
+        {/* Volume */}
+        <div className="flex items-center gap-2 group/vol">
+          <button onClick={onMute} className="text-white/90 hover:text-white transition-colors p-1">
+            {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+          </button>
+          <div className="w-0 overflow-hidden group-hover/vol:w-20 transition-all duration-200">
+            <Slider
+              min={0} max={100} step={1}
+              value={[muted ? 0 : volume]}
+              onValueChange={([v]) => onVolume(v)}
+              className="w-20"
+            />
+          </div>
+        </div>
+
+        <Badge variant="live" className="ml-1">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
+          LIVE
+        </Badge>
+      </div>
+
+      {/* Center */}
+      <div className="flex-1 text-center">
+        <span className="text-sm font-medium text-white/90 truncate">{channelName}</span>
+      </div>
+
+      {/* Right */}
+      <div className="flex items-center gap-1">
+        <button
+          onClick={onToggleList}
+          className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10"
+          aria-label="Toggle channel list"
+        >
+          <List size={18} />
+        </button>
+        <button
+          onClick={onFullscreen}
+          className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10"
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+        >
+          {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ── Channel list panel ────────────────────────────────────────────────────
+function ChannelList({ channels, activeId, onSelect }) {
+  const [query, setQuery] = useState('')
+  const filtered = channels.filter(c => !query || c.name?.toLowerCase().includes(query.toLowerCase()))
+
+  return (
+    <div className="flex flex-col h-full bg-[var(--color-surface)] border-l border-[var(--color-border)]">
+      <div className="p-3 border-b border-[var(--color-border)]">
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
+          <input
+            placeholder="Search…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            className="w-full rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] border border-[var(--color-border)] pl-7 pr-3 py-1.5 text-xs text-[var(--color-text)] placeholder:text-[var(--color-muted)] outline-none focus:border-[var(--color-primary-light)]"
+          />
+        </div>
+      </div>
+      <ScrollArea className="flex-1">
+        {filtered.map(ch => (
+          <button
+            key={ch.id}
+            onClick={() => onSelect(ch)}
+            className={cn(
+              'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
+              ch.id === activeId
+                ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
+                : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
+            )}
+          >
+            <Tv2 size={13} className="shrink-0" />
+            <span className="text-xs truncate">{ch.name}</span>
+          </button>
+        ))}
+      </ScrollArea>
+    </div>
+  )
+}
+
+// ── Player page ───────────────────────────────────────────────────────────
 export default function PlayerPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initChannelId = searchParams.get('channel')
+  const initChannelName = searchParams.get('name') ? decodeURIComponent(searchParams.get('name')) : ''
+
   const videoRef = useRef(null)
   const hlsRef = useRef(null)
-  const [streamInfo, setStreamInfo] = useState(null)
-  const [status, setStatus] = useState('idle') // idle | loading | playing | error
-  const [statusMsg, setStatusMsg] = useState('')
+  const containerRef = useRef(null)
+  const hideTimer = useRef(null)
+
   const [channels, setChannels] = useState([])
-  const [search, setSearch] = useState('')
+  const [activeChannel, setActiveChannel] = useState(
+    initChannelId ? { id: initChannelId, name: initChannelName } : null
+  )
+  const [streamUrl, setStreamUrl] = useState(null)
+  const [status, setStatus] = useState('idle') // idle | loading | playing | error
+  const [errorMsg, setErrorMsg] = useState('')
+  const [showControls, setShowControls] = useState(true)
+  const [showList, setShowList] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [muted, setMuted] = useState(false)
+  const [volume, setVolume] = useState(80)
+  const [isFullscreen, setIsFullscreen] = useState(false)
 
+  // Load channel list
   useEffect(() => {
-    const raw = sessionStorage.getItem('sw_stream')
-    if (raw) {
-      try {
-        const info = JSON.parse(raw)
-        sessionStorage.removeItem('sw_stream')
-        setStreamInfo(info)
-      } catch (_) {}
-    }
-
-    async function fetchCh() {
-      try {
-        const data = await getChannels()
-        setChannels(data.channels || [])
-      } catch (_) {}
-    }
-    fetchCh()
+    getChannels().then(setChannels).catch(() => {})
   }, [])
 
+  // Load stream when active channel changes
   useEffect(() => {
-    if (!streamInfo?.url) return
-    loadStream(streamInfo.url)
-  }, [streamInfo])
+    if (!activeChannel?.id) return
+    loadStream(activeChannel.id)
+  }, [activeChannel?.id])
 
-  function loadStream(url) {
+  async function loadStream(channelId) {
+    setStatus('loading')
+    setErrorMsg('')
+    try {
+      const { url } = await getStreamUrl(channelId)
+      setStreamUrl(url)
+    } catch (e) {
+      setStatus('error')
+      setErrorMsg(e.message)
+    }
+  }
+
+  // Attach HLS when streamUrl changes
+  useEffect(() => {
+    if (!streamUrl || !videoRef.current) return
     const video = videoRef.current
-    if (!video) return
 
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
     }
 
-    setStatus('loading')
-    setStatusMsg('')
-
     if (Hls.isSupported()) {
-      const hls = new Hls({ debug: false, enableWorker: true })
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
       hlsRef.current = hls
-      hls.loadSource(url)
+      hls.loadSource(streamUrl)
       hls.attachMedia(video)
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        setStatus('playing')
-        video.play().catch(() => {})
+        video.volume = volume / 100
+        video.muted = muted
+        video.play().then(() => {
+          setStatus('playing')
+          setPlaying(true)
+        }).catch(() => {
+          setStatus('error')
+          setErrorMsg('Playback blocked. Click play to start.')
+        })
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
           setStatus('error')
-          setStatusMsg(data.type + ': ' + data.details)
+          setErrorMsg('Stream error. Try reloading.')
         }
       })
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = url
-      video.addEventListener('loadedmetadata', () => {
+      video.src = streamUrl
+      video.volume = volume / 100
+      video.muted = muted
+      video.play().then(() => {
         setStatus('playing')
-        video.play().catch(() => {})
-      }, { once: true })
-      video.addEventListener('error', () => {
-        setStatus('error')
-        setStatusMsg('Native HLS error')
-      }, { once: true })
+        setPlaying(true)
+      }).catch(() => {})
+    }
+
+    return () => {
+      hlsRef.current?.destroy()
+      hlsRef.current = null
+    }
+  }, [streamUrl])
+
+  // Sync volume/mute to video element
+  useEffect(() => {
+    if (!videoRef.current) return
+    videoRef.current.volume = volume / 100
+    videoRef.current.muted = muted
+  }, [volume, muted])
+
+  // Auto-hide controls
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true)
+    clearTimeout(hideTimer.current)
+    hideTimer.current = setTimeout(() => setShowControls(false), 3000)
+  }, [])
+
+  useEffect(() => {
+    resetHideTimer()
+    return () => clearTimeout(hideTimer.current)
+  }, [])
+
+  // Fullscreen sync
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  function togglePlayPause() {
+    const v = videoRef.current
+    if (!v) return
+    if (v.paused) { v.play(); setPlaying(true) }
+    else { v.pause(); setPlaying(false) }
+  }
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen()
     } else {
-      setStatus('error')
-      setStatusMsg('HLS not supported in this browser')
+      document.exitFullscreen()
     }
   }
 
-  const handleChannelPlay = async (ch) => {
-    setStatus('loading')
-    setStatusMsg('')
-    try {
-      const { streamUrl } = await getStreamUrl(ch.uniqueId)
-      setStreamInfo({ url: streamUrl, name: ch.name })
-    } catch (e) {
-      setStatus('error')
-      setStatusMsg(e.message)
-    }
+  function selectChannel(ch) {
+    setActiveChannel(ch)
+    setSearchParams({ channel: ch.id, name: encodeURIComponent(ch.name) })
   }
-
-  const filtered = channels.filter((c) =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase())
-  )
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
+    <div className="flex h-[calc(100vh-3.5rem)] bg-black">
+      {/* Video area */}
+      <div
+        ref={containerRef}
+        className="relative flex-1 flex items-center justify-center bg-black"
+        onMouseMove={resetHideTimer}
+        onMouseLeave={() => clearTimeout(hideTimer.current)}
+        onClick={togglePlayPause}
+      >
+        <video
+          ref={videoRef}
+          className="w-full h-full object-contain"
+          playsInline
+        />
 
-      {/* Video panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column',
-        padding: '20px 22px', gap: 14, overflow: 'auto', minWidth: 0 }}>
-
-        {/* Title row */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <h1 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.2px', color: 'var(--text-primary)' }}>
-            {streamInfo?.name || 'Player'}
-          </h1>
-          {status === 'playing' && <span className="badge live">● LIVE</span>}
-          {status === 'loading' && (
-            <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 12 }}>
-              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-              Loading stream…
-            </span>
-          )}
-          {status === 'error' && (
-            <span style={{ fontSize: 12, color: 'var(--danger)' }}>
-              ✕ {statusMsg}
-            </span>
-          )}
-        </div>
-
-        <div className="player-container">
-          <video ref={videoRef} controls style={{ width: '100%', height: '100%' }} />
-          {status === 'idle' && (
-            <div className="player-overlay">
-              <span style={{ opacity: 0.5 }}>▶</span>
-              Select a channel to play
-            </div>
-          )}
-        </div>
-
-        {streamInfo?.url && (
-          <div style={{
-            fontSize: 11,
-            color: 'var(--text-dim)',
-            wordBreak: 'break-all',
-            fontFamily: 'Menlo, Consolas, monospace',
-            padding: '8px 12px',
-            background: 'var(--bg-card)',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border)',
-          }}>
-            {streamInfo.url}
+        {/* Loading overlay */}
+        {status === 'loading' && (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/60">
+            <Loader2 size={40} className="text-[var(--color-primary-light)] animate-spin" />
           </div>
         )}
-      </div>
 
-      {/* Channel list */}
-      <div style={{
-        width: 220,
-        borderLeft: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        background: 'var(--bg-surface)',
-        flexShrink: 0,
-      }}>
-        <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid var(--border)' }}>
-          <input
-            placeholder="Search…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ fontSize: 12.5, padding: '7px 11px' }}
+        {/* Error overlay */}
+        {status === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
+            <AlertCircle size={40} className="text-[var(--color-live)]" />
+            <p className="text-sm text-white/80">{errorMsg}</p>
+            {activeChannel && (
+              <button
+                onClick={(e) => { e.stopPropagation(); loadStream(activeChannel.id) }}
+                className="px-4 py-2 rounded-[var(--radius-sm)] bg-[var(--color-primary)] text-white text-sm hover:bg-[var(--color-primary-hover)] transition-colors"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Idle state */}
+        {status === 'idle' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+            <Tv2 size={48} className="text-[var(--color-muted)]" />
+            <p className="text-sm text-[var(--color-muted)]">Select a channel to start watching</p>
+          </div>
+        )}
+
+        {/* Controls overlay */}
+        <div
+          className={cn(
+            'absolute bottom-0 inset-x-0 transition-opacity duration-300',
+            showControls || status !== 'playing' ? 'opacity-100' : 'opacity-0 pointer-events-none'
+          )}
+          onClick={e => e.stopPropagation()}
+        >
+          <Controls
+            playing={playing}
+            muted={muted}
+            volume={volume}
+            isFullscreen={isFullscreen}
+            channelName={activeChannel?.name || 'No channel selected'}
+            onPlayPause={togglePlayPause}
+            onMute={() => setMuted(m => !m)}
+            onVolume={(v) => { setVolume(v); setMuted(false) }}
+            onFullscreen={toggleFullscreen}
+            onToggleList={() => setShowList(v => !v)}
           />
         </div>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {filtered.map((ch) => {
-            const active = streamInfo?.name === ch.name
-            return (
-              <div
-                key={ch.uniqueId}
-                onClick={() => handleChannelPlay(ch)}
-                style={{
-                  padding: '9px 14px',
-                  cursor: 'pointer',
-                  borderBottom: '1px solid var(--border)',
-                  background: active ? 'rgba(91,142,240,0.1)' : 'transparent',
-                  color: active ? 'var(--accent)' : 'var(--text-primary)',
-                  fontSize: 12.5,
-                  transition: 'background 120ms',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 8,
-                }}
-              >
-                <span style={{ color: active ? 'var(--accent)' : 'var(--text-dim)', fontSize: 10.5,
-                  fontVariantNumeric: 'tabular-nums', width: 26, flexShrink: 0 }}>
-                  {ch.number}
-                </span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {ch.name}
-                </span>
-              </div>
-            )
-          })}
-          {filtered.length === 0 && (
-            <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-dim)', fontSize: 12 }}>
-              No channels
-            </div>
-          )}
-        </div>
+      </div>
+
+      {/* Slide-in channel list */}
+      <div
+        className={cn(
+          'transition-all duration-300 overflow-hidden shrink-0',
+          showList ? 'w-56' : 'w-0'
+        )}
+      >
+        {channels.length > 0 && (
+          <ChannelList
+            channels={channels}
+            activeId={activeChannel?.id}
+            onSelect={selectChannel}
+          />
+        )}
       </div>
     </div>
   )
