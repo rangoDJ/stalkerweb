@@ -1,6 +1,6 @@
 import { useEffect, useState, createContext, useContext } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Radio, Heart } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getStatus, getSettings } from './stalkerApi'
@@ -39,7 +39,12 @@ function TopNav({ connected, epgEnabled }) {
   return (
     <header className="fixed top-0 inset-x-0 z-40 h-14 flex items-center px-6 gap-6 border-b border-[var(--color-border)] bg-[var(--color-bg)]/90 backdrop-blur-sm">
       <div className="flex items-center gap-2 shrink-0">
-        <Radio size={20} className="text-[var(--color-primary-light)]" />
+        <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0 text-[var(--color-primary-light)]">
+            <path d="M 3 25 A 13 13 0 0 0 29 25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.35"/>
+            <path d="M 7 25 A 9 9 0 0 0 25 25" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" opacity="0.65"/>
+            <path d="M 11 25 A 5 5 0 0 0 21 25" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
+            <circle cx="16" cy="25" r="2.5" fill="currentColor"/>
+          </svg>
         <span className="font-semibold text-sm tracking-wide text-[var(--color-text)]">StalkerWeb</span>
       </div>
 
