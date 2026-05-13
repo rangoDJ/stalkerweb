@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup, getChannels, getLogoMap } from '../stalkerApi'
+import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, saveConfig, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup, getChannels, getLogoMap } from '../stalkerApi'
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -123,6 +123,20 @@ export default function SetupPage() {
       setConnected(true)
       setNotice({ type: 'success', msg: 'Connected successfully.' })
       setTimeout(() => navigate('/channels'), 900)
+    } catch (err) {
+      setNotice({ type: 'error', msg: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleSaveConfig(e) {
+    e.preventDefault()
+    setLoading(true)
+    setNotice(null)
+    try {
+      await saveConfig(form)
+      setNotice({ type: 'success', msg: 'Settings saved.' })
     } catch (err) {
       setNotice({ type: 'error', msg: err.message })
     } finally {
@@ -314,6 +328,11 @@ export default function SetupPage() {
             <Button type="submit" disabled={loading} className="min-w-28">
               {loading ? <Loader2 size={15} className="animate-spin" /> : connected ? 'Reconnect' : 'Connect'}
             </Button>
+            {connected && (
+              <Button type="button" variant="outline" onClick={handleSaveConfig} disabled={loading}>
+                Save
+              </Button>
+            )}
             {connected && (
               <Button type="button" variant="outline" onClick={handleDisconnect} disabled={loading}>
                 Disconnect

@@ -22,6 +22,19 @@ async function _post(path, body) {
   return r.json()
 }
 
+async function _put(path, body) {
+  const r = await fetch(BASE + path, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({ error: r.statusText }))
+    throw new Error(e.error || r.statusText)
+  }
+  return r.json()
+}
+
 async function _delete(path) {
   const r = await fetch(BASE + path, { method: 'DELETE' })
   if (!r.ok) {
@@ -36,6 +49,7 @@ export const connect = (body) => _post('/auth/connect', body)
 export const disconnect = () => _delete('/auth/disconnect')
 export const getStatus = () => _get('/auth/status')
 export const getConfig = () => _get('/auth/config')
+export const saveConfig = (body) => _put('/auth/config', body)
 
 // ── Settings ──────────────────────────────────────────────────────────────
 export const getSettings = () => _get('/settings')
