@@ -58,9 +58,10 @@ class StalkerClient {
     if (!server.includes('://')) server = 'http://' + server;
 
     console.log(`[StalkerClient] Discovering portal redirects for: ${server}`);
-    
-    // Clear cookie jar for fresh auth
-    this.jar.removeAllSync();
+
+    // Fresh jar + client for each auth attempt (mirrors C# creating a new HttpClient)
+    this.jar = new CookieJar();
+    this.http = wrapper(axios.create({ jar: this.jar, withCredentials: true, maxRedirects: 10 }));
 
     // Set initial raw cookies
     // Note: We don't URL encode these as per C# reference.
