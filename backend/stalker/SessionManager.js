@@ -15,6 +15,7 @@ const WatchdogService = require('./WatchdogService');
 
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 5000;
+const RATE_LIMIT_DELAY_MS = 45000; // portal cooldown when HTTP 429 is received
 const AUTH_CHECK_INTERVAL_MS = 30000;
 
 class SessionManager {
@@ -166,6 +167,12 @@ class SessionManager {
       } catch (err) {
         this.lastError = err.message;
         console.error(`[SessionManager] auth attempt ${attempt} failed: ${err.message}`);
+
+        if (err.code === 'RATE_LIMITED') {
+          console.warn(`[SessionManager] Portal rate-limited (HTTP 429) — waiting ${RATE_LIMIT_DELAY_MS / 1000}s before retry`);
+          await _sleep(RATE_LIMIT_DELAY_MS);
+        }
+
         if (attempt === 2 && this._statusCallback) {
           this._statusCallback('error');
         }
