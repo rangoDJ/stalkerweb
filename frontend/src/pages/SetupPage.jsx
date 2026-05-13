@@ -63,11 +63,13 @@ export default function SetupPage() {
   const [deviceProfile, setDeviceProfile] = useState(null)
 
   // STBEmu export settings
-  const STB_MODELS = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
+  const STB_MODELS    = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
+  const STB_FIRMWARES = ['0.2.16-234', '0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic']
   const [stbEmu, setStbEmu] = useState({
     stbemu_profile_name: '',
     stbemu_stb_model: 'MAG250',
     stbemu_custom_firmware: '',
+    stbemu_firmware: '0.2.18-r14-pub-250',
   })
   const [stbEmuSaving, setStbEmuSaving]     = useState(false)
   const [stbEmuExporting, setStbEmuExporting] = useState(false)
@@ -84,6 +86,7 @@ export default function SetupPage() {
         stbemu_profile_name:    s.stbemu_profile_name    || '',
         stbemu_stb_model:       s.stbemu_stb_model       || 'MAG250',
         stbemu_custom_firmware: s.stbemu_custom_firmware || '',
+        stbemu_firmware:        s.stbemu_firmware        || '0.2.18-r14-pub-250',
       })
     }).catch(() => {})
     getLogos().then(({ overrides, stats }) => {
@@ -350,6 +353,17 @@ export default function SetupPage() {
               className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]"
             >
               {STB_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+
+          <Field label="Firmware" id="stbemu_firmware">
+            <select
+              id="stbemu_firmware"
+              value={stbEmu.stbemu_firmware}
+              onChange={e => setStbEmu(s => ({ ...s, stbemu_firmware: e.target.value }))}
+              className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]"
+            >
+              {STB_FIRMWARES.map(f => <option key={f} value={f}>{f}</option>)}
             </select>
           </Field>
 
