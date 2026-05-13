@@ -57,5 +57,11 @@ export const getEpg = (period = 24) => _get(`/epg?period=${period}`)
 export const getChannelEpg = (channelId, period = 24) =>
   _get(`/epg/${channelId}?period=${period}`)
 
+// ── Logos ─────────────────────────────────────────────────────────────────
+export const getLogos = () => _get('/logos')
+export const addLogoOverride = (name, url) => _post('/logos', { name, url })
+export const deleteLogoOverride = (name) => _delete(`/logos/${encodeURIComponent(name)}`)
+export const refreshLogosDb = () => _post('/logos/refresh', {})
+
 // ── Stream ────────────────────────────────────────────────────────────────
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)

@@ -13,7 +13,7 @@
 
 const express = require('express');
 
-module.exports = function m3uModule(appState) {
+module.exports = function m3uModule(appState, logoManager) {
   const router = express.Router();
 
   router.get('/', (req, res) => {
@@ -39,7 +39,7 @@ module.exports = function m3uModule(appState) {
 
     for (const ch of channels) {
       const group  = groupName.get(String(ch.tvGenreId)) || '';
-      const logo   = ch.iconPath || '';
+      const logo   = (logoManager ? logoManager.getLogo(ch.name) : '') || ch.iconPath || '';
       const name   = ch.name.replace(/,/g, ' '); // commas break the EXTINF line
       const chno   = ch.number > 0 ? ` tvg-chno="${ch.number}"` : '';
 

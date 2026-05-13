@@ -39,20 +39,27 @@ app.get('/api/health', (_req, res) => {
 // ── API Routes ─────────────────────────────────────────────────────────────
 // auth module exports { authRoutes, connectPortal } so server can call
 // connectPortal() directly at startup without a mock HTTP request.
+const LogoManager = require('./logos/LogoManager');
+const logoManager = new LogoManager(config.dataDir);
+// Kick off background DB load without blocking startup
+logoManager.ensureLoadedBackground();
+
 const { authRoutes, connectPortal } = require('./routes/auth')(appState, config);
 const channelRoutes = require('./routes/channels')(appState);
 const epgRoutes = require('./routes/epg')(appState);
 const streamRoutes = require('./routes/stream')(appState);
 const settingsRoutes = require('./routes/settings')(config);
 const proxyRoutes = require('./routes/proxy')(appState);
-const m3uRoutes = require('./routes/m3u')(appState);
+const m3uRoutes = require('./routes/m3u')(appState, logoManager);
 const xmltvRoutes = require('./routes/xmltv')(appState);
+const logosRoutes = require('./routes/logos')(logoManager);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/epg', epgRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/settings', settingsRoutes);
+app.use('/api/logos', logosRoutes);
 app.use('/api/m3u', m3uRoutes);
 app.use('/api/xmltv', xmltvRoutes);
 // /proxy must be registered before the SPA static fallback
