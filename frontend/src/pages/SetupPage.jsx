@@ -13,6 +13,7 @@ const DEFAULT_FORM = {
   password: '',
   token: '',
   signature: '',
+  portal_signature: '',
   connection_timeout: 10,
 }
 
@@ -38,6 +39,7 @@ export default function SetupPage({ onConnect, status }) {
         device_id:          cfg.device_id          ?? f.device_id,
         device_id2:         cfg.device_id2         ?? f.device_id2,
         signature:          cfg.signature          ?? f.signature,
+        portal_signature:   cfg.portal_signature   ?? f.portal_signature,
         connection_timeout: cfg.connection_timeout ?? f.connection_timeout,
         token:              cfg.token              ?? f.token,
       }))
@@ -176,21 +178,30 @@ export default function SetupPage({ onConnect, status }) {
               </div>
             </div>
 
-            <div className="field-row">
-              <div className="field">
-                <label>Signature</label>
-                <input value={form.signature} onChange={(e) => set('signature', e.target.value)} style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }} />
-              </div>
-              <div className="field" style={{ maxWidth: 140 }}>
-                <label>Timeout (sec)</label>
-                <input
-                  type="number"
-                  min={3}
-                  max={60}
-                  value={form.connection_timeout}
-                  onChange={(e) => set('connection_timeout', parseInt(e.target.value, 10))}
-                />
-              </div>
+            <div className="field">
+              <label>Device Signature</label>
+              <input value={form.signature} onChange={(e) => set('signature', e.target.value)} style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }} />
+            </div>
+
+            <div className="field">
+              <label>Portal Signature <span style={{ fontWeight: 400, color: 'var(--text-dim)', textTransform: 'none', letterSpacing: 0 }}>(returned by portal after auth)</span></label>
+              <input
+                value={form.portal_signature}
+                onChange={(e) => set('portal_signature', e.target.value)}
+                placeholder="leave blank to use device signature"
+                style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }}
+              />
+            </div>
+
+            <div className="field" style={{ maxWidth: 140 }}>
+              <label>Timeout (sec)</label>
+              <input
+                type="number"
+                min={3}
+                max={60}
+                value={form.connection_timeout}
+                onChange={(e) => set('connection_timeout', parseInt(e.target.value, 10))}
+              />
             </div>
           </>
         )}
