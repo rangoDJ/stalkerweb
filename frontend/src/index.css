@@ -35,3 +35,6 @@ html, body, #root {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--color-surface-2); border-radius: 99px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--color-border); }
+
+/* Hide browser-native datalist picker indicator */
+input[list]::-webkit-calendar-picker-indicator { display: none !important; }

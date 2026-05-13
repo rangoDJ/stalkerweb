@@ -504,10 +504,15 @@ export default function SetupPage() {
             <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs flex flex-col gap-1">
               <span className="text-[var(--color-muted)]">Normalized: <span className="font-mono text-[var(--color-text)]">{testResult.normalized}</span></span>
               {testResult.logo
-                ? <div className="flex items-center gap-2">
-                    <img src={testResult.logo} alt="" className="h-8 w-8 object-contain rounded" onError={e => e.currentTarget.style.display='none'} />
-                    <span className="text-[var(--color-success)] truncate">{testResult.logo}</span>
-                  </div>
+                ? <button
+                    type="button"
+                    onClick={() => { setNewLogoName(testName.trim()); setNewLogoUrl(testResult.logo) }}
+                    className="flex items-center gap-2 text-left hover:opacity-80 transition-opacity group"
+                    title="Click to use in Add Override"
+                  >
+                    <img src={testResult.logo} alt="" className="h-8 w-8 object-contain rounded shrink-0" onError={e => e.currentTarget.style.display='none'} />
+                    <span className="text-[var(--color-success)] truncate group-hover:underline">{testResult.logo}</span>
+                  </button>
                 : <span className={testResult.db_loaded ? 'text-[var(--color-live)]' : 'text-[var(--color-muted)]'}>
                     {testResult.db_loaded ? 'No match found in database' : 'Database not loaded yet'}
                   </span>
