@@ -65,11 +65,13 @@ module.exports = function authModule(appState, config) {
       signature: signature || '',
     });
 
-    // Build client
+    // Build client — initialize() follows redirects, sets identity cookies
+    // (mac, stb_lang, timezone, sn, device_id, sig) and loads /c/ to get
+    // PHPSESSID before the handshake fires. Must match C# AuthenticateAsync.
     const client = new StalkerClient();
     client.setIdentity(identity);
-    client.setEndpoint(portal);
     client.setTimeout(connection_timeout || 10);
+    await client.initialize(portal);
 
     const sessionManager = new SessionManager(client);
     sessionManager.setIdentity(identity, !!token);
