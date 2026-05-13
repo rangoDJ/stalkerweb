@@ -142,6 +142,16 @@ class StalkerClient {
   setEndpoint(url) {
     let server = url.trim();
 
+    // Strip query string and fragment if any
+    const qMark = server.indexOf('?');
+    if (qMark !== -1) {
+      server = server.slice(0, qMark);
+    }
+    const hashMark = server.indexOf('#');
+    if (hashMark !== -1) {
+      server = server.slice(0, hashMark);
+    }
+
     // Ensure scheme
     if (!server.includes('://')) {
       server = 'http://' + server;
@@ -194,14 +204,16 @@ class StalkerClient {
   // Mirrors sc_request_build_headers() in request.c + SAPI::StalkerCall() extras
   //
   // request.c sets:   Cookie, Authorization (non-handshake)
-  // SAPI.cpp adds:    Referer, X-User-Agent
+  // SAPI.cpp adds:    Referer, X-User-Agent, X-Requested-With, Accept
   // We add:           User-Agent (STB string — CRITICAL for portal JSON responses)
   _buildHeaders(isHandshake = false) {
     const id = this.identity;
     const headers = {
-      'User-Agent':   STB_USER_AGENT,
-      'Referer':      this.referer,
-      'X-User-Agent': 'Model: MAG250; Link: WiFi',
+      'User-Agent':        STB_USER_AGENT,
+      'Referer':           this.referer,
+      'X-User-Agent':      'Model: MAG250; Link: WiFi',
+      'X-Requested-With':  'XMLHttpRequest',
+      'Accept':            'application/json, text/javascript, */*; q=0.01',
     };
 
     if (!isHandshake && id.token) {
@@ -216,7 +228,9 @@ class StalkerClient {
   async _stalkerCall(queryParams, isHandshake = false) {
     const headers = this._buildHeaders(isHandshake);
 
-    const params = new URLSearchParams(queryParams);
+    // JsHttpRequest=1-xml is required on all calls so the portal returns JSON
+    // instead of the browser HTML UI. The C# reference appends it to every URL.
+    const params = new URLSearchParams({ ...queryParams, JsHttpRequest: '1-xml' });
     let url = `${this.endpoint}?${params.toString()}`;
 
     // 404 Fallback logic for handshake
