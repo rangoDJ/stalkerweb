@@ -55,7 +55,7 @@ module.exports = function exportModule(config) {
 
   router.get('/stbemu', (req, res) => {
     const saved = cache.load() || {};
-    const { portal, mac, timezone, serial_number, device_id, device_id2, portal_signature,
+    const { portal, mac, timezone, serial_number, device_id, device_id2, signature,
             stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware } = saved;
 
     if (!portal || !mac) {
@@ -136,7 +136,7 @@ module.exports = function exportModule(config) {
           send_device_id:          true,
           device_id2:              device_id2 || '',
           device_custom_dev_id2:   true,
-          device_signature:        portal_signature || '',
+          device_signature:        signature || '',
           timezone:                timezone || 'Europe/London',
           firmware:                firmwareString(model, stbemu_custom_firmware),
           media_player:            'exo',
