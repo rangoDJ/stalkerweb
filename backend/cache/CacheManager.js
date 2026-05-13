@@ -1,11 +1,25 @@
 // CacheManager.js — persists portal configuration across restarts
-// Mirrors the XML cache in StalkerInstance::LoadCache() / SaveCache()
-// but uses a simpler JSON file format.
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+
+// Java String.hashCode() — matches STBEmu's stalker_HASH key naming convention.
+// Portal URL is normalised (strip trailing /c/) so "http://host/c/" and
+// "http://host/" produce the same key, matching STBEmu's portal_url field.
+function portalHash(url) {
+  const normalised = String(url).trim().replace(/\/c\/?$/, '/');
+  let h = 0;
+  for (let i = 0; i < normalised.length; i++) {
+    h = (Math.imul(31, h) + normalised.charCodeAt(i)) | 0;
+  }
+  return h; // signed 32-bit int
+}
+
+function tokenKey(url) {
+  return `stalker_${portalHash(url)}`;
+}
 
 class CacheManager {
   constructor(dataDir) {
@@ -17,7 +31,19 @@ class CacheManager {
   load() {
     try {
       const raw = fs.readFileSync(this.configFile, 'utf8');
-      return JSON.parse(raw);
+      const data = JSON.parse(raw);
+
+      // Log all stored stalker tokens
+      const keys = Object.keys(data).filter((k) => k.startsWith('stalker_'));
+      if (keys.length) {
+        console.log(`[CacheManager] stored tokens (${keys.length}):`);
+        for (const k of keys) {
+          const t = data[k]?.token || '?';
+          console.log(`  ${k} → ${t}`);
+        }
+      }
+
+      return data;
     } catch (_) {
       return null;
     }
@@ -26,6 +52,7 @@ class CacheManager {
   save(data) {
     try {
       fs.writeFileSync(this.configFile, JSON.stringify(data, null, 2), 'utf8');
+      console.log(`[CacheManager] config saved → ${this.configFile}`);
       return true;
     } catch (e) {
       console.error('[CacheManager] save failed:', e.message);
@@ -33,9 +60,37 @@ class CacheManager {
     }
   }
 
+  // Save or update just the token for a portal URL without touching other fields.
+  // Stores under stalker_HASH (STBEmu-compatible) AND the legacy `token` field.
+  saveToken(portalUrl, token) {
+    if (!token) return false;
+    const key = tokenKey(portalUrl);
+    const existing = this.load() || {};
+    existing[key] = { token };
+    existing.token = token;
+    console.log(`[CacheManager] token saved: ${key} → ${token}`);
+    return this.save(existing);
+  }
+
+  // Retrieve token for a portal URL — checks stalker_HASH first, falls back to
+  // legacy `token` field so old configs still work.
+  getToken(portalUrl) {
+    const data = this.load();
+    if (!data) return null;
+    const key = tokenKey(portalUrl);
+    if (data[key]?.token) {
+      console.log(`[CacheManager] token loaded: ${key} → ${data[key].token}`);
+      return data[key].token;
+    }
+    if (data.token) {
+      console.log(`[CacheManager] token loaded (legacy field): ${data.token}`);
+      return data.token;
+    }
+    return null;
+  }
+
   clearAll() {
     try { fs.unlinkSync(this.configFile); } catch (_) {}
-    // optionally clear EPG cache too
     const cacheDir = path.join(path.dirname(this.configFile), 'cache');
     try {
       for (const f of fs.readdirSync(cacheDir)) {

@@ -36,6 +36,7 @@ async function _delete(path) {
 export const connect = (body) => _post('/auth/connect', body)
 export const disconnect = () => _delete('/auth/disconnect')
 export const getStatus = () => _get('/auth/status')
+export const getConfig = () => _get('/auth/config')
 
 // ── Channels & Groups ─────────────────────────────────────────────────────
 export const getChannels = (group = null, refresh = false) => {
