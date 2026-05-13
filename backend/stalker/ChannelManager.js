@@ -6,8 +6,6 @@
 
 'use strict';
 
-const axios = require('axios');
-
 class ChannelManager {
   constructor(client) {
     this.client = client;
@@ -27,27 +25,38 @@ class ChannelManager {
       this._parseChannels(allData);
     }
 
-    // Step 2: get_ordered_list (paginated) — genre=* (all), genre id 10
+    // Step 2: get_ordered_list (paginated, concurrent) — mirrors C# FetchLogosFromOrderedListAsync
     const GENRE = '*';
-    let page = 1;
-    let maxPages = 1;
+    const MAX_CONCURRENT = 10;
 
-    do {
-      const pageData = await this.client.itvGetOrderedList(GENRE, page);
-      if (!pageData?.js) break;
+    // Page 1: discover pagination
+    const page1 = await this.client.itvGetOrderedList(GENRE, 1);
+    if (page1?.js) {
+      const totalItems   = Number(page1.js.total_items)    || 0;
+      const maxPageItems = Number(page1.js.max_page_items) || 0;
+      const maxPages     = totalItems > 0 && maxPageItems > 0
+        ? Math.ceil(totalItems / maxPageItems)
+        : 1;
+      console.log(`[ChannelManager] totalItems=${totalItems} maxPages=${maxPages}`);
+      this._parseChannels(page1);
 
-      if (page === 1) {
-        const totalItems = Number(pageData.js.total_items) || 0;
-        const maxPageItems = Number(pageData.js.max_page_items) || 0;
-        if (totalItems > 0 && maxPageItems > 0) {
-          maxPages = Math.ceil(totalItems / maxPageItems);
-        }
-        console.log(`[ChannelManager] totalItems=${totalItems} maxPages=${maxPages}`);
+      // Remaining pages fetched concurrently with a semaphore
+      if (maxPages > 1) {
+        const pages = Array.from({ length: maxPages - 1 }, (_, i) => i + 2);
+        const semaphore = new _Semaphore(MAX_CONCURRENT);
+        await Promise.all(pages.map(async (p) => {
+          await semaphore.acquire();
+          try {
+            const data = await this.client.itvGetOrderedList(GENRE, p);
+            if (data?.js) this._parseChannels(data);
+          } catch (e) {
+            console.warn(`[ChannelManager] page ${p} failed: ${e.message}`);
+          } finally {
+            semaphore.release();
+          }
+        }));
       }
-
-      this._parseChannels(pageData);
-      page++;
-    } while (page <= maxPages);
+    }
 
     // Deduplicate by channelId
     const seen = new Set();
@@ -146,6 +155,20 @@ function _channelId(name, number) {
     id = id & id; // force 32-bit
   }
   return Math.abs(id);
+}
+
+class _Semaphore {
+  constructor(max) { this._max = max; this._count = 0; this._queue = []; }
+  acquire() {
+    return new Promise((resolve) => {
+      if (this._count < this._max) { this._count++; resolve(); }
+      else this._queue.push(resolve);
+    });
+  }
+  release() {
+    this._count--;
+    if (this._queue.length) { this._count++; this._queue.shift()(); }
+  }
 }
 
 // Mirrors Utils::DetermineLogoURI()

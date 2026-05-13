@@ -112,6 +112,17 @@ module.exports = function authModule(appState, config) {
     appState.guideManager = guideManager;
     appState.identity = identity;
 
+    // Pre-load channels and groups in the background so the /channels page
+    // is instant on first visit instead of blocking on the first HTTP request.
+    Promise.all([
+      channelManager.loadChannels(),
+      channelManager.loadGroups(),
+    ]).then(() => {
+      console.log('[auth] background channel/group load complete');
+    }).catch((e) => {
+      console.error('[auth] background channel/group load failed:', e.message);
+    });
+
     return {
       token: identity.token,
       profile: sessionManager.getProfile(),
