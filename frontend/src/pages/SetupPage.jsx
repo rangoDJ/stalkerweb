@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup } from '../stalkerApi'
+import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup, getChannels, getLogoMap } from '../stalkerApi'
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -61,6 +61,7 @@ export default function SetupPage() {
   const [testName, setTestName] = useState('')
   const [testResult, setTestResult] = useState(null)
   const [deviceProfile, setDeviceProfile] = useState(null)
+  const [unmatchedChannels, setUnmatchedChannels] = useState([])
 
   // STBEmu export settings
   const STB_MODELS    = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
@@ -94,6 +95,15 @@ export default function SetupPage() {
       setLogoStats(stats || null)
     }).catch(() => {})
     getStatus().then(s => { if (s.device) setDeviceProfile(s.device) }).catch(() => {})
+    Promise.all([getChannels(), getLogoMap()]).then(([chRes, logoMap]) => {
+      const channels = chRes.channels ?? []
+      const unmatched = channels
+        .filter(ch => !logoMap[String(ch.uniqueId)])
+        .map(ch => ch.name)
+        .filter(Boolean)
+        .sort((a, b) => a.localeCompare(b))
+      setUnmatchedChannels(unmatched)
+    }).catch(() => {})
   }, [])
 
   function set(k) {
@@ -536,8 +546,12 @@ export default function SetupPage() {
         <form onSubmit={handleAddOverride} className="flex flex-col gap-2">
           <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Add Override</p>
           <div className="flex gap-2">
+            <datalist id="unmatched-channels">
+              {unmatchedChannels.map(name => <option key={name} value={name} />)}
+            </datalist>
             <Input
-              placeholder="Channel name (exact)"
+              list="unmatched-channels"
+              placeholder="Channel name"
               value={newLogoName}
               onChange={e => setNewLogoName(e.target.value)}
               className="text-xs"
