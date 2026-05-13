@@ -225,8 +225,14 @@ export default function SetupPage() {
         <form onSubmit={handleConnect} className="flex flex-col gap-4">
           <Field label="Portal URL" id="portal">
             <Input
-              id="portal" type="url" placeholder="http://my.portal.com/c/"
-              value={form.portal} onChange={set('portal')} required
+              id="portal" type="url" placeholder="http://my.portal.com"
+              value={form.portal} onChange={set('portal')}
+              onBlur={() => {
+                if (!form.portal.trim()) return
+                const normalized = form.portal.trim().replace(/\/c\/?$/, '').replace(/\/?$/, '') + '/c/'
+                setForm(f => ({ ...f, portal: normalized }))
+              }}
+              required
             />
           </Field>
           <Field label="MAC Address" id="mac">
