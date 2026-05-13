@@ -15,9 +15,9 @@ function GroupLogo({ src }) {
   )
 }
 
-function GroupCard({ name, count, previews, onClick }) {
+function GroupCard({ name, count, previews, onClick, accent }) {
   return (
-    <div className="group-card" onClick={onClick}>
+    <div className="group-card" onClick={onClick} style={accent ? { borderColor: 'var(--border-mid)' } : {}}>
       <div className="group-logo-row">
         {previews.slice(0, 4).map((ch) => (
           <GroupLogo key={ch.uniqueId} src={ch.iconPath} />
@@ -69,23 +69,13 @@ export default function GroupsPage() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
 
-      <div style={{
-        padding: '14px 20px',
-        borderBottom: '1px solid var(--border)',
-        background: 'var(--bg-surface)',
-        display: 'flex', alignItems: 'center', gap: 10,
-      }}>
-        <span style={{ fontSize: 16, fontWeight: 700 }}>Channel Groups</span>
+      <div className="page-header">
+        <span className="page-header-title">Channel Groups</span>
         {!loading && (
           <span className="badge">{groups.length} genres · {channels.length} channels</span>
         )}
+        {loading && <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />}
       </div>
-
-      {loading && (
-        <div className="centered full-height">
-          <div className="spinner" />
-        </div>
-      )}
 
       {error && (
         <div style={{ padding: 20 }}>
@@ -93,15 +83,17 @@ export default function GroupsPage() {
         </div>
       )}
 
-      {!loading && !error && (
+      {!error && (
         <div className="groups-grid">
-
-          <GroupCard
-            name="All Channels"
-            count={channels.length}
-            previews={channels.slice(0, 4)}
-            onClick={() => navigate('/channels')}
-          />
+          {!loading && (
+            <GroupCard
+              name="All Channels"
+              count={channels.length}
+              previews={channels.slice(0, 4)}
+              onClick={() => navigate('/channels')}
+              accent
+            />
+          )}
 
           {groups.map((g) => {
             const gChannels = channelsByGroup[g.id] || []
@@ -115,7 +107,6 @@ export default function GroupsPage() {
               />
             )
           })}
-
         </div>
       )}
     </div>
