@@ -525,16 +525,7 @@ export default function SetupPage() {
               {testResult.logo
                 ? <button
                     type="button"
-                    onClick={() => {
-                      // Prefer the exact portal channel name if it normalizes to the same thing,
-                      // so the override key matches what the channel manager sees at runtime.
-                      const norm = testResult.normalized
-                      const matched = unmatchedChannels.find(
-                        ch => ch.toLowerCase().replace(/[^a-z0-9]/g, '') === norm
-                      )
-                      setNewLogoName(matched || testName.trim())
-                      setNewLogoUrl(testResult.logo)
-                    }}
+                    onClick={() => { setNewLogoUrl(testResult.logo) }}
                     className="flex items-center gap-2 text-left hover:opacity-80 transition-opacity group"
                     title="Click to use in Add Override"
                   >
