@@ -163,6 +163,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   inset: 0;
   background: linear-gradient(160deg, rgba(91,142,240,0.07) 0%, transparent 60%);
   pointer-events: none;
+  z-index: 0;
 }
 
 .sidebar-logo {
@@ -339,6 +340,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   inset: 0;
   background: var(--grad-accent);
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--transition);
 }
 .channel-card:hover {
@@ -412,6 +414,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   height: 2px;
   background: var(--grad-accent);
   opacity: 0;
+  pointer-events: none;
   transition: opacity var(--transition);
 }
 .group-card:hover {
