@@ -12,6 +12,7 @@ const DEFAULT_FORM = {
   login: '',
   password: '',
   token: '',
+  signature: '',
   connection_timeout: 10,
 }
 
@@ -136,6 +137,11 @@ export default function SetupPage({ onConnect, status }) {
                 <label>Device ID2</label>
                 <input id="device_id2" value={form.device_id2} onChange={(e) => set('device_id2', e.target.value)} />
               </div>
+            </div>
+
+            <div className="field">
+              <label>Signature</label>
+              <input id="signature" value={form.signature} onChange={(e) => set('signature', e.target.value)} />
             </div>
 
             <div className="field" style={{ maxWidth: 160 }}>
