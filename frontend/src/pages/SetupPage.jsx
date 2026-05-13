@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle, Trash2, RefreshCw, Image } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { connect, disconnect, getConfig, getSettings, saveSettings } from '../stalkerApi'
+import { connect, disconnect, getConfig, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb } from '../stalkerApi'
 import { useApp } from '../App'
 
 function Field({ label, id, hint, children }) {
@@ -46,12 +46,24 @@ export default function SetupPage() {
   const [loading, setLoading] = useState(false)
   const [notice, setNotice] = useState(null) // { type: 'success'|'error', msg }
 
+  // Logos state
+  const [logoStats, setLogoStats] = useState(null)
+  const [logoOverrides, setLogoOverrides] = useState({})
+  const [logoRefreshing, setLogoRefreshing] = useState(false)
+  const [newLogoName, setNewLogoName] = useState('')
+  const [newLogoUrl, setNewLogoUrl] = useState('')
+  const [logoNotice, setLogoNotice] = useState(null)
+
   useEffect(() => {
     getConfig().then(cfg => {
       if (!cfg) return
       setForm(f => ({ ...f, ...cfg }))
     }).catch(() => {})
     getSettings().then(s => setEpg(s.epg_enabled !== false)).catch(() => {})
+    getLogos().then(({ overrides, stats }) => {
+      setLogoOverrides(overrides || {})
+      setLogoStats(stats || null)
+    }).catch(() => {})
   }, [])
 
   function set(k) {
@@ -84,6 +96,42 @@ export default function SetupPage() {
       setNotice({ type: 'error', msg: err.message })
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleLogoRefresh() {
+    setLogoRefreshing(true)
+    setLogoNotice(null)
+    try {
+      const { stats } = await refreshLogosDb()
+      setLogoStats(stats)
+      setLogoNotice({ type: 'success', msg: `Database refreshed — ${stats.db_size.toLocaleString()} channels indexed.` })
+    } catch (err) {
+      setLogoNotice({ type: 'error', msg: err.message })
+    } finally {
+      setLogoRefreshing(false)
+    }
+  }
+
+  async function handleAddOverride(e) {
+    e.preventDefault()
+    if (!newLogoName.trim() || !newLogoUrl.trim()) return
+    try {
+      await addLogoOverride(newLogoName.trim(), newLogoUrl.trim())
+      setLogoOverrides(prev => ({ ...prev, [newLogoName.trim()]: newLogoUrl.trim() }))
+      setNewLogoName('')
+      setNewLogoUrl('')
+    } catch (err) {
+      setLogoNotice({ type: 'error', msg: err.message })
+    }
+  }
+
+  async function handleDeleteOverride(name) {
+    try {
+      await deleteLogoOverride(name)
+      setLogoOverrides(prev => { const n = { ...prev }; delete n[name]; return n })
+    } catch (err) {
+      setLogoNotice({ type: 'error', msg: err.message })
     }
   }
 
@@ -211,6 +259,106 @@ export default function SetupPage() {
           </div>
           <Switch checked={epg} onCheckedChange={handleEpgToggle} />
         </div>
+      </Card>
+
+      {/* Channel Logos card */}
+      <Card title="Channel Logos" description="Logos are matched automatically from the iptv-org database. Add manual overrides for channels that don't match.">
+
+        {/* Logo notice */}
+        {logoNotice && (
+          <div className={cn(
+            'flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs',
+            logoNotice.type === 'success'
+              ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/25'
+              : 'bg-[var(--color-live)]/10 text-[var(--color-live)] border border-[var(--color-live)]/25'
+          )}>
+            {logoNotice.type === 'success' ? <CheckCircle2 size={13} className="shrink-0" /> : <XCircle size={13} className="shrink-0" />}
+            {logoNotice.msg}
+          </div>
+        )}
+
+        {/* DB status row */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 min-w-0">
+            <Image size={15} className="text-[var(--color-muted)] shrink-0" />
+            <span className="text-xs text-[var(--color-muted)] truncate">
+              {logoStats
+                ? logoStats.db_size > 0
+                  ? `iptv-org: ${logoStats.db_size.toLocaleString()} channels indexed`
+                  : 'iptv-org database not loaded yet'
+                : 'Loading…'}
+              {logoStats?.db_cached_at
+                ? ` · updated ${new Date(logoStats.db_cached_at).toLocaleDateString()}`
+                : ''}
+            </span>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleLogoRefresh}
+            disabled={logoRefreshing}
+            className="shrink-0 h-8 px-3 text-xs gap-1.5"
+          >
+            <RefreshCw size={12} className={logoRefreshing ? 'animate-spin' : ''} />
+            {logoRefreshing ? 'Refreshing…' : 'Refresh DB'}
+          </Button>
+        </div>
+
+        {/* Manual overrides list */}
+        {Object.keys(logoOverrides).length > 0 && (
+          <div className="flex flex-col gap-1">
+            <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Manual Overrides</p>
+            <div className="flex flex-col gap-1 max-h-48 overflow-y-auto">
+              {Object.entries(logoOverrides).map(([name, url]) => (
+                <div key={name} className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5">
+                  {url && (
+                    <img
+                      src={url}
+                      alt=""
+                      className="w-6 h-6 object-contain shrink-0 rounded"
+                      onError={e => { e.currentTarget.style.display = 'none' }}
+                    />
+                  )}
+                  <span className="text-xs font-medium text-[var(--color-text)] flex-1 truncate">{name}</span>
+                  <span className="text-xs text-[var(--color-muted)] flex-1 truncate hidden sm:block">{url}</span>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteOverride(name)}
+                    className="text-[var(--color-muted)] hover:text-[var(--color-live)] transition-colors shrink-0"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Add override form */}
+        <form onSubmit={handleAddOverride} className="flex flex-col gap-2">
+          <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Add Override</p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="Channel name (exact)"
+              value={newLogoName}
+              onChange={e => setNewLogoName(e.target.value)}
+              className="text-xs"
+            />
+            <Input
+              placeholder="Logo URL"
+              value={newLogoUrl}
+              onChange={e => setNewLogoUrl(e.target.value)}
+              className="text-xs flex-[2]"
+            />
+            <Button
+              type="submit"
+              disabled={!newLogoName.trim() || !newLogoUrl.trim()}
+              className="shrink-0 h-9 px-4 text-xs"
+            >
+              Add
+            </Button>
+          </div>
+        </form>
       </Card>
     </div>
   )
