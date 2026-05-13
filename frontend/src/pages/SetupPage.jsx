@@ -7,6 +7,11 @@ import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import { connect, disconnect, getConfig, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb } from '../stalkerApi'
+
+async function checkLogoName(name) {
+  const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
+  return r.ok ? r.json() : null
+}
 import { useApp } from '../App'
 
 function Field({ label, id, hint, children }) {
@@ -53,6 +58,8 @@ export default function SetupPage() {
   const [newLogoName, setNewLogoName] = useState('')
   const [newLogoUrl, setNewLogoUrl] = useState('')
   const [logoNotice, setLogoNotice] = useState(null)
+  const [testName, setTestName] = useState('')
+  const [testResult, setTestResult] = useState(null)
 
   useEffect(() => {
     getConfig().then(cfg => {
@@ -279,18 +286,28 @@ export default function SetupPage() {
 
         {/* DB status row */}
         <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 min-w-0">
-            <Image size={15} className="text-[var(--color-muted)] shrink-0" />
-            <span className="text-xs text-[var(--color-muted)] truncate">
-              {logoStats
-                ? logoStats.db_size > 0
-                  ? `iptv-org: ${logoStats.db_size.toLocaleString()} channels indexed`
-                  : 'iptv-org database not loaded yet'
-                : 'Loading…'}
-              {logoStats?.db_cached_at
-                ? ` · updated ${new Date(logoStats.db_cached_at).toLocaleDateString()}`
-                : ''}
-            </span>
+          <div className="flex flex-col gap-0.5 min-w-0">
+            <div className="flex items-center gap-2">
+              <Image size={15} className="text-[var(--color-muted)] shrink-0" />
+              <span className="text-xs text-[var(--color-muted)] truncate">
+                {logoStats
+                  ? logoStats.db_size > 0
+                    ? `iptv-org: ${logoStats.db_size.toLocaleString()} entries`
+                    : 'iptv-org database not loaded — click Refresh DB'
+                  : 'Loading…'}
+                {logoStats?.db_cached_at
+                  ? ` · updated ${new Date(logoStats.db_cached_at).toLocaleDateString()}`
+                  : ''}
+              </span>
+            </div>
+            {logoStats?.total_channels > 0 && (
+              <span className={cn(
+                'text-xs ml-5',
+                logoStats.matched_channels > 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-live)]'
+              )}>
+                {logoStats.matched_channels} of {logoStats.total_channels} channels matched
+              </span>
+            )}
           </div>
           <Button
             type="button"
@@ -302,6 +319,45 @@ export default function SetupPage() {
             <RefreshCw size={12} className={logoRefreshing ? 'animate-spin' : ''} />
             {logoRefreshing ? 'Refreshing…' : 'Refresh DB'}
           </Button>
+        </div>
+
+        {/* Name tester */}
+        <div className="flex flex-col gap-1.5">
+          <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Test Channel Name</p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="e.g. BBC ONE HD"
+              value={testName}
+              onChange={e => { setTestName(e.target.value); setTestResult(null) }}
+              className="text-xs"
+            />
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!testName.trim()}
+              onClick={async () => {
+                const r = await checkLogoName(testName.trim())
+                setTestResult(r)
+              }}
+              className="shrink-0 h-9 px-3 text-xs"
+            >
+              Test
+            </Button>
+          </div>
+          {testResult && (
+            <div className="rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-2 text-xs flex flex-col gap-1">
+              <span className="text-[var(--color-muted)]">Normalized: <span className="font-mono text-[var(--color-text)]">{testResult.normalized}</span></span>
+              {testResult.logo
+                ? <div className="flex items-center gap-2">
+                    <img src={testResult.logo} alt="" className="h-8 w-8 object-contain rounded" onError={e => e.currentTarget.style.display='none'} />
+                    <span className="text-[var(--color-success)] truncate">{testResult.logo}</span>
+                  </div>
+                : <span className={testResult.db_loaded ? 'text-[var(--color-live)]' : 'text-[var(--color-muted)]'}>
+                    {testResult.db_loaded ? 'No match found in database' : 'Database not loaded yet'}
+                  </span>
+              }
+            </div>
+          )}
         </div>
 
         {/* Manual overrides list */}
