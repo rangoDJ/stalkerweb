@@ -33,6 +33,7 @@ module.exports = function authModule(appState, config) {
       device_id,
       device_id2,
       signature,
+      portal_signature,
       connection_timeout,
     } = body;
 
@@ -58,12 +59,12 @@ module.exports = function authModule(appState, config) {
     const resolvedToken = savedToken || token || '';
     console.log(`[auth] token resolution: passed=${token || '(none)'}  saved=${savedToken || '(none)'}  using=${resolvedToken || '(none)'}`);
 
-    // Load saved portal_signature — overrides the user-configured device signature
-    // in Cookie: sig=... once the portal has issued one.
+    // Resolve portal_signature: user-entered value wins, then saved config value.
     const existing = cache.load() || {};
     const savedPortalSig = existing.portal_signature || '';
-    if (savedPortalSig) {
-      console.log(`[auth] portal_signature loaded from config: ${savedPortalSig}`);
+    const resolvedPortalSig = (portal_signature || '').trim() || savedPortalSig;
+    if (resolvedPortalSig) {
+      console.log(`[auth] portal_signature: entered=${portal_signature || '(none)'}  saved=${savedPortalSig || '(none)'}  using=${resolvedPortalSig}`);
     }
 
     const identity = createIdentity({
@@ -77,7 +78,7 @@ module.exports = function authModule(appState, config) {
       device_id: device_id || '',
       device_id2: device_id2 || '',
       signature: signature || '',
-      portal_signature: savedPortalSig,
+      portal_signature: resolvedPortalSig,
     });
 
     const client = new StalkerClient();
