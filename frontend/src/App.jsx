@@ -7,21 +7,7 @@ import GroupsPage from './pages/GroupsPage'
 import GuidePage from './pages/GuidePage'
 import PlayerPage from './pages/PlayerPage'
 
-function Topbar({ status }) {
-  return (
-    <header className="topbar">
-      <div className="topbar-logo">Stalker<span>Web</span></div>
-      <div className="topbar-status">
-        <span className={`status-dot ${status?.connected ? 'connected' : ''}`} />
-        {status?.connected
-          ? <span>Connected · <strong>{status.portal}</strong></span>
-          : <span>Not connected</span>}
-      </div>
-    </header>
-  )
-}
-
-function Sidebar({ connected }) {
+function Sidebar({ connected, status }) {
   const item = (to, icon, label) => (
     <NavLink to={to} className={({ isActive }) => `nav-item${isActive ? ' active' : ''}`}>
       <span className="nav-icon">{icon}</span>
@@ -31,17 +17,29 @@ function Sidebar({ connected }) {
 
   return (
     <nav className="sidebar">
-      <div className="sidebar-section">Portal</div>
-      {item('/setup', '⚙️', 'Setup')}
-      {connected && (
-        <>
-          <div className="sidebar-section">Watch</div>
-          {item('/groups', '🗂️', 'Groups')}
-          {item('/channels', '📺', 'Channels')}
-          {item('/guide', '📋', 'Guide')}
-          {item('/player', '▶️', 'Player')}
-        </>
-      )}
+      <div className="sidebar-brand">
+        <div className="sidebar-logo">Stalker<span>Web</span></div>
+        <div className="sidebar-status">
+          <span className={`status-dot ${status?.connected ? 'connected' : ''}`} />
+          <span>{status?.connected ? 'Connected' : 'Not connected'}</span>
+        </div>
+        {status?.connected && status.portal && (
+          <div className="sidebar-portal" title={status.portal}>{status.portal}</div>
+        )}
+      </div>
+      <div className="sidebar-nav">
+        <div className="sidebar-section">Portal</div>
+        {item('/setup', '⚙️', 'Setup')}
+        {connected && (
+          <>
+            <div className="sidebar-section">Watch</div>
+            {item('/groups', '🗂️', 'Groups')}
+            {item('/channels', '📺', 'Channels')}
+            {item('/guide', '📋', 'Guide')}
+            {item('/player', '▶️', 'Player')}
+          </>
+        )}
+      </div>
     </nav>
   )
 }
@@ -69,8 +67,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="layout">
-        <Topbar status={status} />
-        <Sidebar connected={connected} />
+        <Sidebar connected={connected} status={status} />
         <main className="layout-main">
           <Routes>
             <Route path="/" element={<Navigate to={connected ? '/channels' : '/setup'} replace />} />

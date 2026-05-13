@@ -11,7 +11,6 @@ export default function PlayerPage() {
   const [channels, setChannels] = useState([])
   const [search, setSearch] = useState('')
 
-  // Restore stream passed from ChannelsPage
   useEffect(() => {
     const raw = sessionStorage.getItem('sw_stream')
     if (raw) {
@@ -40,7 +39,6 @@ export default function PlayerPage() {
     const video = videoRef.current
     if (!video) return
 
-    // Tear down old HLS instance
     if (hlsRef.current) {
       hlsRef.current.destroy()
       hlsRef.current = null
@@ -65,7 +63,6 @@ export default function PlayerPage() {
         }
       })
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Safari native HLS
       video.src = url
       video.addEventListener('loadedmetadata', () => {
         setStatus('playing')
@@ -77,7 +74,7 @@ export default function PlayerPage() {
       }, { once: true })
     } else {
       setStatus('error')
-      setStatusMsg('HLS playback not supported in this browser')
+      setStatusMsg('HLS not supported in this browser')
     }
   }
 
@@ -102,16 +99,24 @@ export default function PlayerPage() {
 
       {/* Video panel */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column',
-        padding: 20, gap: 14, overflow: 'hidden' }}>
+        padding: '20px 22px', gap: 14, overflow: 'auto', minWidth: 0 }}>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <h1 style={{ fontSize: 18, fontWeight: 700 }}>
+        {/* Title row */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <h1 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.2px', color: 'var(--text-primary)' }}>
             {streamInfo?.name || 'Player'}
           </h1>
-          {status === 'playing' && <span className="badge">● LIVE</span>}
-          {status === 'loading' && <div className="spinner" style={{ width: 18, height: 18, borderWidth: 2 }} />}
+          {status === 'playing' && <span className="badge live">● LIVE</span>}
+          {status === 'loading' && (
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'var(--text-muted)', fontSize: 12 }}>
+              <div className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
+              Loading stream…
+            </span>
+          )}
           {status === 'error' && (
-            <span style={{ fontSize: 12, color: 'var(--danger)' }}>Error: {statusMsg}</span>
+            <span style={{ fontSize: 12, color: 'var(--danger)' }}>
+              ✕ {statusMsg}
+            </span>
           )}
         </div>
 
@@ -119,48 +124,80 @@ export default function PlayerPage() {
           <video ref={videoRef} controls style={{ width: '100%', height: '100%' }} />
           {status === 'idle' && (
             <div className="player-overlay">
-              <span>Select a channel →</span>
+              <span style={{ opacity: 0.5 }}>▶</span>
+              Select a channel to play
             </div>
           )}
         </div>
 
         {streamInfo?.url && (
-          <div style={{ fontSize: 11, color: 'var(--text-dim)', wordBreak: 'break-all' }}>
-            <strong>Stream:</strong> {streamInfo.url}
+          <div style={{
+            fontSize: 11,
+            color: 'var(--text-dim)',
+            wordBreak: 'break-all',
+            fontFamily: 'Menlo, Consolas, monospace',
+            padding: '8px 12px',
+            background: 'var(--bg-card)',
+            borderRadius: 'var(--radius-sm)',
+            border: '1px solid var(--border)',
+          }}>
+            {streamInfo.url}
           </div>
         )}
       </div>
 
-      {/* Channel list sidebar */}
-      <div style={{ width: 210, borderLeft: '1px solid var(--border)',
-        display: 'flex', flexDirection: 'column', background: 'var(--bg-surface)' }}>
-        <div style={{ padding: '10px 10px 6px' }}>
+      {/* Channel list */}
+      <div style={{
+        width: 220,
+        borderLeft: '1px solid var(--border)',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'var(--bg-surface)',
+        flexShrink: 0,
+      }}>
+        <div style={{ padding: '10px 10px 8px', borderBottom: '1px solid var(--border)' }}>
           <input
-            placeholder="🔍 Search…"
+            placeholder="Search…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ fontSize: 12, padding: '6px 10px' }}
+            style={{ fontSize: 12.5, padding: '7px 11px' }}
           />
         </div>
         <div style={{ flex: 1, overflowY: 'auto' }}>
-          {filtered.map((ch) => (
-            <div
-              key={ch.uniqueId}
-              onClick={() => handleChannelPlay(ch)}
-              style={{
-                padding: '8px 12px',
-                cursor: 'pointer',
-                borderBottom: '1px solid var(--border)',
-                background: streamInfo?.name === ch.name ? 'rgba(79,156,249,0.1)' : 'transparent',
-                color: streamInfo?.name === ch.name ? 'var(--accent)' : 'var(--text-primary)',
-                fontSize: 12.5,
-                transition: 'background 140ms',
-              }}
-            >
-              <span style={{ color: 'var(--text-dim)', marginRight: 6, fontSize: 11 }}>{ch.number}</span>
-              {ch.name}
+          {filtered.map((ch) => {
+            const active = streamInfo?.name === ch.name
+            return (
+              <div
+                key={ch.uniqueId}
+                onClick={() => handleChannelPlay(ch)}
+                style={{
+                  padding: '9px 14px',
+                  cursor: 'pointer',
+                  borderBottom: '1px solid var(--border)',
+                  background: active ? 'rgba(91,142,240,0.1)' : 'transparent',
+                  color: active ? 'var(--accent)' : 'var(--text-primary)',
+                  fontSize: 12.5,
+                  transition: 'background 120ms',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                }}
+              >
+                <span style={{ color: active ? 'var(--accent)' : 'var(--text-dim)', fontSize: 10.5,
+                  fontVariantNumeric: 'tabular-nums', width: 26, flexShrink: 0 }}>
+                  {ch.number}
+                </span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {ch.name}
+                </span>
+              </div>
+            )
+          })}
+          {filtered.length === 0 && (
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--text-dim)', fontSize: 12 }}>
+              No channels
             </div>
-          ))}
+          )}
         </div>
       </div>
     </div>
