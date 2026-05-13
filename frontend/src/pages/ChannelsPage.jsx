@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { getChannels, getGroups, getStreamUrl } from '../stalkerApi'
 
 function ChannelLogo({ src, name }) {
@@ -13,13 +13,20 @@ function ChannelLogo({ src, name }) {
 }
 
 export default function ChannelsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [channels, setChannels] = useState([])
   const [groups, setGroups] = useState([])
-  const [activeGroup, setActiveGroup] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [search, setSearch] = useState('')
   const navigate = useNavigate()
+
+  const activeGroup = searchParams.get('group') || null
+
+  const setActiveGroup = (id) => {
+    if (id) setSearchParams({ group: id })
+    else setSearchParams({})
+  }
 
   const load = useCallback(async (groupId) => {
     setLoading(true)

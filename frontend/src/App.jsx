@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-do
 import { getStatus } from './stalkerApi'
 import SetupPage from './pages/SetupPage'
 import ChannelsPage from './pages/ChannelsPage'
+import GroupsPage from './pages/GroupsPage'
 import GuidePage from './pages/GuidePage'
 import PlayerPage from './pages/PlayerPage'
 
@@ -35,6 +36,7 @@ function Sidebar({ connected }) {
       {connected && (
         <>
           <div className="sidebar-section">Watch</div>
+          {item('/groups', '🗂️', 'Groups')}
           {item('/channels', '📺', 'Channels')}
           {item('/guide', '📋', 'Guide')}
           {item('/player', '▶️', 'Player')}
@@ -73,6 +75,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Navigate to={connected ? '/channels' : '/setup'} replace />} />
             <Route path="/setup" element={<SetupPage onConnect={refreshStatus} status={status} />} />
+            <Route path="/groups"   element={connected ? <GroupsPage />   : <Navigate to="/setup" />} />
             <Route path="/channels" element={connected ? <ChannelsPage /> : <Navigate to="/setup" />} />
             <Route path="/guide" element={connected ? <GuidePage /> : <Navigate to="/setup" />} />
             <Route path="/player" element={connected ? <PlayerPage /> : <Navigate to="/setup" />} />
