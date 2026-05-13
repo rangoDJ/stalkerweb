@@ -1,0 +1,25 @@
+# docker-compose.build.yml — builds the image locally from source.
+# Use this during development: docker-compose -f docker-compose.build.yml up --build
+services:
+  stalkerweb:
+    build: .
+    container_name: stalkerweb-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - PORT=3000
+      - DATA_DIR=/app/data
+      - NODE_ENV=production
+      # Optional pre-seed:
+      # - PORTAL_URL=http://your-portal.example.com/c/
+      # - PORTAL_MAC=00:1A:79:XX:XX:XX
+      # - PORTAL_TIMEZONE=Europe/London
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
