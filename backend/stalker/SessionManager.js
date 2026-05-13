@@ -142,9 +142,12 @@ class SessionManager {
     this._stopWatchdog();
 
     try {
-      if (!this.hasManualToken) {
-        await this._doHandshake();
-      }
+      // Always run the handshake — it's the only step that probes the endpoint
+      // fallback paths (/server/load.php, /stalker_portal/server/load.php, etc.)
+      // and updates basePath/endpoint/referer to wherever the portal actually lives.
+      // Skipping it when hasManualToken=true caused 404s when the /c/ redirect
+      // lands on a different domain than the real API.
+      await this._doHandshake();
       await this._getProfile();
       this.authenticated = true;
       console.log('[SessionManager] authenticated ✓');
