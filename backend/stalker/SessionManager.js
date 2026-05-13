@@ -49,25 +49,29 @@ class SessionManager {
   // ── Handshake ──────────────────────────────────────────────────────────────
   // Mirrors SessionManager::DoHandshake()
   async _doHandshake() {
+    console.log('[SessionManager] → handshake');
     const data = await this.client.stbHandshake();
 
     if (!data || !data.js) throw new Error('Handshake: empty response');
 
+    const prev = this.identity.token || '(none)';
     if (data.js.token) {
       this.identity.token = data.js.token;
       this.client.setIdentity(this.identity);
-      this.client.updateTokenCookie(data.js.token); // C# sets token cookie immediately after handshake
-      console.log(`[SessionManager] handshake token=${this.identity.token}`);
+      this.client.updateTokenCookie(data.js.token);
     }
 
     if (data.js.not_valid !== undefined) {
       this.identity.valid_token = !Number(data.js.not_valid);
     }
+
+    console.log(`[SessionManager] handshake ok  prev=${prev}  new=${this.identity.token || '(none)'}  valid=${this.identity.valid_token}`);
   }
 
   // ── DoAuth ─────────────────────────────────────────────────────────────────
   // Mirrors SessionManager::DoAuth()
   async _doAuth() {
+    console.log('[SessionManager] → do_auth');
     const data = await this.client.stbDoAuth();
 
     if (data && data.js === false) {
@@ -88,6 +92,7 @@ class SessionManager {
   // ── GetProfile ─────────────────────────────────────────────────────────────
   // Mirrors SessionManager::GetProfile() — recursive on status=2
   async _getProfile(authSecondStep = false) {
+    console.log(`[SessionManager] → get_profile${authSecondStep ? ' (auth_second_step)' : ''}`);
     const data = await this.client.stbGetProfile(authSecondStep);
 
     if (!data || !data.js) throw new Error('get_profile: empty response');

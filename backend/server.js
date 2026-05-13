@@ -104,6 +104,15 @@ async function tryAutoConnect() {
     }
   }
 
+  // Log all stored stalker tokens so they're visible at startup
+  const tokenKeys = Object.keys(saved).filter((k) => k.startsWith('stalker_'));
+  if (tokenKeys.length) {
+    console.log(`[server] stored stalker tokens (${tokenKeys.length}):`);
+    for (const k of tokenKeys) {
+      console.log(`  ${k} → ${saved[k]?.token || saved[k]}`);
+    }
+  }
+
   console.log(`[server] auto-connecting to ${saved.portal} (${saved.mac})`);
   try {
     await connectPortal(saved);

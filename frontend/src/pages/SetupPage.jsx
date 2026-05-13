@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { connect, disconnect } from '../stalkerApi'
+import { useState, useEffect } from 'react'
+import { connect, disconnect, getConfig } from '../stalkerApi'
 
 const DEFAULT_FORM = {
   portal: '',
@@ -22,6 +22,32 @@ export default function SetupPage({ onConnect, status }) {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
   const [advanced, setAdvanced] = useState(false)
+
+  // Pre-fill form from saved config.json on mount
+  useEffect(() => {
+    getConfig().then((cfg) => {
+      if (!cfg) return
+      setForm((f) => ({
+        ...f,
+        portal:             cfg.portal             ?? f.portal,
+        mac:                cfg.mac                ?? f.mac,
+        timezone:           cfg.timezone           ?? f.timezone,
+        lang:               cfg.lang               ?? f.lang,
+        login:              cfg.login              ?? f.login,
+        serial_number:      cfg.serial_number      ?? f.serial_number,
+        device_id:          cfg.device_id          ?? f.device_id,
+        device_id2:         cfg.device_id2         ?? f.device_id2,
+        signature:          cfg.signature          ?? f.signature,
+        connection_timeout: cfg.connection_timeout ?? f.connection_timeout,
+        token:              cfg.token              ?? f.token,
+      }))
+      // Show advanced section if any advanced fields are populated
+      if (cfg.login || cfg.serial_number !== '0000000000000' ||
+          cfg.device_id || cfg.signature || cfg.token) {
+        setAdvanced(true)
+      }
+    }).catch(() => {})
+  }, [])
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 

@@ -1,10 +1,9 @@
 // routes/auth.js
-// POST /api/auth/connect     — initialise portal connection
-// GET  /api/auth/status      — check session state
-// DELETE /api/auth/disconnect — tear down session
-//
-// Returns { authRoutes, connectPortal } so server.js can call
-// connectPortal() directly at startup (auto-reconnect).
+// POST   /api/auth/connect     — initialise portal connection
+// GET    /api/auth/status      — check session state
+// GET    /api/auth/config      — return saved config for WebUI pre-fill
+// DELETE /api/auth/disconnect  — tear down session
+// POST   /api/auth/reconnect   — re-connect using saved config
 
 'use strict';
 
@@ -21,7 +20,6 @@ module.exports = function authModule(appState, config) {
   const cache = new CacheManager(config.dataDir);
 
   // ── Shared connect logic ───────────────────────────────────────────────────
-  // Called by both POST /connect and tryAutoConnect() in server.js.
   async function connectPortal(body) {
     const {
       portal,
@@ -41,8 +39,11 @@ module.exports = function authModule(appState, config) {
     if (!portal) throw new Error('portal URL is required');
     if (!mac)    throw new Error('MAC address is required');
 
+    console.log(`[auth] connectPortal: portal=${portal} mac=${mac} timezone=${timezone || 'Europe/London'}`);
+
     // Tear down existing session
     if (appState.sessionManager) {
+      console.log('[auth] tearing down existing session');
       appState.sessionManager.destroy();
       appState.sessionManager = null;
       appState.client = null;
@@ -51,12 +52,18 @@ module.exports = function authModule(appState, config) {
       appState.identity = null;
     }
 
-    // Build identity
+    // Resolve token: prefer the stalker_HASH entry saved for this portal over
+    // any token passed in the request body — the saved one is the most recent.
+    // Fall back to the passed token if no saved entry exists.
+    const savedToken = cache.getToken(portal);
+    const resolvedToken = savedToken || token || '';
+    console.log(`[auth] token resolution: passed=${token || '(none)'}  saved=${savedToken || '(none)'}  using=${resolvedToken || '(none)'}`);
+
     const identity = createIdentity({
       mac,
       lang: lang || 'en',
       time_zone: timezone || 'Europe/London',
-      token: token || '',
+      token: resolvedToken,
       login: login || '',
       password: password || '',
       serial_number: serial_number || '0000000000000',
@@ -65,25 +72,27 @@ module.exports = function authModule(appState, config) {
       signature: signature || '',
     });
 
-    // Build client — initialize() follows redirects, sets identity cookies
-    // (mac, stb_lang, timezone, sn, device_id, sig) and loads /c/ to get
-    // PHPSESSID before the handshake fires. Must match C# AuthenticateAsync.
     const client = new StalkerClient();
     client.setIdentity(identity);
     client.setTimeout(connection_timeout || 10);
+
+    console.log(`[auth] initialising client for ${portal}`);
     await client.initialize(portal);
 
     const sessionManager = new SessionManager(client);
-    sessionManager.setIdentity(identity, !!token);
+    sessionManager.setIdentity(identity, !!resolvedToken);
     sessionManager.setStatusCallback((status) => {
-      console.log(`[auth] session status changed: ${status}`);
+      console.log(`[auth] session status → ${status}`);
     });
 
     const channelManager = new ChannelManager(client);
     const guideManager = new GuideManager(client, `${config.dataDir}/cache`);
 
-    // Persist config before auth so settings survive a failed attempt or restart
+    // Persist config before auth so settings survive a failed attempt or restart.
+    // Spread existing config first so stalker_HASH token entries are preserved.
+    const existing = cache.load() || {};
     const configToSave = {
+      ...existing,
       portal, mac,
       timezone: timezone || 'Europe/London',
       lang: lang || 'en',
@@ -93,27 +102,26 @@ module.exports = function authModule(appState, config) {
       device_id2: device_id2 || '',
       signature: signature || '',
       connection_timeout: connection_timeout || 10,
-      token: token || '',
+      token: resolvedToken,
     };
     cache.save(configToSave);
 
-    // Throws on auth failure
+    console.log('[auth] authenticating…');
     await sessionManager.authenticate();
+    console.log(`[auth] authenticated ✓  token=${identity.token}`);
 
-    // Update saved token with the one resolved during auth (may differ from input)
-    if (identity.token && identity.token !== (token || '')) {
-      cache.save({ ...configToSave, token: identity.token });
+    // Persist the token under stalker_HASH (STBEmu-compatible) and legacy field.
+    if (identity.token) {
+      cache.saveToken(portal, identity.token);
     }
 
-    // Store in app state
     appState.client = client;
     appState.sessionManager = sessionManager;
     appState.channelManager = channelManager;
     appState.guideManager = guideManager;
     appState.identity = identity;
 
-    // Pre-load channels and groups in the background so the /channels page
-    // is instant on first visit instead of blocking on the first HTTP request.
+    console.log('[auth] starting background channel/group pre-load');
     Promise.all([
       channelManager.loadChannels(),
       channelManager.loadGroups(),
@@ -135,6 +143,7 @@ module.exports = function authModule(appState, config) {
       const result = await connectPortal(req.body);
       res.json({ success: true, ...result });
     } catch (err) {
+      console.error('[auth] connect failed:', err.message);
       res.status(401).json({ error: err.message });
     }
   });
@@ -152,9 +161,23 @@ module.exports = function authModule(appState, config) {
     });
   });
 
+  // ── GET /api/auth/config ───────────────────────────────────────────────────
+  // Returns saved portal config so the WebUI can pre-fill the Setup form.
+  router.get('/config', (req, res) => {
+    const saved = cache.load();
+    if (!saved) return res.json(null);
+
+    // Return only the flat setup fields; exclude internal stalker_* keys.
+    const { portal, mac, timezone, lang, login, serial_number,
+            device_id, device_id2, signature, connection_timeout, token } = saved;
+    res.json({ portal, mac, timezone, lang, login, serial_number,
+               device_id, device_id2, signature, connection_timeout, token });
+  });
+
   // ── DELETE /api/auth/disconnect ────────────────────────────────────────────
   router.delete('/disconnect', (req, res) => {
     if (appState.sessionManager) {
+      console.log('[auth] disconnecting session');
       appState.sessionManager.destroy();
       appState.sessionManager = null;
       appState.client = null;
@@ -165,7 +188,7 @@ module.exports = function authModule(appState, config) {
     res.json({ success: true });
   });
 
-  // ── POST /api/auth/reconnect — re-connect using saved config ───────────────
+  // ── POST /api/auth/reconnect ───────────────────────────────────────────────
   router.post('/reconnect', async (req, res) => {
     const saved = cache.load();
     if (!saved?.portal || !saved?.mac) {
@@ -175,6 +198,7 @@ module.exports = function authModule(appState, config) {
       const result = await connectPortal(saved);
       res.json({ success: true, ...result });
     } catch (err) {
+      console.error('[auth] reconnect failed:', err.message);
       res.status(401).json({ error: err.message });
     }
   });
