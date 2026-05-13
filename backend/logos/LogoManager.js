@@ -49,7 +49,7 @@ function parseCSVLine(line) {
 
 // Parse CSV text → array of plain objects keyed by the header row.
 function parseCSV(text) {
-  const lines = text.split('\n');
+  const lines = text.replace(/\r/g, '').split('\n');
   const headers = parseCSVLine(lines[0]);
   const out = [];
   for (let i = 1; i < lines.length; i++) {

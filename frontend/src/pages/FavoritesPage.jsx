@@ -1,0 +1,438 @@
+import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Heart, Tv2, Layers, Pencil, Trash2, Plus, Check, X, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+import {
+  getFavorites, getChannels, getLogoMap,
+  addFavoriteChannel, removeFavoriteChannel,
+  createFavoriteGroup, renameFavoriteGroup, deleteFavoriteGroup,
+  addChannelToGroup, removeChannelFromGroup,
+} from '../stalkerApi'
+
+// ── Shared logo helper ────────────────────────────────────────────────────
+function ChannelLogo({ src, name, size = 'md' }) {
+  const [err, setErr] = useState(false)
+  const dim = size === 'sm' ? 'h-8 w-8' : 'h-16 w-16'
+  const iconSize = size === 'sm' ? 16 : 28
+  return (
+    <div className={cn('flex items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden shrink-0', dim)}>
+      {src && !err
+        ? <img src={src} alt={name} onError={() => setErr(true)} className="h-full w-full object-contain p-1" />
+        : <Tv2 size={iconSize} className="text-[var(--color-muted)]" />}
+    </div>
+  )
+}
+
+// ── Favorited channel card ────────────────────────────────────────────────
+function ChannelCard({ channel, logoUrl, onRemove, onClick }) {
+  return (
+    <div className="group relative rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 flex flex-col items-center gap-2.5 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] transition-all cursor-pointer"
+      onClick={() => onClick(channel)}>
+      <button
+        onClick={e => { e.stopPropagation(); onRemove(channel) }}
+        className="absolute top-2 right-2 p-1 rounded-full text-[var(--color-live)] opacity-0 group-hover:opacity-100 hover:bg-[var(--color-live)]/10 transition-all"
+      >
+        <X size={13} />
+      </button>
+      <ChannelLogo src={logoUrl} name={channel.name} />
+      <div className="w-full text-center">
+        <p className="text-xs text-[var(--color-muted)] mb-0.5">Ch {channel.number}</p>
+        <p className="text-sm font-medium text-[var(--color-text)] leading-tight break-words">{channel.name}</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Group logo preview (2×2 grid of first 4 channel logos) ───────────────
+function GroupPreview({ channels, logoMap }) {
+  const first4 = channels.slice(0, 4)
+  if (first4.length === 0) {
+    return (
+      <div className="h-16 w-16 rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] flex items-center justify-center shrink-0">
+        <Layers size={24} className="text-[var(--color-muted)]" />
+      </div>
+    )
+  }
+  return (
+    <div className="h-16 w-16 rounded-[var(--radius-sm)] overflow-hidden grid grid-cols-2 gap-px bg-[var(--color-border)] shrink-0">
+      {Array.from({ length: 4 }).map((_, i) => {
+        const ch = first4[i]
+        return (
+          <div key={i} className="bg-[var(--color-surface-2)] flex items-center justify-center overflow-hidden">
+            {ch
+              ? <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} size="sm" />
+              : null}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ── Group editor (inline, shown when editing a group) ────────────────────
+function GroupEditor({ group, logoMap, allChannels, onSave, onCancel }) {
+  const [name, setName] = useState(group.name)
+  const [channels, setChannels] = useState(group.channels || [])
+  const [query, setQuery] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const channelIds = useMemo(() => new Set(channels.map(c => String(c.uniqueId))), [channels])
+
+  const suggestions = useMemo(() => {
+    if (!query.trim()) return []
+    const q = query.toLowerCase()
+    return allChannels
+      .filter(c => !channelIds.has(String(c.uniqueId)) && c.name?.toLowerCase().includes(q))
+      .slice(0, 20)
+  }, [query, allChannels, channelIds])
+
+  async function handleAddChannel(ch) {
+    await addChannelToGroup(group.id, ch.uniqueId)
+    setChannels(prev => [...prev, ch])
+    setQuery('')
+  }
+
+  async function handleRemoveChannel(ch) {
+    await removeChannelFromGroup(group.id, ch.uniqueId)
+    setChannels(prev => prev.filter(c => String(c.uniqueId) !== String(ch.uniqueId)))
+  }
+
+  async function handleSave() {
+    setSaving(true)
+    await renameFavoriteGroup(group.id, name)
+    onSave({ ...group, name, channels })
+    setSaving(false)
+  }
+
+  return (
+    <div className="flex flex-col gap-4 rounded-[var(--radius-md)] border border-[var(--color-primary)]/40 bg-[var(--color-surface)] p-5">
+      {/* Name row */}
+      <div className="flex items-center gap-2">
+        <Input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          className="text-sm font-medium"
+          placeholder="Group name"
+          onKeyDown={e => e.key === 'Enter' && handleSave()}
+        />
+        <Button onClick={handleSave} disabled={saving || !name.trim()} className="shrink-0 h-9 px-3 text-xs gap-1">
+          <Check size={13} /> Save
+        </Button>
+        <Button variant="outline" onClick={onCancel} className="shrink-0 h-9 px-3 text-xs">
+          Cancel
+        </Button>
+      </div>
+
+      {/* Channels in group */}
+      {channels.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Channels in group</p>
+          <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto">
+            {channels.map(ch => (
+              <div key={ch.uniqueId} className="flex items-center gap-1.5 rounded-full bg-[var(--color-surface-2)] border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-text)]">
+                <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} size="sm" />
+                <span className="max-w-28 truncate">{ch.name}</span>
+                <button onClick={() => handleRemoveChannel(ch)} className="text-[var(--color-muted)] hover:text-[var(--color-live)] ml-0.5">
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Add channel search */}
+      <div className="flex flex-col gap-1.5">
+        <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Add channels</p>
+        <div className="relative">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
+          <Input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search channels to add…"
+            className="pl-8 text-xs"
+          />
+        </div>
+        {suggestions.length > 0 && (
+          <div className="flex flex-col gap-0.5 max-h-48 overflow-y-auto rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)]">
+            {suggestions.map(ch => (
+              <button
+                key={ch.uniqueId}
+                onClick={() => handleAddChannel(ch)}
+                className="flex items-center gap-2.5 px-3 py-2 text-left text-xs hover:bg-[var(--color-surface-2)] transition-colors"
+              >
+                <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} size="sm" />
+                <span className="flex-1 truncate text-[var(--color-text)]">{ch.name}</span>
+                <Plus size={12} className="text-[var(--color-muted)] shrink-0" />
+              </button>
+            ))}
+          </div>
+        )}
+        {query.trim() && suggestions.length === 0 && (
+          <p className="text-xs text-[var(--color-muted)] px-1">No channels found</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ── Group card ────────────────────────────────────────────────────────────
+function GroupCard({ group, logoMap, allChannels, onEdit, onDelete, onNavigate }) {
+  const [expanded, setExpanded] = useState(false)
+
+  return (
+    <div className="rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 flex flex-col gap-3">
+      {/* Header row */}
+      <div className="flex items-center gap-3">
+        <GroupPreview channels={group.channels} logoMap={logoMap} />
+        <div className="flex-1 min-w-0">
+          <p className="font-medium text-sm text-[var(--color-text)] truncate">{group.name}</p>
+          <p className="text-xs text-[var(--color-muted)]">{group.channels.length} channel{group.channels.length !== 1 ? 's' : ''}</p>
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setExpanded(v => !v)}
+            className="p-1.5 rounded hover:bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+            title={expanded ? 'Collapse' : 'Expand'}
+          >
+            {expanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+          </button>
+          <button
+            onClick={onEdit}
+            className="p-1.5 rounded hover:bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors"
+            title="Edit group"
+          >
+            <Pencil size={14} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1.5 rounded hover:bg-[var(--color-live)]/10 text-[var(--color-muted)] hover:text-[var(--color-live)] transition-colors"
+            title="Delete group"
+          >
+            <Trash2 size={14} />
+          </button>
+        </div>
+      </div>
+
+      {/* Expanded channel list */}
+      {expanded && group.channels.length > 0 && (
+        <div className="flex flex-col gap-0.5 border-t border-[var(--color-border)] pt-2">
+          {group.channels.map(ch => (
+            <button
+              key={ch.uniqueId}
+              onClick={() => onNavigate(ch)}
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded-[var(--radius-sm)] hover:bg-[var(--color-surface-2)] transition-colors text-left"
+            >
+              <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} size="sm" />
+              <span className="text-xs text-[var(--color-text)] truncate flex-1">{ch.name}</span>
+              {ch.number > 0 && <span className="text-xs text-[var(--color-muted)] shrink-0">Ch {ch.number}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {expanded && group.channels.length === 0 && (
+        <p className="text-xs text-[var(--color-muted)] border-t border-[var(--color-border)] pt-2">No channels — click Edit to add some.</p>
+      )}
+    </div>
+  )
+}
+
+// ── Section header ────────────────────────────────────────────────────────
+function SectionHeader({ icon: Icon, title, count, action }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <Icon size={16} className="text-[var(--color-primary-light)]" />
+      <h2 className="text-sm font-semibold text-[var(--color-text)]">{title}</h2>
+      {count > 0 && (
+        <span className="text-xs text-[var(--color-muted)] bg-[var(--color-surface-2)] px-1.5 py-0.5 rounded-full">{count}</span>
+      )}
+      {action && <div className="ml-auto">{action}</div>}
+    </div>
+  )
+}
+
+// ── Page ──────────────────────────────────────────────────────────────────
+export default function FavoritesPage() {
+  const navigate = useNavigate()
+
+  const [channels, setChannels] = useState([])    // favorited channels (enriched)
+  const [groups, setGroups] = useState([])         // favorite groups (enriched)
+  const [logoMap, setLogoMap] = useState({})
+  const [allChannels, setAllChannels] = useState([]) // loaded lazily for group editor
+  const [editingGroupId, setEditingGroupId] = useState(null)
+  const [newGroupName, setNewGroupName] = useState('')
+  const [showNewGroup, setShowNewGroup] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    Promise.all([getFavorites(), getLogoMap()])
+      .then(([fav, lm]) => {
+        setChannels(fav.channels || [])
+        setGroups(fav.groups || [])
+        setLogoMap(lm || {})
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  // Load all channels lazily when a group editor is opened
+  async function ensureAllChannels() {
+    if (allChannels.length > 0) return
+    try {
+      const r = await getChannels()
+      setAllChannels(r.channels ?? [])
+    } catch {}
+  }
+
+  function openGroupEditor(groupId) {
+    setEditingGroupId(groupId)
+    ensureAllChannels()
+  }
+
+  // ── Actions ───────────────────────────────────────────────────────────────
+
+  async function handleRemoveChannel(ch) {
+    await removeFavoriteChannel(ch.uniqueId)
+    setChannels(prev => prev.filter(c => String(c.uniqueId) !== String(ch.uniqueId)))
+  }
+
+  async function handleCreateGroup() {
+    if (!newGroupName.trim()) return
+    const { group } = await createFavoriteGroup(newGroupName.trim())
+    setGroups(prev => [...prev, { ...group, channels: [] }])
+    setNewGroupName('')
+    setShowNewGroup(false)
+    openGroupEditor(group.id)
+  }
+
+  async function handleDeleteGroup(id) {
+    await deleteFavoriteGroup(id)
+    setGroups(prev => prev.filter(g => g.id !== id))
+    if (editingGroupId === id) setEditingGroupId(null)
+  }
+
+  function handleGroupSaved(updated) {
+    setGroups(prev => prev.map(g => g.id === updated.id ? updated : g))
+    setEditingGroupId(null)
+  }
+
+  function navigateToChannel(ch) {
+    navigate(`/player?channel=${ch.uniqueId}&name=${encodeURIComponent(ch.name)}`)
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
+  if (loading) {
+    return (
+      <div className="flex h-48 items-center justify-center">
+        <div className="h-6 w-6 rounded-full border-2 border-[var(--color-primary)] border-t-transparent animate-spin" />
+      </div>
+    )
+  }
+
+  const empty = channels.length === 0 && groups.length === 0
+
+  return (
+    <div className="max-w-5xl mx-auto px-6 py-8 flex flex-col gap-8">
+      <div>
+        <h1 className="text-2xl font-semibold text-[var(--color-text)]">Favorites</h1>
+        <p className="text-sm text-[var(--color-muted)] mt-1">Your saved channels and custom groups.</p>
+      </div>
+
+      {empty && (
+        <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+          <Heart size={40} className="text-[var(--color-muted)]" />
+          <p className="text-sm text-[var(--color-muted)]">No favorites yet.</p>
+          <p className="text-xs text-[var(--color-muted)]">Click the heart icon on any channel card to add it here.</p>
+        </div>
+      )}
+
+      {/* ── Favorite Channels ── */}
+      {channels.length > 0 && (
+        <section>
+          <SectionHeader icon={Heart} title="Channels" count={channels.length} />
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
+            {channels.map(ch => (
+              <ChannelCard
+                key={ch.uniqueId}
+                channel={ch}
+                logoUrl={logoMap[String(ch.uniqueId)]}
+                onRemove={handleRemoveChannel}
+                onClick={navigateToChannel}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Groups ── */}
+      <section>
+        <SectionHeader
+          icon={Layers}
+          title="Groups"
+          count={groups.length}
+          action={
+            <Button
+              variant="outline"
+              onClick={() => setShowNewGroup(v => !v)}
+              className="h-8 px-3 text-xs gap-1.5"
+            >
+              <Plus size={13} /> New Group
+            </Button>
+          }
+        />
+
+        {/* New group form */}
+        {showNewGroup && (
+          <div className="flex items-center gap-2 mb-4 rounded-[var(--radius-md)] border border-[var(--color-primary)]/40 bg-[var(--color-surface)] p-4">
+            <Input
+              autoFocus
+              placeholder="Group name…"
+              value={newGroupName}
+              onChange={e => setNewGroupName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleCreateGroup()}
+              className="text-sm"
+            />
+            <Button onClick={handleCreateGroup} disabled={!newGroupName.trim()} className="shrink-0 h-9 px-3 text-xs gap-1">
+              <Check size={13} /> Create
+            </Button>
+            <Button variant="outline" onClick={() => { setShowNewGroup(false); setNewGroupName('') }} className="shrink-0 h-9 px-3 text-xs">
+              Cancel
+            </Button>
+          </div>
+        )}
+
+        {groups.length === 0 && !showNewGroup && (
+          <p className="text-sm text-[var(--color-muted)]">No groups yet — click New Group to create one.</p>
+        )}
+
+        <div className="flex flex-col gap-3">
+          {groups.map(group =>
+            editingGroupId === group.id ? (
+              <GroupEditor
+                key={group.id}
+                group={group}
+                logoMap={logoMap}
+                allChannels={allChannels}
+                onSave={handleGroupSaved}
+                onCancel={() => setEditingGroupId(null)}
+              />
+            ) : (
+              <GroupCard
+                key={group.id}
+                group={group}
+                logoMap={logoMap}
+                allChannels={allChannels}
+                onEdit={() => openGroupEditor(group.id)}
+                onDelete={() => handleDeleteGroup(group.id)}
+                onNavigate={navigateToChannel}
+              />
+            )
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}

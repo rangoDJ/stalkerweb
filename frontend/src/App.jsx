@@ -1,6 +1,6 @@
 import { useEffect, useState, createContext, useContext } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Radio } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Radio, Heart } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getStatus, getSettings } from './stalkerApi'
@@ -8,6 +8,7 @@ import SetupPage from './pages/SetupPage'
 import ChannelsPage from './pages/ChannelsPage'
 import PlayerPage from './pages/PlayerPage'
 import GuidePage from './pages/GuidePage'
+import FavoritesPage from './pages/FavoritesPage'
 
 // ── App-wide context ──────────────────────────────────────────────────────
 export const AppContext = createContext({})
@@ -45,6 +46,7 @@ function TopNav({ connected, epgEnabled }) {
       {connected && (
         <nav className="flex items-center gap-1">
           <NavItem to="/channels" icon={Tv2} label="Channels" />
+          <NavItem to="/favorites" icon={Heart} label="Favorites" />
           {epgEnabled && <NavItem to="/guide" icon={BookOpen} label="Guide" />}
         </nav>
       )}
@@ -129,6 +131,14 @@ function AppInner() {
               element={
                 <RequireAuth connected={connected}>
                   <PlayerPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/favorites"
+              element={
+                <RequireAuth connected={connected}>
+                  <FavoritesPage />
                 </RequireAuth>
               }
             />

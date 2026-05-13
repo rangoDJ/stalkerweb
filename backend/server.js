@@ -47,8 +47,10 @@ app.get('/api/health', (_req, res) => {
 // connectPortal() directly at startup without a mock HTTP request.
 const LogoManager = require('./logos/LogoManager');
 const logoManager = new LogoManager(config.dataDir);
-// Kick off background DB load without blocking startup
 logoManager.ensureLoadedBackground();
+
+const FavoritesManager = require('./favorites/FavoritesManager');
+const favoritesManager = new FavoritesManager(config.dataDir);
 
 const { authRoutes, connectPortal } = require('./routes/auth')(appState, config);
 const channelRoutes = require('./routes/channels')(appState);
@@ -58,7 +60,8 @@ const settingsRoutes = require('./routes/settings')(config);
 const proxyRoutes = require('./routes/proxy')(appState);
 const m3uRoutes = require('./routes/m3u')(appState, logoManager);
 const xmltvRoutes = require('./routes/xmltv')(appState);
-const logosRoutes = require('./routes/logos')(logoManager, appState);
+const logosRoutes     = require('./routes/logos')(logoManager, appState);
+const favoritesRoutes = require('./routes/favorites')(favoritesManager, appState);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/channels', channelRoutes);
@@ -66,6 +69,7 @@ app.use('/api/epg', epgRoutes);
 app.use('/api/stream', streamRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/logos', logosRoutes);
+app.use('/api/favorites', favoritesRoutes);
 app.use('/api/m3u', m3uRoutes);
 app.use('/api/xmltv', xmltvRoutes);
 // /proxy must be registered before the SPA static fallback
