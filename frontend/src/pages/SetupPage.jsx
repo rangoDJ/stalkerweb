@@ -22,9 +22,9 @@ export default function SetupPage({ onConnect, status }) {
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(false)
   const [advanced, setAdvanced] = useState(false)
+  const [savedCreds, setSavedCreds] = useState(null) // { portal_signature, tokens }
 
-  // Pre-fill form from saved config.json on mount
-  useEffect(() => {
+  const loadConfig = () => {
     getConfig().then((cfg) => {
       if (!cfg) return
       setForm((f) => ({
@@ -41,13 +41,18 @@ export default function SetupPage({ onConnect, status }) {
         connection_timeout: cfg.connection_timeout ?? f.connection_timeout,
         token:              cfg.token              ?? f.token,
       }))
-      // Show advanced section if any advanced fields are populated
+      setSavedCreds({
+        portal_signature: cfg.portal_signature || null,
+        tokens: cfg.tokens || {},
+      })
       if (cfg.login || cfg.serial_number !== '0000000000000' ||
           cfg.device_id || cfg.signature || cfg.token) {
         setAdvanced(true)
       }
     }).catch(() => {})
-  }, [])
+  }
+
+  useEffect(() => { loadConfig() }, [])
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
@@ -61,6 +66,7 @@ export default function SetupPage({ onConnect, status }) {
       await connect(form)
       setSuccess(true)
       await onConnect()
+      loadConfig()
     } catch (e) {
       setError(e.message)
     } finally {
@@ -223,6 +229,28 @@ export default function SetupPage({ onConnect, status }) {
                 <tr key={k}>
                   <td>{k}</td>
                   <td>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {savedCreds && (savedCreds.portal_signature || Object.keys(savedCreds.tokens).length > 0) && (
+        <div className="card" style={{ marginTop: 18 }}>
+          <div className="card-title">Stored Credentials</div>
+          <table className="session-table">
+            <tbody>
+              {savedCreds.portal_signature && (
+                <tr>
+                  <td>Portal Sig</td>
+                  <td>{savedCreds.portal_signature}</td>
+                </tr>
+              )}
+              {Object.entries(savedCreds.tokens).map(([key, val]) => (
+                <tr key={key}>
+                  <td style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 11 }}>{key}</td>
+                  <td>{val?.token ?? String(val)}</td>
                 </tr>
               ))}
             </tbody>
