@@ -13,9 +13,6 @@
 
 const WatchdogService = require('./WatchdogService');
 
-const MAX_RETRIES = 5;
-const RETRY_DELAY_MS = 5000;
-const RATE_LIMIT_DELAY_MS = 45000; // portal cooldown when HTTP 429 is received
 const AUTH_CHECK_INTERVAL_MS = 30000;
 
 class SessionManager {
@@ -58,7 +55,8 @@ class SessionManager {
 
     if (data.js.token) {
       this.identity.token = data.js.token;
-      this.client.setIdentity(this.identity); // propagate token to client
+      this.client.setIdentity(this.identity);
+      this.client.updateTokenCookie(data.js.token); // C# sets token cookie immediately after handshake
       console.log(`[SessionManager] handshake token=${this.identity.token}`);
     }
 
@@ -133,63 +131,34 @@ class SessionManager {
   }
 
   // ── Full authenticate sequence ─────────────────────────────────────────────
-  // Mirrors SessionManager::Authenticate() with retry loop
+  // Mirrors SessionManager::Authenticate() — no retry loop (C# reference has none).
+  // Throws on failure so the caller (auth route) can surface the error to the user.
   async authenticate() {
     if (this.isAuthenticating) return;
 
     this.isAuthenticating = true;
     this.authenticated = false;
     this.lastError = null;
-
-    if (this._statusCallback && this.authenticated) {
-      this._statusCallback('lost');
-    }
-
     this._stopWatchdog();
 
-    let attempt = 0;
-    while (!this.authenticated && ++attempt <= MAX_RETRIES) {
-      try {
-        if (attempt > 1) {
-          console.log(`[SessionManager] retry ${attempt}/${MAX_RETRIES} in ${RETRY_DELAY_MS}ms`);
-          await _sleep(RETRY_DELAY_MS);
-        }
-
-        if (!this.hasManualToken) {
-          await this._doHandshake();
-        }
-
-        await this._getProfile();
-
-        this.authenticated = true;
-        console.log('[SessionManager] authenticated ✓');
-
-      } catch (err) {
-        this.lastError = err.message;
-        console.error(`[SessionManager] auth attempt ${attempt} failed: ${err.message}`);
-
-        if (err.code === 'RATE_LIMITED') {
-          console.warn(`[SessionManager] Portal rate-limited (HTTP 429) — waiting ${RATE_LIMIT_DELAY_MS / 1000}s before retry`);
-          await _sleep(RATE_LIMIT_DELAY_MS);
-        }
-
-        if (attempt === 2 && this._statusCallback) {
-          this._statusCallback('error');
-        }
+    try {
+      if (!this.hasManualToken) {
+        await this._doHandshake();
       }
+      await this._getProfile();
+      this.authenticated = true;
+      console.log('[SessionManager] authenticated ✓');
+    } catch (err) {
+      this.lastError = err.message;
+      this.isAuthenticating = false;
+      if (this._statusCallback) this._statusCallback('error');
+      throw err;
     }
 
     this.isAuthenticating = false;
-
-    if (this.authenticated) {
-      if (this._statusCallback) this._statusCallback('ok');
-      this._startWatchdog();
-      this._startAuthChecker();
-    }
-
-    if (!this.authenticated) {
-      throw new Error(`Authentication failed after ${MAX_RETRIES} attempts: ${this.lastError}`);
-    }
+    if (this._statusCallback) this._statusCallback('ok');
+    this._startWatchdog();
+    this._startAuthChecker();
   }
 
   // ── Watchdog ───────────────────────────────────────────────────────────────
@@ -236,10 +205,6 @@ class SessionManager {
     this._stopWatchdog();
     this.authenticated = false;
   }
-}
-
-function _sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 module.exports = SessionManager;
