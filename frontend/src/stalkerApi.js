@@ -80,5 +80,22 @@ export const deleteFavoriteGroup = (id) => _delete(`/favorites/groups/${id}`)
 export const addChannelToGroup = (groupId, uniqueId) => _post(`/favorites/groups/${groupId}/channels`, { uniqueId })
 export const removeChannelFromGroup = (groupId, uniqueId) => _delete(`/favorites/groups/${groupId}/channels/${uniqueId}`)
 
+// ── STBEmu export ─────────────────────────────────────────────────────────
+export async function downloadStbEmuBackup() {
+  const r = await fetch('/api/export/stbemu')
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({ error: r.statusText }))
+    throw new Error(e.error || r.statusText)
+  }
+  const blob = await r.blob()
+  const cd   = r.headers.get('Content-Disposition') || ''
+  const m    = cd.match(/filename="([^"]+)"/)
+  const name = m ? m[1] : 'stbemu_backup.json'
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = name; a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Stream ────────────────────────────────────────────────────────────────
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)
