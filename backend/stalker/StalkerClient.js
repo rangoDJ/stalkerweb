@@ -251,13 +251,15 @@ class StalkerClient {
             validateStatus: (status) => status < 500 // Accept 404 so we can inspect it
           });
 
+          if (response.status === 429) {
+            throw new StalkerError('RATE_LIMITED', 'Portal rate-limited handshake (HTTP 429).');
+          }
           if (response.status === 404) {
             console.log(`[StalkerClient] 404 Not Found at ${tryUrl}, trying fallback...`);
             continue; // try next
           }
-          
-          if (response.status >= 400 && response.status !== 404) {
-             throw new Error(`HTTP ${response.status}`);
+          if (response.status >= 400) {
+            throw new Error(`HTTP ${response.status}`);
           }
 
           // We got a successful response
@@ -275,10 +277,25 @@ class StalkerClient {
       throw new StalkerError('API', `Handshake failed on all paths. Last error: ${lastError ? lastError.message : '404 Not Found'}`);
     } else {
       console.log(`[StalkerClient] GET ${url}`);
-      const response = await this.http.get(url, {
-        headers,
-        timeout: this.timeout
-      });
+      let response;
+      try {
+        response = await this.http.get(url, {
+          headers,
+          timeout: this.timeout,
+          validateStatus: (s) => s < 500,
+        });
+      } catch (err) {
+        if (err.response?.status === 429) {
+          throw new StalkerError('RATE_LIMITED', 'Portal rate-limited this request (HTTP 429).');
+        }
+        throw err;
+      }
+      if (response.status === 429) {
+        throw new StalkerError('RATE_LIMITED', 'Portal rate-limited this request (HTTP 429).');
+      }
+      if (response.status >= 400) {
+        throw new StalkerError('API', `HTTP ${response.status}`);
+      }
       return this._parseResponse(response.data);
     }
   }
