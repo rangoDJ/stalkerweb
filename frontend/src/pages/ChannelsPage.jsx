@@ -49,14 +49,14 @@ export default function ChannelsPage() {
   const [query, setQuery] = useState('')
 
   useEffect(() => {
-    getGroups().then(setGroups).catch(() => {})
+    getGroups().then(r => setGroups(r.groups ?? [])).catch(() => {})
   }, [])
 
   useEffect(() => {
     setLoading(true)
     setError(null)
     getChannels(activeGroup || null)
-      .then(setChannels)
+      .then(r => setChannels(r.channels ?? []))
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
   }, [activeGroup])

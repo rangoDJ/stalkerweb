@@ -37,7 +37,7 @@ export default function GuidePage() {
 
   useEffect(() => {
     getChannels()
-      .then(list => { setChannels(list); if (list.length) setActiveChannel(list[0]) })
+      .then(r => { const list = r.channels ?? []; setChannels(list); if (list.length) setActiveChannel(list[0]) })
       .catch(e => setError(e.message))
       .finally(() => setLoadingChannels(false))
   }, [])
