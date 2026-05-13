@@ -263,12 +263,22 @@ class StalkerClient {
             throw new Error(`HTTP ${response.status}`);
           }
 
-          // We got a successful response
-          const effectiveUrl = response.request && response.request.res ? response.request.res.responseUrl : tryUrl;
-          if (effectiveUrl && effectiveUrl !== tryUrl) {
-             console.log(`[StalkerClient] Handshake redirected to ${effectiveUrl}, updating endpoints`);
-             this.setEndpoint(effectiveUrl);
+          // Use the final URL after any redirect, fall back to the URL we tried
+          const landedUrl = (response.request?.res?.responseUrl) || tryUrl;
+
+          // Always update endpoints from wherever the handshake actually landed.
+          // Mirrors C# which re-derives _effectiveBaseUrl from the final request URI.
+          // Strip query string then extract basePath from the /server/load.php position.
+          const landedPath = landedUrl.split('?')[0];
+          const serverIdx  = landedPath.indexOf('/server/load.php');
+          if (serverIdx !== -1) {
+            this.basePath = landedPath.substring(0, serverIdx) + '/';
+            this.endpoint = landedPath;
+            this.referer  = landedPath.substring(0, serverIdx) + '/c/';
+          } else {
+            this.setEndpoint(landedPath);
           }
+          console.log(`[StalkerClient] Handshake landed at ${landedPath} → basePath=${this.basePath}`);
 
           return this._parseResponse(response.data);
         } catch (e) {
