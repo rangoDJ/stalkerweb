@@ -11,8 +11,7 @@ const { DEVICE_PROFILE } = require('../stalker/deviceProfile');
 const STB_MODELS = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM'];
 
 const FIRMWARE_PRESETS = {
-  '0.2.16-234':         { image_description: '0.2.16-234',         image_version: '216', image_date: '18 Mar 2013 19:56:53 GMT+0200' },
-  '0.2.18-r14-pub-250': { image_description: '0.2.18-r14-pub-250', image_version: '218', image_date: 'Fri Jan 15 15:20:44 EET 2016' },
+'0.2.18-r14-pub-250': { image_description: '0.2.18-r14-pub-250', image_version: '218', image_date: 'Fri Jan 15 15:20:44 EET 2016' },
   '0.2.18-r19-pub-250': { image_description: '0.2.18-r19-pub-250', image_version: '218', image_date: 'Fri Jan 15 15:20:44 EET 2016' },
   'Generic':            { image_description: 'Generic',            image_version: '000', image_date: '' },
 };

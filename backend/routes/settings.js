@@ -8,7 +8,7 @@ const express = require('express');
 const CacheManager = require('../cache/CacheManager');
 
 const STB_MODELS    = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM'];
-const STB_FIRMWARES = ['0.2.16-234', '0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic'];
+const STB_FIRMWARES = ['0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic'];
 
 const DEFAULTS = {
   epg_enabled: true,
