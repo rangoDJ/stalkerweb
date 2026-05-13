@@ -183,9 +183,16 @@ module.exports = function authModule(appState, config) {
     const { portal, mac, timezone, lang, login, serial_number,
             device_id, device_id2, signature, portal_signature,
             connection_timeout, token } = saved;
+
+    // Collect all stalker_HASH token entries
+    const tokens = {};
+    for (const [k, v] of Object.entries(saved)) {
+      if (k.startsWith('stalker_')) tokens[k] = v;
+    }
+
     res.json({ portal, mac, timezone, lang, login, serial_number,
                device_id, device_id2, signature, portal_signature,
-               connection_timeout, token });
+               connection_timeout, token, tokens });
   });
 
   // ── DELETE /api/auth/disconnect ────────────────────────────────────────────
