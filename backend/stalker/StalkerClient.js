@@ -82,7 +82,9 @@ class StalkerClient {
     if (id.serial_number) setRawCookie('sn', id.serial_number);
     if (id.device_id) setRawCookie('device_id', id.device_id);
     if (id.device_id2) setRawCookie('device_id2', id.device_id2);
-    if (id.signature) setRawCookie('sig', id.signature);
+    // Use portal_signature if provided (portal-issued), else fall back to device signature
+    const initialSig = id.portal_signature || id.signature;
+    if (initialSig) setRawCookie('sig', initialSig);
 
     try {
       const resp = await this.http.get(server, { 
@@ -105,7 +107,7 @@ class StalkerClient {
         if (id.serial_number) setRawCookie('sn', id.serial_number, newDomainUrl);
         if (id.device_id) setRawCookie('device_id', id.device_id, newDomainUrl);
         if (id.device_id2) setRawCookie('device_id2', id.device_id2, newDomainUrl);
-        if (id.signature) setRawCookie('sig', id.signature, newDomainUrl);
+        if (initialSig) setRawCookie('sig', initialSig, newDomainUrl);
       }
     } catch (e) {
       console.warn('[StalkerClient] Could not discover redirects (non-fatal)', e.message);
