@@ -1,133 +1,176 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { Tv2, Loader2, AlertCircle, Play } from 'lucide-react'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 import { getChannels, getChannelEpg } from '../stalkerApi'
 
-function fmtTime(ts) {
-  if (!ts) return '—'
+const PERIODS = [
+  { label: '6h', value: 6 },
+  { label: '12h', value: 12 },
+  { label: '24h', value: 24 },
+  { label: '48h', value: 48 },
+]
+
+function formatTime(ts) {
+  if (!ts) return ''
   const d = new Date(ts * 1000)
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
+function isNow(start, stop) {
+  const now = Date.now() / 1000
+  return start <= now && now < stop
+}
+
 export default function GuidePage() {
+  const navigate = useNavigate()
   const [channels, setChannels] = useState([])
-  const [selected, setSelected] = useState(null)
-  const [events, setEvents] = useState([])
-  const [loadingCh, setLoadingCh] = useState(true)
+  const [activeChannel, setActiveChannel] = useState(null)
+  const [epg, setEpg] = useState([])
+  const [period, setPeriod] = useState(24)
+  const [loadingChannels, setLoadingChannels] = useState(true)
   const [loadingEpg, setLoadingEpg] = useState(false)
   const [error, setError] = useState(null)
-  const [period, setPeriod] = useState(24)
 
   useEffect(() => {
-    async function fetchCh() {
-      setLoadingCh(true)
-      try {
-        const data = await getChannels()
-        setChannels(data.channels || [])
-        if (data.channels?.length > 0) setSelected(data.channels[0])
-      } catch (e) {
-        setError(e.message)
-      } finally {
-        setLoadingCh(false)
-      }
-    }
-    fetchCh()
+    getChannels()
+      .then(list => { setChannels(list); if (list.length) setActiveChannel(list[0]) })
+      .catch(e => setError(e.message))
+      .finally(() => setLoadingChannels(false))
   }, [])
 
-  const loadEpg = useCallback(async (ch, hrs) => {
-    if (!ch) return
+  useEffect(() => {
+    if (!activeChannel?.id) return
     setLoadingEpg(true)
-    setEvents([])
-    try {
-      const data = await getChannelEpg(ch.uniqueId, hrs)
-      setEvents(data.events || [])
-    } catch (e) {
-      setEvents([])
-    } finally {
-      setLoadingEpg(false)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (selected) loadEpg(selected, period)
-  }, [selected, period, loadEpg])
-
-  const nowTs = Math.floor(Date.now() / 1000)
+    setEpg([])
+    getChannelEpg(activeChannel.id, period)
+      .then(data => setEpg(Array.isArray(data) ? data : data?.epg || []))
+      .catch(() => setEpg([]))
+      .finally(() => setLoadingEpg(false))
+  }, [activeChannel?.id, period])
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden' }}>
-
-      {/* Channel list */}
-      <div style={{ width: 200, borderRight: '1px solid var(--border)',
-        overflowY: 'auto', background: 'var(--bg-surface)', flexShrink: 0 }}>
-        {loadingCh && <div className="centered" style={{ padding: 20 }}><div className="spinner" /></div>}
-        {channels.map((ch) => (
-          <div
-            key={ch.uniqueId}
-            onClick={() => setSelected(ch)}
-            style={{
-              padding: '9px 14px',
-              cursor: 'pointer',
-              borderBottom: '1px solid var(--border)',
-              background: selected?.uniqueId === ch.uniqueId ? 'rgba(79,156,249,0.1)' : 'transparent',
-              color: selected?.uniqueId === ch.uniqueId ? 'var(--accent)' : 'var(--text-primary)',
-              fontSize: 13,
-              fontWeight: selected?.uniqueId === ch.uniqueId ? 600 : 400,
-              transition: 'background 150ms',
-            }}
-          >
-            <span style={{ color: 'var(--text-dim)', fontSize: 11, marginRight: 6 }}>{ch.number}</span>
-            {ch.name}
+    <div className="flex h-[calc(100vh-3.5rem)]">
+      {/* Channel sidebar */}
+      <div className="w-52 shrink-0 border-r border-[var(--color-border)] flex flex-col bg-[var(--color-surface)]">
+        <div className="px-4 py-3 border-b border-[var(--color-border)]">
+          <p className="text-xs font-semibold uppercase tracking-wider text-[var(--color-muted)]">Channels</p>
+        </div>
+        {loadingChannels ? (
+          <div className="flex-1 flex items-center justify-center">
+            <Loader2 size={20} className="animate-spin text-[var(--color-primary-light)]" />
           </div>
-        ))}
+        ) : (
+          <ScrollArea className="flex-1">
+            {channels.map(ch => (
+              <button
+                key={ch.id}
+                onClick={() => setActiveChannel(ch)}
+                className={cn(
+                  'w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors',
+                  ch.id === activeChannel?.id
+                    ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
+                    : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
+                )}
+              >
+                <Tv2 size={13} className="shrink-0" />
+                <span className="text-xs truncate">{ch.name}</span>
+              </button>
+            ))}
+          </ScrollArea>
+        )}
       </div>
 
       {/* EPG panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-        {/* Toolbar */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px',
-          borderBottom: '1px solid var(--border)', background: 'var(--bg-surface)' }}>
-          <span style={{ fontWeight: 600, fontSize: 14 }}>{selected?.name || 'Select a channel'}</span>
-          <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-            {[6, 12, 24, 48].map((h) => (
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="flex items-center gap-4 px-6 py-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] shrink-0">
+          <h2 className="font-semibold text-sm text-[var(--color-text)] truncate flex-1">
+            {activeChannel?.name || 'Select a channel'}
+          </h2>
+          <div className="flex items-center gap-1">
+            {PERIODS.map(p => (
               <button
-                key={h}
-                className="btn-secondary"
-                style={{ padding: '4px 10px', fontSize: 11,
-                  ...(period === h ? { borderColor: 'var(--accent)', color: 'var(--accent)' } : {}) }}
-                onClick={() => setPeriod(h)}
+                key={p.value}
+                onClick={() => setPeriod(p.value)}
+                className={cn(
+                  'px-2.5 py-1 rounded-[var(--radius-sm)] text-xs font-medium transition-colors',
+                  period === p.value
+                    ? 'bg-[var(--color-primary)] text-white'
+                    : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                )}
               >
-                {h}h
+                {p.label}
               </button>
             ))}
           </div>
+          {activeChannel && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate(`/player?channel=${activeChannel.id}&name=${encodeURIComponent(activeChannel.name)}`)}
+            >
+              <Play size={13} /> Watch
+            </Button>
+          )}
         </div>
 
-        {/* Events */}
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {loadingEpg && <div className="centered" style={{ padding: 40 }}><div className="spinner" /></div>}
-
-          {!loadingEpg && events.length === 0 && (
-            <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-muted)' }}>
-              No EPG data available for this channel.
+        {/* Programme list */}
+        <ScrollArea className="flex-1 px-6 py-4">
+          {loadingEpg && (
+            <div className="flex items-center justify-center h-32">
+              <Loader2 size={24} className="animate-spin text-[var(--color-primary-light)]" />
             </div>
           )}
 
-          {!loadingEpg && events.map((ev) => {
-            const current = ev.startTime <= nowTs && nowTs < ev.endTime
-            return (
-              <div key={ev.id} className="epg-event"
-                style={{ background: current ? 'rgba(79,156,249,0.06)' : 'transparent' }}>
-                <div className="epg-time">
-                  {fmtTime(ev.startTime)}
-                  {current && <div style={{ color: 'var(--accent)', fontSize: 10 }}>▶ NOW</div>}
-                </div>
-                <div>
-                  <div className="epg-title" style={{ fontWeight: current ? 600 : 400 }}>{ev.title}</div>
-                  {ev.description && <div className="epg-desc">{ev.description}</div>}
-                </div>
-              </div>
-            )
-          })}
-        </div>
+          {!loadingEpg && error && (
+            <div className="flex items-center gap-2 text-sm text-[var(--color-live)] mt-4">
+              <AlertCircle size={16} /> {error}
+            </div>
+          )}
+
+          {!loadingEpg && !error && epg.length === 0 && (
+            <p className="text-sm text-[var(--color-muted)] mt-4">No EPG data available for this channel.</p>
+          )}
+
+          {!loadingEpg && epg.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              {epg.map((prog, i) => {
+                const live = isNow(prog.start, prog.stop)
+                return (
+                  <div
+                    key={i}
+                    className={cn(
+                      'flex gap-4 rounded-[var(--radius-sm)] px-4 py-3 transition-colors',
+                      live
+                        ? 'bg-[var(--color-primary)]/15 border border-[var(--color-primary)]/30'
+                        : 'bg-[var(--color-surface)] border border-transparent hover:border-[var(--color-border)]'
+                    )}
+                  >
+                    <div className="shrink-0 w-24 text-xs text-[var(--color-muted)] pt-0.5">
+                      {formatTime(prog.start)}
+                      {prog.stop && <span className="block">{formatTime(prog.stop)}</span>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className={cn('text-sm font-medium truncate', live ? 'text-[var(--color-primary-light)]' : 'text-[var(--color-text)]')}>
+                          {prog.name || prog.title || 'Untitled'}
+                        </p>
+                        {live && <Badge variant="live" className="shrink-0">NOW</Badge>}
+                      </div>
+                      {prog.descr && (
+                        <p className="text-xs text-[var(--color-muted)] mt-0.5 line-clamp-2">{prog.descr}</p>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </ScrollArea>
       </div>
     </div>
   )

@@ -1,273 +1,217 @@
 import { useState, useEffect } from 'react'
-import { connect, disconnect, getConfig } from '../stalkerApi'
+import { useNavigate } from 'react-router-dom'
+import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
+import { cn } from '@/lib/utils'
+import { connect, disconnect, getConfig, getSettings, saveSettings } from '../stalkerApi'
+import { useApp } from '../App'
 
-const DEFAULT_FORM = {
-  portal: '',
-  mac: '',
-  timezone: 'Europe/London',
-  lang: 'en',
-  serial_number: '0000000000000',
-  device_id: '',
-  device_id2: '',
-  login: '',
-  password: '',
-  token: '',
-  signature: '',
-  portal_signature: '',
-  connection_timeout: 10,
+function Field({ label, id, hint, children }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <Label htmlFor={id}>{label}</Label>
+      {children}
+      {hint && <p className="text-xs text-[var(--color-muted)]">{hint}</p>}
+    </div>
+  )
 }
 
-export default function SetupPage({ onConnect, status }) {
-  const [form, setForm] = useState(DEFAULT_FORM)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [success, setSuccess] = useState(false)
-  const [advanced, setAdvanced] = useState(false)
-  const [savedCreds, setSavedCreds] = useState(null) // { portal_signature, tokens }
+function Card({ title, description, children, className }) {
+  return (
+    <div className={cn('rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 flex flex-col gap-5', className)}>
+      <div>
+        <h2 className="font-semibold text-[var(--color-text)]">{title}</h2>
+        {description && <p className="text-sm text-[var(--color-muted)] mt-0.5">{description}</p>}
+      </div>
+      {children}
+    </div>
+  )
+}
 
-  const loadConfig = () => {
-    getConfig().then((cfg) => {
+export default function SetupPage() {
+  const navigate = useNavigate()
+  const { connected, setConnected, setEpgEnabled } = useApp()
+
+  const [form, setForm] = useState({
+    portal: '', mac: '', timezone: 'Europe/London', lang: 'en',
+    login: '', password: '', token: '', serial_number: '0000000000000',
+    device_id: '', device_id2: '', signature: '', portal_signature: '',
+    connection_timeout: 10,
+  })
+  const [epg, setEpg] = useState(true)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [notice, setNotice] = useState(null) // { type: 'success'|'error', msg }
+
+  useEffect(() => {
+    getConfig().then(cfg => {
       if (!cfg) return
-      setForm((f) => ({
-        ...f,
-        portal:             cfg.portal             ?? f.portal,
-        mac:                cfg.mac                ?? f.mac,
-        timezone:           cfg.timezone           ?? f.timezone,
-        lang:               cfg.lang               ?? f.lang,
-        login:              cfg.login              ?? f.login,
-        serial_number:      cfg.serial_number      ?? f.serial_number,
-        device_id:          cfg.device_id          ?? f.device_id,
-        device_id2:         cfg.device_id2         ?? f.device_id2,
-        signature:          cfg.signature          ?? f.signature,
-        portal_signature:   cfg.portal_signature   ?? f.portal_signature,
-        connection_timeout: cfg.connection_timeout ?? f.connection_timeout,
-        token:              cfg.token              ?? f.token,
-      }))
-      setSavedCreds({
-        portal_signature: cfg.portal_signature || null,
-        tokens: cfg.tokens || {},
-      })
-      if (cfg.login || cfg.serial_number !== '0000000000000' ||
-          cfg.device_id || cfg.signature || cfg.token) {
-        setAdvanced(true)
-      }
+      setForm(f => ({ ...f, ...cfg }))
     }).catch(() => {})
+    getSettings().then(s => setEpg(s.epg_enabled !== false)).catch(() => {})
+  }, [])
+
+  function set(k) {
+    return (e) => setForm(f => ({ ...f, [k]: e.target.value }))
   }
 
-  useEffect(() => { loadConfig() }, [])
-
-  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
-
-  const handleConnect = async () => {
-    setError(null)
-    setSuccess(false)
-    if (!form.portal) { setError('Portal URL is required'); return }
-    if (!form.mac)    { setError('MAC address is required'); return }
+  async function handleConnect(e) {
+    e.preventDefault()
     setLoading(true)
+    setNotice(null)
     try {
       await connect(form)
-      setSuccess(true)
-      await onConnect()
-      loadConfig()
-    } catch (e) {
-      setError(e.message)
+      setConnected(true)
+      setNotice({ type: 'success', msg: 'Connected successfully.' })
+      setTimeout(() => navigate('/channels'), 900)
+    } catch (err) {
+      setNotice({ type: 'error', msg: err.message })
     } finally {
       setLoading(false)
     }
   }
 
-  const handleDisconnect = async () => {
-    await disconnect()
-    setSuccess(false)
-    await onConnect()
+  async function handleDisconnect() {
+    setLoading(true)
+    try {
+      await disconnect()
+      setConnected(false)
+      setNotice({ type: 'success', msg: 'Disconnected.' })
+    } catch (err) {
+      setNotice({ type: 'error', msg: err.message })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleEpgToggle(val) {
+    setEpg(val)
+    setEpgEnabled(val)
+    try {
+      await saveSettings({ epg_enabled: val })
+    } catch {
+      // non-critical
+    }
   }
 
   return (
-    <div style={{ maxWidth: 600, margin: '36px auto', padding: '0 24px' }}>
-
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, letterSpacing: '-0.4px', marginBottom: 6 }}>
-          Portal Setup
-        </h1>
-        <p style={{ color: 'var(--text-muted)', fontSize: 13.5 }}>
-          Configure your Stalker Middleware portal connection.
-        </p>
+    <div className="max-w-2xl mx-auto px-6 py-10 flex flex-col gap-6">
+      <div>
+        <h1 className="text-2xl font-semibold text-[var(--color-text)]">Settings</h1>
+        <p className="text-sm text-[var(--color-muted)] mt-1">Configure your portal connection and app preferences.</p>
       </div>
 
-      <div className="card" style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-
-        <div className="field">
-          <label>Portal URL</label>
-          <input
-            placeholder="http://your-portal.example.com/"
-            value={form.portal}
-            onChange={(e) => set('portal', e.target.value)}
-          />
+      {/* Notice banner */}
+      {notice && (
+        <div className={cn(
+          'flex items-center gap-2 rounded-[var(--radius-sm)] px-4 py-3 text-sm',
+          notice.type === 'success'
+            ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/25'
+            : 'bg-[var(--color-live)]/10 text-[var(--color-live)] border border-[var(--color-live)]/25'
+        )}>
+          {notice.type === 'success'
+            ? <CheckCircle2 size={16} className="shrink-0" />
+            : <XCircle size={16} className="shrink-0" />}
+          {notice.msg}
         </div>
+      )}
 
-        <div className="field">
-          <label>MAC Address</label>
-          <input
-            placeholder="00:1A:79:XX:XX:XX"
-            value={form.mac}
-            onChange={(e) => set('mac', e.target.value)}
-            style={{ fontFamily: 'Menlo, Consolas, monospace', letterSpacing: '0.03em' }}
-          />
-        </div>
-
-        <div className="field-row">
-          <div className="field">
-            <label>Timezone</label>
-            <input value={form.timezone} onChange={(e) => set('timezone', e.target.value)} />
+      {/* Portal connection card */}
+      <Card title="Portal Connection" description="Enter your Stalker Middleware portal details.">
+        <form onSubmit={handleConnect} className="flex flex-col gap-4">
+          <Field label="Portal URL" id="portal">
+            <Input
+              id="portal" type="url" placeholder="http://my.portal.com/c/"
+              value={form.portal} onChange={set('portal')} required
+            />
+          </Field>
+          <Field label="MAC Address" id="mac">
+            <Input
+              id="mac" type="text" placeholder="00:1A:79:XX:XX:XX"
+              value={form.mac} onChange={set('mac')} required
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Timezone" id="timezone">
+              <Input id="timezone" value={form.timezone} onChange={set('timezone')} />
+            </Field>
+            <Field label="Language" id="lang">
+              <Input id="lang" value={form.lang} onChange={set('lang')} />
+            </Field>
           </div>
-          <div className="field">
-            <label>Language</label>
-            <input value={form.lang} maxLength={5} onChange={(e) => set('lang', e.target.value)} />
-          </div>
-        </div>
 
-        <button
-          className="btn-secondary"
-          style={{ alignSelf: 'flex-start', padding: '5px 13px', fontSize: 12, borderRadius: 100 }}
-          onClick={() => setAdvanced((a) => !a)}
-        >
-          {advanced ? '▲ Hide advanced' : '▼ Advanced options'}
-        </button>
-
-        {advanced && (
-          <>
-            <div style={{ height: 1, background: 'var(--border)' }} />
-
-            <div className="field-row">
-              <div className="field">
-                <label>Login</label>
-                <input value={form.login} onChange={(e) => set('login', e.target.value)} />
-              </div>
-              <div className="field">
-                <label>Password</label>
-                <input type="password" value={form.password} onChange={(e) => set('password', e.target.value)} />
-              </div>
-            </div>
-
-            <div className="field">
-              <label>Token</label>
-              <input
-                value={form.token}
-                onChange={(e) => set('token', e.target.value)}
-                style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }}
-              />
-            </div>
-
-            <div className="field">
-              <label>Serial Number</label>
-              <input
-                value={form.serial_number}
-                onChange={(e) => set('serial_number', e.target.value)}
-                style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }}
-              />
-            </div>
-
-            <div className="field-row">
-              <div className="field">
-                <label>Device ID</label>
-                <input value={form.device_id} onChange={(e) => set('device_id', e.target.value)} style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }} />
-              </div>
-              <div className="field">
-                <label>Device ID2</label>
-                <input value={form.device_id2} onChange={(e) => set('device_id2', e.target.value)} style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }} />
-              </div>
-            </div>
-
-            <div className="field">
-              <label>Device Signature</label>
-              <input value={form.signature} onChange={(e) => set('signature', e.target.value)} style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }} />
-            </div>
-
-            <div className="field">
-              <label>Portal Signature <span style={{ fontWeight: 400, color: 'var(--text-dim)', textTransform: 'none', letterSpacing: 0 }}>(returned by portal after auth)</span></label>
-              <input
-                value={form.portal_signature}
-                onChange={(e) => set('portal_signature', e.target.value)}
-                placeholder="leave blank to use device signature"
-                style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 12 }}
-              />
-            </div>
-
-            <div className="field" style={{ maxWidth: 140 }}>
-              <label>Timeout (sec)</label>
-              <input
-                type="number"
-                min={3}
-                max={60}
-                value={form.connection_timeout}
-                onChange={(e) => set('connection_timeout', parseInt(e.target.value, 10))}
-              />
-            </div>
-          </>
-        )}
-
-        {error   && <div className="error-banner">{error}</div>}
-        {success && <div className="success-banner">✓ Connected successfully!</div>}
-
-        <div style={{ display: 'flex', gap: 10, paddingTop: 2 }}>
-          <button className="btn-primary" onClick={handleConnect} disabled={loading}
-            style={{ minWidth: 110 }}>
-            {loading
-              ? <span style={{ display: 'flex', alignItems: 'center', gap: 8, justifyContent: 'center' }}>
-                  <span className="spinner" style={{ width: 14, height: 14, borderWidth: 2 }} />
-                  Connecting…
-                </span>
-              : 'Connect'}
+          {/* Advanced toggle */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(v => !v)}
+            className="flex items-center gap-1.5 text-xs text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors w-fit"
+          >
+            {showAdvanced ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+            Advanced options
           </button>
-          {status?.connected && (
-            <button className="btn-danger" onClick={handleDisconnect}>Disconnect</button>
+
+          {showAdvanced && (
+            <div className="flex flex-col gap-4 pt-1 border-t border-[var(--color-border)]">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Login" id="login">
+                  <Input id="login" value={form.login} onChange={set('login')} />
+                </Field>
+                <Field label="Password" id="password">
+                  <Input id="password" type="password" value={form.password} onChange={set('password')} />
+                </Field>
+              </div>
+              <Field label="Token" id="token">
+                <Input id="token" value={form.token || ''} onChange={set('token')} className="font-mono text-xs" />
+              </Field>
+              <Field label="Portal Signature" id="portal_signature">
+                <Input id="portal_signature" value={form.portal_signature || ''} onChange={set('portal_signature')} className="font-mono text-xs" />
+              </Field>
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Serial Number" id="serial_number">
+                  <Input id="serial_number" value={form.serial_number} onChange={set('serial_number')} className="font-mono text-xs" />
+                </Field>
+                <Field label="Connection Timeout (s)" id="connection_timeout">
+                  <Input id="connection_timeout" type="number" min={3} max={60} value={form.connection_timeout} onChange={set('connection_timeout')} />
+                </Field>
+              </div>
+              <Field label="Device ID" id="device_id">
+                <Input id="device_id" value={form.device_id || ''} onChange={set('device_id')} className="font-mono text-xs" />
+              </Field>
+              <Field label="Device ID 2" id="device_id2">
+                <Input id="device_id2" value={form.device_id2 || ''} onChange={set('device_id2')} className="font-mono text-xs" />
+              </Field>
+              <Field label="Signature" id="signature">
+                <Input id="signature" value={form.signature || ''} onChange={set('signature')} className="font-mono text-xs" />
+              </Field>
+            </div>
           )}
-        </div>
 
-      </div>
+          <div className="flex items-center gap-3 pt-2">
+            <Button type="submit" disabled={loading} className="min-w-28">
+              {loading ? <Loader2 size={15} className="animate-spin" /> : connected ? 'Reconnect' : 'Connect'}
+            </Button>
+            {connected && (
+              <Button type="button" variant="outline" onClick={handleDisconnect} disabled={loading}>
+                Disconnect
+              </Button>
+            )}
+          </div>
+        </form>
+      </Card>
 
-      {status?.connected && (
-        <div className="card" style={{ marginTop: 18 }}>
-          <div className="card-title">Current Session</div>
-          <table className="session-table">
-            <tbody>
-              {[
-                ['Portal',  status.portal],
-                ['MAC',     status.mac],
-                ['Token',   status.token ? `${status.token.slice(0, 20)}…` : '—'],
-                ['Balance', status.profile?.balance ?? '—'],
-              ].map(([k, v]) => (
-                <tr key={k}>
-                  <td>{k}</td>
-                  <td>{v}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* App preferences card */}
+      <Card title="App Preferences" description="Customize how StalkerWeb behaves.">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text)]">EPG / Program Guide</p>
+            <p className="text-xs text-[var(--color-muted)] mt-0.5">Disable if your portal does not support EPG data.</p>
+          </div>
+          <Switch checked={epg} onCheckedChange={handleEpgToggle} />
         </div>
-      )}
-
-      {savedCreds && (savedCreds.portal_signature || Object.keys(savedCreds.tokens).length > 0) && (
-        <div className="card" style={{ marginTop: 18 }}>
-          <div className="card-title">Stored Credentials</div>
-          <table className="session-table">
-            <tbody>
-              {savedCreds.portal_signature && (
-                <tr>
-                  <td>Portal Sig</td>
-                  <td>{savedCreds.portal_signature}</td>
-                </tr>
-              )}
-              {Object.entries(savedCreds.tokens).map(([key, val]) => (
-                <tr key={key}>
-                  <td style={{ fontFamily: 'Menlo, Consolas, monospace', fontSize: 11 }}>{key}</td>
-                  <td>{val?.token ?? String(val)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      </Card>
     </div>
   )
 }

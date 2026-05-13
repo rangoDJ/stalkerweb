@@ -1,128 +1,163 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { getChannels, getGroups, getStreamUrl } from '../stalkerApi'
+import { Search, Tv2, AlertCircle, RefreshCw } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
+import { getChannels, getGroups } from '../stalkerApi'
 
-function ChannelLogo({ src, name }) {
-  const [err, setErr] = useState(false)
-  if (err || !src) return <div className="channel-logo-fallback">📺</div>
-  return <img className="channel-logo" src={src} alt={name} onError={() => setErr(true)} />
+function ChannelCard({ channel, onClick }) {
+  const [imgError, setImgError] = useState(false)
+
+  return (
+    <button
+      onClick={() => onClick(channel)}
+      className="group flex flex-col items-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 text-left transition-all duration-200 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] hover:shadow-[0_0_16px_var(--color-primary-glow)] cursor-pointer"
+    >
+      <div className="flex h-16 w-16 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
+        {channel.logo && !imgError ? (
+          <img
+            src={channel.logo}
+            alt={channel.name}
+            onError={() => setImgError(true)}
+            className="h-full w-full object-contain p-1"
+          />
+        ) : (
+          <Tv2 size={28} className="text-[var(--color-muted)]" />
+        )}
+      </div>
+      <div className="w-full text-center">
+        <p className="text-xs text-[var(--color-muted)] mb-0.5">Ch {channel.number || channel.id}</p>
+        <p className="text-sm font-medium text-[var(--color-text)] truncate leading-tight">
+          {channel.name}
+        </p>
+      </div>
+    </button>
+  )
 }
 
 export default function ChannelsPage() {
+  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+
   const [channels, setChannels] = useState([])
   const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [search, setSearch] = useState('')
-  const navigate = useNavigate()
 
-  const activeGroup = searchParams.get('group') || null
+  const activeGroup = searchParams.get('group') || ''
+  const [query, setQuery] = useState('')
 
-  const setActiveGroup = (id) => {
+  useEffect(() => {
+    getGroups().then(setGroups).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    getChannels(activeGroup || null)
+      .then(setChannels)
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [activeGroup])
+
+  const filtered = useMemo(() => {
+    if (!query.trim()) return channels
+    const q = query.toLowerCase()
+    return channels.filter(c => c.name?.toLowerCase().includes(q))
+  }, [channels, query])
+
+  function selectGroup(id) {
+    setQuery('')
     if (id) setSearchParams({ group: id })
     else setSearchParams({})
   }
 
-  const load = useCallback(async (groupId) => {
-    setLoading(true)
-    setError(null)
-    try {
-      const [chData, grData] = await Promise.all([getChannels(groupId), getGroups()])
-      setChannels(chData.channels || [])
-      setGroups(grData.groups || [])
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [])
-
-  useEffect(() => { load(activeGroup) }, [activeGroup, load])
-
-  const handlePlay = async (ch) => {
-    try {
-      const { streamUrl } = await getStreamUrl(ch.uniqueId)
-      sessionStorage.setItem('sw_stream', JSON.stringify({ url: streamUrl, name: ch.name }))
-      navigate('/player')
-    } catch (e) {
-      alert(`Could not resolve stream: ${e.message}`)
-    }
+  function openChannel(channel) {
+    navigate(`/player?channel=${channel.id}&name=${encodeURIComponent(channel.name)}`)
   }
 
-  const filtered = channels.filter((c) =>
-    !search || c.name.toLowerCase().includes(search.toLowerCase())
-  )
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Sticky filter bar */}
+      <div className="sticky top-14 z-30 bg-[var(--color-bg)]/90 backdrop-blur-sm border-b border-[var(--color-border)] px-6 py-3 flex items-center gap-3">
+        <div className="relative flex-1 max-w-64">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
+          <Input
+            placeholder="Search channels…"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            className="pl-8"
+          />
+        </div>
 
-      {/* Toolbar */}
-      <div className="page-header" style={{ flexWrap: 'wrap', gap: 10 }}>
-        <input
-          placeholder="Search channels…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          style={{ maxWidth: 210, flexShrink: 0 }}
-        />
-
-        <div className="pill-group">
+        {/* Group pills */}
+        <div className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none">
           <button
-            className={`pill${activeGroup === null ? ' active' : ''}`}
-            onClick={() => setActiveGroup(null)}
+            onClick={() => selectGroup('')}
+            className={cn(
+              'shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors',
+              !activeGroup
+                ? 'bg-[var(--color-primary)] text-white'
+                : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
+            )}
           >
             All
           </button>
-          {groups.map((g) => (
+          {groups.map(g => (
             <button
               key={g.id}
-              className={`pill${activeGroup === g.id ? ' active' : ''}`}
-              onClick={() => setActiveGroup(g.id)}
+              onClick={() => selectGroup(g.id)}
+              className={cn(
+                'shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap',
+                activeGroup === String(g.id)
+                  ? 'bg-[var(--color-primary)] text-white'
+                  : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
+              )}
             >
-              {g.name}
+              {g.title}
             </button>
           ))}
         </div>
 
-        <span style={{ marginLeft: 'auto', color: 'var(--text-dim)', fontSize: 12, whiteSpace: 'nowrap' }}>
-          {loading ? '…' : `${filtered.length} channels`}
+        <span className="shrink-0 text-xs text-[var(--color-muted)]">
+          {filtered.length} {filtered.length === 1 ? 'channel' : 'channels'}
         </span>
       </div>
 
-      {loading && (
-        <div className="centered full-height">
-          <div className="spinner" />
-        </div>
-      )}
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto px-6 py-5">
+        {loading && (
+          <div className="flex h-48 items-center justify-center">
+            <div className="h-6 w-6 rounded-full border-2 border-[var(--color-primary)] border-t-transparent animate-spin" />
+          </div>
+        )}
 
-      {error && (
-        <div style={{ padding: 20 }}>
-          <div className="error-banner">{error}</div>
-        </div>
-      )}
+        {!loading && error && (
+          <div className="flex flex-col items-center justify-center gap-3 h-48 text-center">
+            <AlertCircle size={32} className="text-[var(--color-live)]" />
+            <p className="text-sm text-[var(--color-muted)]">{error}</p>
+            <Button variant="outline" size="sm" onClick={() => setSearchParams({})}>
+              <RefreshCw size={14} /> Retry
+            </Button>
+          </div>
+        )}
 
-      {!loading && !error && (
-        <div className="channel-grid">
-          {filtered.map((ch) => (
-            <div
-              key={ch.uniqueId}
-              className="channel-card"
-              onClick={() => handlePlay(ch)}
-              title={`Ch ${ch.number} · Click to play`}
-            >
-              <ChannelLogo src={ch.iconPath} name={ch.name} />
-              <div className="channel-num">Ch {ch.number}</div>
-              <div className="channel-name">{ch.name}</div>
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div style={{ gridColumn: '1/-1', textAlign: 'center', color: 'var(--text-muted)',
-              paddingTop: 60, fontSize: 14 }}>
-              No channels found.
-            </div>
-          )}
-        </div>
-      )}
+        {!loading && !error && filtered.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-2 h-48 text-center">
+            <Tv2 size={32} className="text-[var(--color-muted)]" />
+            <p className="text-sm text-[var(--color-muted)]">No channels found.</p>
+          </div>
+        )}
+
+        {!loading && !error && filtered.length > 0 && (
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+            {filtered.map(ch => (
+              <ChannelCard key={ch.id} channel={ch} onClick={openChannel} />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

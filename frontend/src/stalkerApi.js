@@ -1,4 +1,3 @@
-// stalkerApi.js — thin wrapper around fetch() for the backend REST API
 const BASE = '/api'
 
 async function _get(path) {
@@ -37,6 +36,10 @@ export const connect = (body) => _post('/auth/connect', body)
 export const disconnect = () => _delete('/auth/disconnect')
 export const getStatus = () => _get('/auth/status')
 export const getConfig = () => _get('/auth/config')
+
+// ── Settings ──────────────────────────────────────────────────────────────
+export const getSettings = () => _get('/settings')
+export const saveSettings = (body) => _post('/settings', body)
 
 // ── Channels & Groups ─────────────────────────────────────────────────────
 export const getChannels = (group = null, refresh = false) => {

@@ -43,11 +43,13 @@ const { authRoutes, connectPortal } = require('./routes/auth')(appState, config)
 const channelRoutes = require('./routes/channels')(appState);
 const epgRoutes = require('./routes/epg')(appState);
 const streamRoutes = require('./routes/stream')(appState);
+const settingsRoutes = require('./routes/settings')(config);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/epg', epgRoutes);
 app.use('/api/stream', streamRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // ── Serve frontend (built React app) ──────────────────────────────────────
 const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
