@@ -38,12 +38,13 @@ module.exports = function m3uModule(appState) {
     const lines = ['#EXTM3U x-tvg-url=""'];
 
     for (const ch of channels) {
-      const group = groupName.get(String(ch.tvGenreId)) || '';
-      const logo  = ch.iconPath || '';
-      const name  = ch.name.replace(/,/g, ' '); // commas break the EXTINF line
+      const group  = groupName.get(String(ch.tvGenreId)) || '';
+      const logo   = ch.iconPath || '';
+      const name   = ch.name.replace(/,/g, ' '); // commas break the EXTINF line
+      const chno   = ch.number > 0 ? ` tvg-chno="${ch.number}"` : '';
 
       lines.push(
-        `#EXTINF:-1 tvg-id="${ch.uniqueId}" tvg-name="${name}" tvg-logo="${logo}" group-title="${group}",${name}`,
+        `#EXTINF:-1 tvg-id="${ch.uniqueId}"${chno} tvg-name="${name}" tvg-logo="${logo}" group-title="${group}",${name}`,
         `${base}/proxy/stream/${ch.uniqueId}`
       );
     }
