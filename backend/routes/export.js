@@ -10,6 +10,13 @@ const { DEVICE_PROFILE } = require('../stalker/deviceProfile');
 
 const STB_MODELS = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM'];
 
+const FIRMWARE_PRESETS = {
+  '0.2.16-234':         { image_description: '0.2.16-234',         image_version: '216', image_date: '18 Mar 2013 19:56:53 GMT+0200' },
+  '0.2.18-r14-pub-250': { image_description: '0.2.18-r14-pub-250', image_version: '218', image_date: 'Fri Jan 15 15:20:44 EET 2016' },
+  '0.2.18-r19-pub-250': { image_description: '0.2.18-r19-pub-250', image_version: '218', image_date: 'Fri Jan 15 15:20:44 EET 2016' },
+  'Generic':            { image_description: 'Generic',            image_version: '000', image_date: '' },
+};
+
 // Deterministic UUID v5 (SHA-1, DNS namespace) from the MAC address.
 function uuidV5(mac) {
   const ns   = Buffer.from('6ba7b8109dad11d180b400c04fd430c8', 'hex');
@@ -56,7 +63,7 @@ module.exports = function exportModule(config) {
   router.get('/stbemu', (req, res) => {
     const saved = cache.load() || {};
     const { portal, mac, timezone, serial_number, device_id, device_id2, signature,
-            stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware } = saved;
+            stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware, stbemu_firmware } = saved;
 
     if (!portal || !mac) {
       return res.status(400).json({ error: 'Not connected — portal and MAC are required' });
@@ -64,6 +71,7 @@ module.exports = function exportModule(config) {
 
     const model       = STB_MODELS.includes(stbemu_stb_model) ? stbemu_stb_model : 'MAG250';
     const profileName = (stbemu_profile_name || '').trim() || 'My IPTV Profile';
+    const fwPreset    = FIRMWARE_PRESETS[stbemu_firmware] || FIRMWARE_PRESETS['0.2.18-r14-pub-250'];
 
     const tokenKey = `stalker_${portalHash(portal)}`;
     const tokenVal = saved[tokenKey]?.token || saved.token || '';
@@ -143,9 +151,9 @@ module.exports = function exportModule(config) {
           firmware_player_engine_ver: DEVICE_PROFILE.player_engine_version || '0x566',
           firmware_js_api_ver:        DEVICE_PROFILE.js_api_version        || '328',
           firmware_stb_api_ver:       DEVICE_PROFILE.stb_api_version       || '134',
-          firmware_image_version:     DEVICE_PROFILE.image_version         || '216',
-          firmware_image_description: DEVICE_PROFILE.image_description     || '0.2.16-250',
-          firmware_image_date:        DEVICE_PROFILE.image_date            || '',
+          firmware_image_version:     fwPreset.image_version,
+          firmware_image_description: fwPreset.image_description,
+          firmware_image_date:        fwPreset.image_date,
           hardware_vendor:            'TeleTec',
           hardware_version:           '1.7-BD-00',
           udpxy_enabled:              false,
