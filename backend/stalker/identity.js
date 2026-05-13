@@ -28,11 +28,11 @@ function createIdentity(overrides = {}) {
  * Mirrors the hardcoded string in stb.c > sc_stb_get_profile_defaults().
  */
 const STB_VERSION_STRING =
-  'ImageDescription: 2.20.02-pub-520; ' +
-  'ImageDate: Thu Apr 29 15:17:55 EEST 2021; ' +
-  'PORTAL version: 5.6.1; ' +
-  'API Version: JS API version: 343; ' +
-  'STB API version: 146; ' +
-  'Player Engine version: 0x588';
+  'ImageDescription: 0.2.16-250; ' +
+  'ImageDate: 18 Mar 2013 19:56:53 GMT+0200; ' +
+  'PORTAL version: 4.9.9; ' +
+  'API Version: JS API version: 328; ' +
+  'STB API version: 134; ' +
+  'Player Engine version: 0x566';
 
 module.exports = { createIdentity, STB_VERSION_STRING };

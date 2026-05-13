@@ -16,7 +16,7 @@ const { STB_VERSION_STRING } = require('./identity');
 // This exact string comes from pvr.stalker / libstalkerclient.
 const STB_USER_AGENT =
   'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) ' +
-  'MAG520 stb mergotv/5.20.2.520 Safari/533.3';
+  'MAG200 stb mergotv/4.2.16.40 Safari/533.3';
 
 class StalkerClient {
   constructor() {
@@ -367,14 +367,14 @@ class StalkerClient {
     const params = {
       type:             'stb',
       action:           'get_profile',
-      stb_type:         'MAG520',
+      stb_type:         'MAG250',
       sn:               id.serial_number || '0000000000000',
       ver:              STB_VERSION_STRING,
       not_valid_token:  id.valid_token ? '0' : '1',
       auth_second_step: authSecondStep ? '1' : '0',
       hd:               '1',
       num_banks:        '1',
-      image_version:    '220',
+      image_version:    '216',
       hw_version:       '1.7-BD-00',
     };
 
