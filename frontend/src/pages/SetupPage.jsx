@@ -267,9 +267,6 @@ export default function SetupPage() {
               <Field label="Token" id="token">
                 <Input id="token" value={form.token || ''} onChange={set('token')} className="font-mono text-xs" />
               </Field>
-              <Field label="Portal Signature" id="portal_signature">
-                <Input id="portal_signature" value={form.portal_signature || ''} onChange={set('portal_signature')} className="font-mono text-xs" />
-              </Field>
               <div className="grid grid-cols-2 gap-4">
                 <Field label="Serial Number" id="serial_number">
                   <Input id="serial_number" value={form.serial_number} onChange={set('serial_number')} className="font-mono text-xs" />
