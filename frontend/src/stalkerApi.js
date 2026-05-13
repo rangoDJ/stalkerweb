@@ -64,5 +64,21 @@ export const addLogoOverride = (name, url) => _post('/logos', { name, url })
 export const deleteLogoOverride = (name) => _delete(`/logos/${encodeURIComponent(name)}`)
 export const refreshLogosDb = () => _post('/logos/refresh', {})
 
+// ── Favorites ─────────────────────────────────────────────────────────────
+export const getFavorites = () => _get('/favorites')
+export const addFavoriteChannel = (uniqueId) => _post('/favorites/channels', { uniqueId })
+export const removeFavoriteChannel = (uniqueId) => _delete(`/favorites/channels/${uniqueId}`)
+export const createFavoriteGroup = (name) => _post('/favorites/groups', { name })
+export const renameFavoriteGroup = (id, name) => {
+  return fetch(`/api/favorites/groups/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  }).then(r => r.json())
+}
+export const deleteFavoriteGroup = (id) => _delete(`/favorites/groups/${id}`)
+export const addChannelToGroup = (groupId, uniqueId) => _post(`/favorites/groups/${groupId}/channels`, { uniqueId })
+export const removeChannelFromGroup = (groupId, uniqueId) => _delete(`/favorites/groups/${groupId}/channels/${uniqueId}`)
+
 // ── Stream ────────────────────────────────────────────────────────────────
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)

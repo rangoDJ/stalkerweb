@@ -1,20 +1,32 @@
 import { useState, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Tv2, AlertCircle, RefreshCw } from 'lucide-react'
+import { Search, Tv2, AlertCircle, RefreshCw, Heart } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getChannels, getGroups, getLogoMap } from '../stalkerApi'
+import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
 
-function ChannelCard({ channel, logoUrl, onClick }) {
+function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick }) {
   const [imgError, setImgError] = useState(false)
   const logo = logoUrl || channel.iconPath || ''
 
   return (
     <button
       onClick={() => onClick(channel)}
-      className="group flex flex-col items-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 text-left transition-all duration-200 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] hover:shadow-[0_0_16px_var(--color-primary-glow)] cursor-pointer"
+      className="group relative flex flex-col items-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 text-left transition-all duration-200 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] hover:shadow-[0_0_16px_var(--color-primary-glow)] cursor-pointer"
     >
+      <button
+        onClick={e => { e.stopPropagation(); onToggleFavorite(channel) }}
+        className={cn(
+          'absolute top-2 right-2 p-1 rounded transition-colors',
+          isFavorite
+            ? 'text-rose-500'
+            : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400'
+        )}
+        aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+      >
+        <Heart size={14} fill={isFavorite ? 'currentColor' : 'none'} />
+      </button>
       <div className="flex h-16 w-16 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
         {logo && !imgError ? (
           <img
@@ -44,6 +56,7 @@ export default function ChannelsPage() {
   const [channels, setChannels] = useState([])
   const [groups, setGroups] = useState([])
   const [logoMap, setLogoMap] = useState({})
+  const [favoriteIds, setFavoriteIds] = useState(new Set())
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -53,7 +66,19 @@ export default function ChannelsPage() {
   useEffect(() => {
     getGroups().then(r => setGroups(r.groups ?? [])).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
+    getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
   }, [])
+
+  async function toggleFavorite(channel) {
+    const id = String(channel.uniqueId)
+    if (favoriteIds.has(id)) {
+      await removeFavoriteChannel(id).catch(() => {})
+      setFavoriteIds(prev => { const s = new Set(prev); s.delete(id); return s })
+    } else {
+      await addFavoriteChannel(id).catch(() => {})
+      setFavoriteIds(prev => new Set(prev).add(id))
+    }
+  }
 
   useEffect(() => {
     setLoading(true)
@@ -156,7 +181,14 @@ export default function ChannelsPage() {
         {!loading && !error && filtered.length > 0 && (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
             {filtered.map(ch => (
-              <ChannelCard key={ch.uniqueId} channel={ch} logoUrl={logoMap[String(ch.uniqueId)]} onClick={openChannel} />
+              <ChannelCard
+                key={ch.uniqueId}
+                channel={ch}
+                logoUrl={logoMap[String(ch.uniqueId)]}
+                isFavorite={favoriteIds.has(String(ch.uniqueId))}
+                onToggleFavorite={toggleFavorite}
+                onClick={openChannel}
+              />
             ))}
           </div>
         )}

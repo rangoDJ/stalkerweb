@@ -3,13 +3,13 @@ import { useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
-  List, Search, Loader2, AlertCircle, Tv2,
+  List, Search, Loader2, AlertCircle, Tv2, Heart,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { getChannels, getStreamUrl, getLogoMap } from '../stalkerApi'
+import { getChannels, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
 
 // ── Controls bar ──────────────────────────────────────────────────────────
 function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
@@ -85,7 +85,7 @@ function ChannelLogo({ src, name }) {
   )
 }
 
-function ChannelList({ channels, activeId, logoMap, onSelect }) {
+function ChannelList({ channels, activeId, logoMap, favoriteIds, onSelect, onToggleFavorite }) {
   const [query, setQuery] = useState('')
   const filtered = channels.filter(c => !query || c.name?.toLowerCase().includes(query.toLowerCase()))
 
@@ -103,21 +103,35 @@ function ChannelList({ channels, activeId, logoMap, onSelect }) {
         </div>
       </div>
       <ScrollArea className="flex-1">
-        {filtered.map(ch => (
-          <button
-            key={ch.uniqueId}
-            onClick={() => onSelect(ch)}
-            className={cn(
-              'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
-              String(ch.uniqueId) === String(activeId)
-                ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
-                : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
-            )}
-          >
-            <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} />
-            <span className="text-xs truncate">{ch.name}</span>
-          </button>
-        ))}
+        {filtered.map(ch => {
+          const isFav = favoriteIds.has(String(ch.uniqueId))
+          return (
+            <div
+              key={ch.uniqueId}
+              className={cn(
+                'group flex items-center gap-2.5 px-3 py-2 transition-colors',
+                String(ch.uniqueId) === String(activeId)
+                  ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
+                  : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
+              )}
+            >
+              <button className="flex items-center gap-2.5 flex-1 text-left min-w-0" onClick={() => onSelect(ch)}>
+                <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} />
+                <span className="text-xs truncate">{ch.name}</span>
+              </button>
+              <button
+                onClick={() => onToggleFavorite(ch)}
+                className={cn(
+                  'shrink-0 p-0.5 rounded transition-colors',
+                  isFav ? 'text-rose-500' : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400'
+                )}
+                aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'}
+              >
+                <Heart size={12} fill={isFav ? 'currentColor' : 'none'} />
+              </button>
+            </div>
+          )
+        })}
       </ScrollArea>
     </div>
   )
@@ -136,6 +150,7 @@ export default function PlayerPage() {
 
   const [channels, setChannels] = useState([])
   const [logoMap, setLogoMap] = useState({})
+  const [favoriteIds, setFavoriteIds] = useState(new Set())
   const [activeChannel, setActiveChannel] = useState(
     initChannelId ? { uniqueId: initChannelId, name: initChannelName } : null
   )
@@ -149,11 +164,23 @@ export default function PlayerPage() {
   const [volume, setVolume] = useState(80)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // Load channel list and logo map
+  // Load channel list, logo map, and favorites
   useEffect(() => {
     getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
+    getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
   }, [])
+
+  async function toggleFavorite(channel) {
+    const id = String(channel.uniqueId)
+    if (favoriteIds.has(id)) {
+      await removeFavoriteChannel(id).catch(() => {})
+      setFavoriteIds(prev => { const s = new Set(prev); s.delete(id); return s })
+    } else {
+      await addFavoriteChannel(id).catch(() => {})
+      setFavoriteIds(prev => new Set(prev).add(id))
+    }
+  }
 
   // Load stream when active channel changes
   useEffect(() => {
@@ -349,7 +376,9 @@ export default function PlayerPage() {
             channels={channels}
             activeId={activeChannel?.uniqueId}
             logoMap={logoMap}
+            favoriteIds={favoriteIds}
             onSelect={selectChannel}
+            onToggleFavorite={toggleFavorite}
           />
         )}
       </div>
