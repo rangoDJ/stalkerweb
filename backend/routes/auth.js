@@ -80,11 +80,8 @@ module.exports = function authModule(appState, config) {
     const channelManager = new ChannelManager(client);
     const guideManager = new GuideManager(client, `${config.dataDir}/cache`);
 
-    // Throws on auth failure
-    await sessionManager.authenticate();
-
-    // Persist config (save the resolved token too)
-    cache.save({
+    // Persist config before auth so settings survive a failed attempt or restart
+    const configToSave = {
       portal, mac,
       timezone: timezone || 'Europe/London',
       lang: lang || 'en',
@@ -94,8 +91,17 @@ module.exports = function authModule(appState, config) {
       device_id2: device_id2 || '',
       signature: signature || '',
       connection_timeout: connection_timeout || 10,
-      token: identity.token,
-    });
+      token: token || '',
+    };
+    cache.save(configToSave);
+
+    // Throws on auth failure
+    await sessionManager.authenticate();
+
+    // Update saved token with the one resolved during auth (may differ from input)
+    if (identity.token && identity.token !== (token || '')) {
+      cache.save({ ...configToSave, token: identity.token });
+    }
 
     // Store in app state
     appState.client = client;
