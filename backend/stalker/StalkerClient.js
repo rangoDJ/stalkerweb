@@ -219,7 +219,10 @@ class StalkerClient {
     if (id.serial_number) cookieParts.push(`sn=${id.serial_number}`);
     if (id.device_id)     cookieParts.push(`device_id=${id.device_id}`);
     if (id.device_id2)    cookieParts.push(`device_id2=${id.device_id2}`);
-    if (id.signature)     cookieParts.push(`sig=${id.signature}`);
+    // Use portal_signature (returned by portal after auth) if available,
+    // otherwise fall back to the user-configured device signature.
+    const sig = id.portal_signature || id.signature;
+    if (sig) cookieParts.push(`sig=${sig}`);
     if (!isHandshake && id.token) cookieParts.push(`token=${id.token}`);
 
     const headers = {

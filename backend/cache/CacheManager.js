@@ -89,6 +89,15 @@ class CacheManager {
     return null;
   }
 
+  // Save the portal-returned signature to config (distinct from user-configured signature).
+  savePortalSignature(sig) {
+    if (!sig) return false;
+    const existing = this.load() || {};
+    existing.portal_signature = sig;
+    console.log(`[CacheManager] portal_signature saved: ${sig}`);
+    return this.save(existing);
+  }
+
   clearAll() {
     try { fs.unlinkSync(this.configFile); } catch (_) {}
     const cacheDir = path.join(path.dirname(this.configFile), 'cache');

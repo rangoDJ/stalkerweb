@@ -17,7 +17,8 @@ function createIdentity(overrides = {}) {
     serial_number: '0000000000000',
     device_id: '',
     device_id2: '',
-    signature: '',
+    signature: '',        // user-configured device signature (sent on first auth)
+    portal_signature: '', // signature returned by the portal (used after first auth)
     ...overrides,
   };
 }

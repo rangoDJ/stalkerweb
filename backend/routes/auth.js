@@ -54,10 +54,17 @@ module.exports = function authModule(appState, config) {
 
     // Resolve token: prefer the stalker_HASH entry saved for this portal over
     // any token passed in the request body — the saved one is the most recent.
-    // Fall back to the passed token if no saved entry exists.
     const savedToken = cache.getToken(portal);
     const resolvedToken = savedToken || token || '';
     console.log(`[auth] token resolution: passed=${token || '(none)'}  saved=${savedToken || '(none)'}  using=${resolvedToken || '(none)'}`);
+
+    // Load saved portal_signature — overrides the user-configured device signature
+    // in Cookie: sig=... once the portal has issued one.
+    const existing = cache.load() || {};
+    const savedPortalSig = existing.portal_signature || '';
+    if (savedPortalSig) {
+      console.log(`[auth] portal_signature loaded from config: ${savedPortalSig}`);
+    }
 
     const identity = createIdentity({
       mac,
@@ -70,6 +77,7 @@ module.exports = function authModule(appState, config) {
       device_id: device_id || '',
       device_id2: device_id2 || '',
       signature: signature || '',
+      portal_signature: savedPortalSig,
     });
 
     const client = new StalkerClient();
@@ -90,7 +98,6 @@ module.exports = function authModule(appState, config) {
 
     // Persist config before auth so settings survive a failed attempt or restart.
     // Spread existing config first so stalker_HASH token entries are preserved.
-    const existing = cache.load() || {};
     const configToSave = {
       ...existing,
       portal, mac,
@@ -110,9 +117,14 @@ module.exports = function authModule(appState, config) {
     await sessionManager.authenticate();
     console.log(`[auth] authenticated ✓  token=${identity.token}`);
 
-    // Persist the token under stalker_HASH (STBEmu-compatible) and legacy field.
+    // Persist token under stalker_HASH (STBEmu-compatible) and legacy field.
     if (identity.token) {
       cache.saveToken(portal, identity.token);
+    }
+
+    // Persist portal_signature if the portal returned one during auth.
+    if (identity.portal_signature) {
+      cache.savePortalSignature(identity.portal_signature);
     }
 
     appState.client = client;
@@ -169,9 +181,11 @@ module.exports = function authModule(appState, config) {
 
     // Return only the flat setup fields; exclude internal stalker_* keys.
     const { portal, mac, timezone, lang, login, serial_number,
-            device_id, device_id2, signature, connection_timeout, token } = saved;
+            device_id, device_id2, signature, portal_signature,
+            connection_timeout, token } = saved;
     res.json({ portal, mac, timezone, lang, login, serial_number,
-               device_id, device_id2, signature, connection_timeout, token });
+               device_id, device_id2, signature, portal_signature,
+               connection_timeout, token });
   });
 
   // ── DELETE /api/auth/disconnect ────────────────────────────────────────────
