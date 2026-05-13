@@ -52,7 +52,7 @@ const settingsRoutes = require('./routes/settings')(config);
 const proxyRoutes = require('./routes/proxy')(appState);
 const m3uRoutes = require('./routes/m3u')(appState, logoManager);
 const xmltvRoutes = require('./routes/xmltv')(appState);
-const logosRoutes = require('./routes/logos')(logoManager);
+const logosRoutes = require('./routes/logos')(logoManager, appState);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/channels', channelRoutes);

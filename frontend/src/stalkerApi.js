@@ -59,6 +59,7 @@ export const getChannelEpg = (channelId, period = 24) =>
 
 // ── Logos ─────────────────────────────────────────────────────────────────
 export const getLogos = () => _get('/logos')
+export const getLogoMap = () => _get('/logos/map')
 export const addLogoOverride = (name, url) => _post('/logos', { name, url })
 export const deleteLogoOverride = (name) => _delete(`/logos/${encodeURIComponent(name)}`)
 export const refreshLogosDb = () => _post('/logos/refresh', {})
