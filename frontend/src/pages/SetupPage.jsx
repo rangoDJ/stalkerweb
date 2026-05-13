@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle, Trash2, RefreshCw, Image } from 'lucide-react'
+import { ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle, Trash2, RefreshCw, Image, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb } from '../stalkerApi'
+import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup } from '../stalkerApi'
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -62,12 +62,30 @@ export default function SetupPage() {
   const [testResult, setTestResult] = useState(null)
   const [deviceProfile, setDeviceProfile] = useState(null)
 
+  // STBEmu export settings
+  const STB_MODELS = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
+  const [stbEmu, setStbEmu] = useState({
+    stbemu_profile_name: '',
+    stbemu_stb_model: 'MAG250',
+    stbemu_custom_firmware: '',
+  })
+  const [stbEmuSaving, setStbEmuSaving]     = useState(false)
+  const [stbEmuExporting, setStbEmuExporting] = useState(false)
+  const [stbEmuNotice, setStbEmuNotice]     = useState(null)
+
   useEffect(() => {
     getConfig().then(cfg => {
       if (!cfg) return
       setForm(f => ({ ...f, ...cfg }))
     }).catch(() => {})
-    getSettings().then(s => setEpg(s.epg_enabled !== false)).catch(() => {})
+    getSettings().then(s => {
+      setEpg(s.epg_enabled !== false)
+      setStbEmu({
+        stbemu_profile_name:    s.stbemu_profile_name    || '',
+        stbemu_stb_model:       s.stbemu_stb_model       || 'MAG250',
+        stbemu_custom_firmware: s.stbemu_custom_firmware || '',
+      })
+    }).catch(() => {})
     getLogos().then(({ overrides, stats }) => {
       setLogoOverrides(overrides || {})
       setLogoStats(stats || null)
@@ -151,6 +169,32 @@ export default function SetupPage() {
       await saveSettings({ epg_enabled: val })
     } catch {
       // non-critical
+    }
+  }
+
+  async function handleStbEmuSave(e) {
+    e.preventDefault()
+    setStbEmuSaving(true)
+    setStbEmuNotice(null)
+    try {
+      await saveSettings(stbEmu)
+      setStbEmuNotice({ type: 'success', msg: 'Settings saved.' })
+    } catch (err) {
+      setStbEmuNotice({ type: 'error', msg: err.message })
+    } finally {
+      setStbEmuSaving(false)
+    }
+  }
+
+  async function handleStbEmuExport() {
+    setStbEmuExporting(true)
+    setStbEmuNotice(null)
+    try {
+      await downloadStbEmuBackup()
+    } catch (err) {
+      setStbEmuNotice({ type: 'error', msg: err.message })
+    } finally {
+      setStbEmuExporting(false)
     }
   }
 
@@ -268,6 +312,85 @@ export default function SetupPage() {
           </div>
           <Switch checked={epg} onCheckedChange={handleEpgToggle} />
         </div>
+      </Card>
+
+      {/* STBEmu Export card */}
+      <Card title="STBEmu Export" description="Generate an STBEmu-compatible backup file you can restore directly in the app.">
+        <form onSubmit={handleStbEmuSave} className="flex flex-col gap-4">
+
+          {stbEmuNotice && (
+            <div className={cn(
+              'flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs',
+              stbEmuNotice.type === 'success'
+                ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/25'
+                : 'bg-[var(--color-live)]/10 text-[var(--color-live)] border border-[var(--color-live)]/25'
+            )}>
+              {stbEmuNotice.type === 'success' ? <CheckCircle2 size={13} className="shrink-0" /> : <XCircle size={13} className="shrink-0" />}
+              {stbEmuNotice.msg}
+            </div>
+          )}
+
+          <Field label="Profile Name" id="stbemu_profile_name">
+            <Input
+              id="stbemu_profile_name"
+              placeholder="My IPTV Profile"
+              value={stbEmu.stbemu_profile_name}
+              onChange={e => setStbEmu(s => ({ ...s, stbemu_profile_name: e.target.value }))}
+            />
+          </Field>
+
+          <Field label="STB Model" id="stbemu_stb_model">
+            <select
+              id="stbemu_stb_model"
+              value={stbEmu.stbemu_stb_model}
+              onChange={e => setStbEmu(s => ({ ...s, stbemu_stb_model: e.target.value }))}
+              className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]"
+            >
+              {STB_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </Field>
+
+          {stbEmu.stbemu_stb_model === 'CUSTOM' && (
+            <Field label="Custom Firmware String" id="stbemu_custom_firmware" hint="e.g. mag-custom-2.20.02-pub-000">
+              <Input
+                id="stbemu_custom_firmware"
+                placeholder="mag-xxx-2.20.02-pub-xxx"
+                value={stbEmu.stbemu_custom_firmware}
+                onChange={e => setStbEmu(s => ({ ...s, stbemu_custom_firmware: e.target.value }))}
+                className="font-mono text-xs"
+              />
+            </Field>
+          )}
+
+          {stbEmu.stbemu_stb_model !== 'CUSTOM' && (
+            <p className="text-xs text-[var(--color-muted)]">
+              Firmware: <span className="font-mono">{
+                (() => {
+                  const slug = stbEmu.stbemu_stb_model.toLowerCase().replace(/^mag(\d+)$/, 'mag-$1')
+                  const num  = stbEmu.stbemu_stb_model.replace(/^MAG/, '')
+                  return `${slug}-2.20.02-pub-${num}`
+                })()
+              }</span>
+            </p>
+          )}
+
+          <div className="flex items-center gap-3 pt-1">
+            <Button type="submit" variant="outline" disabled={stbEmuSaving} className="h-9 px-4 text-sm">
+              {stbEmuSaving ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
+            </Button>
+            <Button
+              type="button"
+              onClick={handleStbEmuExport}
+              disabled={stbEmuExporting}
+              className="h-9 px-4 text-sm gap-2"
+            >
+              {stbEmuExporting
+                ? <Loader2 size={14} className="animate-spin" />
+                : <Download size={14} />}
+              Download Backup
+            </Button>
+          </div>
+        </form>
       </Card>
 
       {/* Channel Logos card */}

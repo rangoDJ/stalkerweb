@@ -62,6 +62,7 @@ const m3uRoutes = require('./routes/m3u')(appState, logoManager);
 const xmltvRoutes = require('./routes/xmltv')(appState);
 const logosRoutes     = require('./routes/logos')(logoManager, appState);
 const favoritesRoutes = require('./routes/favorites')(favoritesManager, appState);
+const exportRoutes    = require('./routes/export')(config);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/channels', channelRoutes);
@@ -70,6 +71,7 @@ app.use('/api/stream', streamRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/logos', logosRoutes);
 app.use('/api/favorites', favoritesRoutes);
+app.use('/api/export', exportRoutes);
 app.use('/api/m3u', m3uRoutes);
 app.use('/api/xmltv', xmltvRoutes);
 // /proxy must be registered before the SPA static fallback
