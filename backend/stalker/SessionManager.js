@@ -74,7 +74,16 @@ class SessionManager {
     if (data && data.js === false) {
       throw new Error('do_auth: authentication rejected by portal');
     }
-    // Some portals return {js: true} on success — just pass through
+    
+    // Check for token rotation
+    if (data && data.js && typeof data.js === 'object') {
+      if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
+        console.log(`[SessionManager] Token rotated during do_auth! Old: ${this.identity.token}, New: ${data.js.token}`);
+        this.identity.token = data.js.token;
+        this.client.setIdentity(this.identity);
+        this.client.updateTokenCookie(data.js.token);
+      }
+    }
   }
 
   // ── GetProfile ─────────────────────────────────────────────────────────────
@@ -83,6 +92,16 @@ class SessionManager {
     const data = await this.client.stbGetProfile(authSecondStep);
 
     if (!data || !data.js) throw new Error('get_profile: empty response');
+
+    // Check for token rotation
+    if (data && data.js && typeof data.js === 'object') {
+      if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
+        console.log(`[SessionManager] Token rotated during get_profile! Old: ${this.identity.token}, New: ${data.js.token}`);
+        this.identity.token = data.js.token;
+        this.client.setIdentity(this.identity);
+        this.client.updateTokenCookie(data.js.token);
+      }
+    }
 
     const js = data.js;
     this.profile = {

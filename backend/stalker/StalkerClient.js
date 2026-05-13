@@ -7,6 +7,8 @@
 'use strict';
 
 const axios = require('axios');
+const { wrapper } = require('axios-cookiejar-support');
+const { CookieJar, Cookie } = require('tough-cookie');
 const { STB_VERSION_STRING } = require('./identity');
 
 // The STB user-agent is critical — portals detect it to decide whether
@@ -23,6 +25,12 @@ class StalkerClient {
     this.basePath = '';     // m_basePath  → e.g. http://host/stalker_portal/
     this.referer  = '';     // m_referer   → e.g. http://host/stalker_portal/c/
     this.timeout  = 10000; // ms
+    this.jar = new CookieJar();
+    this.http = wrapper(axios.create({
+      jar: this.jar,
+      withCredentials: true,
+      maxRedirects: 10
+    }));
   }
 
   setIdentity(identity) {
@@ -31,6 +39,92 @@ class StalkerClient {
 
   setTimeout(seconds) {
     this.timeout = seconds * 1000;
+  }
+
+  updateTokenCookie(token) {
+    if (!this.basePath) return;
+    try {
+      const uri = new URL(this.basePath);
+      const domainUrl = `${uri.protocol}//${uri.host}`;
+      const cookie = new Cookie({ key: 'token', value: token });
+      this.jar.setCookieSync(cookie, domainUrl, { ignoreError: true });
+    } catch (e) {
+      console.warn('[StalkerClient] Failed to set token cookie', e.message);
+    }
+  }
+
+  async initialize(url) {
+    let server = url.trim();
+    if (!server.includes('://')) server = 'http://' + server;
+
+    console.log(`[StalkerClient] Discovering portal redirects for: ${server}`);
+    
+    // Clear cookie jar for fresh auth
+    this.jar.removeAllSync();
+
+    // Set initial raw cookies
+    // Note: We don't URL encode these as per C# reference.
+    const id = this.identity;
+    const uri = new URL(server);
+    const domainUrl = `${uri.protocol}//${uri.host}`;
+    
+    const setRawCookie = (key, value, targetDomain = domainUrl) => {
+      if (value !== undefined && value !== null) {
+        const cookie = new Cookie({ key, value: String(value) });
+        this.jar.setCookieSync(cookie, targetDomain, { ignoreError: true });
+      }
+    };
+
+    setRawCookie('mac', id.mac);
+    setRawCookie('stb_lang', id.lang || 'en');
+    setRawCookie('timezone', id.time_zone || 'America/New_York');
+    if (id.serial_number) setRawCookie('sn', id.serial_number);
+    if (id.device_id) setRawCookie('device_id', id.device_id);
+    if (id.device_id2) setRawCookie('device_id2', id.device_id2);
+    if (id.signature) setRawCookie('sig', id.signature);
+
+    try {
+      const resp = await this.http.get(server, { 
+        headers: { 'User-Agent': STB_USER_AGENT, 'X-User-Agent': 'Model: MAG250; Link: WiFi' },
+        timeout: this.timeout,
+        validateStatus: () => true 
+      });
+      // Get the effective URL after any redirects
+      const effectiveUrl = resp.request && resp.request.res ? resp.request.res.responseUrl : server;
+      if (effectiveUrl && effectiveUrl !== server) {
+        console.log(`[StalkerClient] Redirect discovered. Effective URL: ${effectiveUrl}`);
+        server = effectiveUrl;
+        
+        // Copy cookies to new domain
+        const newUri = new URL(server);
+        const newDomainUrl = `${newUri.protocol}//${newUri.host}`;
+        setRawCookie('mac', id.mac, newDomainUrl);
+        setRawCookie('stb_lang', id.lang || 'en', newDomainUrl);
+        setRawCookie('timezone', id.time_zone || 'America/New_York', newDomainUrl);
+        if (id.serial_number) setRawCookie('sn', id.serial_number, newDomainUrl);
+        if (id.device_id) setRawCookie('device_id', id.device_id, newDomainUrl);
+        if (id.device_id2) setRawCookie('device_id2', id.device_id2, newDomainUrl);
+        if (id.signature) setRawCookie('sig', id.signature, newDomainUrl);
+      }
+    } catch (e) {
+      console.warn('[StalkerClient] Could not discover redirects (non-fatal)', e.message);
+    }
+
+    // Set endpoints based on effective server URL
+    this.setEndpoint(server);
+
+    // Load portal page to establish PHPSESSID
+    const portalPageUrl = `${this.basePath}c/`;
+    console.log(`[StalkerClient] Loading portal page to establish session: ${portalPageUrl}`);
+    try {
+      await this.http.get(portalPageUrl, {
+        headers: { 'User-Agent': STB_USER_AGENT, 'X-User-Agent': 'Model: MAG250; Link: WiFi' },
+        timeout: this.timeout,
+        validateStatus: () => true
+      });
+    } catch (e) {
+      console.warn('[StalkerClient] Could not load portal page (non-fatal)', e.message);
+    }
   }
 
   // ── Endpoint normalisation ─────────────────────────────────────────────────
@@ -106,7 +200,6 @@ class StalkerClient {
     const id = this.identity;
     const headers = {
       'User-Agent':   STB_USER_AGENT,
-      'Cookie':       `mac=${id.mac}; stb_lang=${id.lang}; timezone=${id.time_zone}`,
       'Referer':      this.referer,
       'X-User-Agent': 'Model: MAG250; Link: WiFi',
     };
@@ -124,25 +217,63 @@ class StalkerClient {
     const headers = this._buildHeaders(isHandshake);
 
     const params = new URLSearchParams(queryParams);
-    const url = `${this.endpoint}?${params.toString()}`;
+    let url = `${this.endpoint}?${params.toString()}`;
 
-    console.log(`[StalkerClient] GET ${url}`);
+    // 404 Fallback logic for handshake
+    if (isHandshake) {
+      const urlsToTry = [
+        url,
+        `${this.basePath}stalker_portal/server/load.php?${params.toString()}`,
+        `${this.basePath}portal/server/load.php?${params.toString()}`
+      ];
 
-    const response = await axios.get(url, {
-      headers,
-      timeout: this.timeout,
-      // Follow redirects but keep our custom headers
-      maxRedirects: 5,
-    });
+      let lastError = null;
+      for (const tryUrl of urlsToTry) {
+        console.log(`[StalkerClient] GET ${tryUrl}`);
+        try {
+          const response = await this.http.get(tryUrl, {
+            headers,
+            timeout: this.timeout,
+            validateStatus: (status) => status < 500 // Accept 404 so we can inspect it
+          });
 
-    const body = response.data;
+          if (response.status === 404) {
+            console.log(`[StalkerClient] 404 Not Found at ${tryUrl}, trying fallback...`);
+            continue; // try next
+          }
+          
+          if (response.status >= 400 && response.status !== 404) {
+             throw new Error(`HTTP ${response.status}`);
+          }
 
-    // Stalker portals return plain-text "Authorization failed." on auth errors
+          // We got a successful response
+          const effectiveUrl = response.request && response.request.res ? response.request.res.responseUrl : tryUrl;
+          if (effectiveUrl && effectiveUrl !== tryUrl) {
+             console.log(`[StalkerClient] Handshake redirected to ${effectiveUrl}, updating endpoints`);
+             this.setEndpoint(effectiveUrl);
+          }
+
+          return this._parseResponse(response.data);
+        } catch (e) {
+          lastError = e;
+        }
+      }
+      throw new StalkerError('API', `Handshake failed on all paths. Last error: ${lastError ? lastError.message : '404 Not Found'}`);
+    } else {
+      console.log(`[StalkerClient] GET ${url}`);
+      const response = await this.http.get(url, {
+        headers,
+        timeout: this.timeout
+      });
+      return this._parseResponse(response.data);
+    }
+  }
+
+  _parseResponse(body) {
     if (typeof body === 'string') {
       if (body.includes('Authorization failed')) {
         throw new StalkerError('AUTHORIZATION', 'Portal returned: Authorization failed.');
       }
-      // Detect HTML responses — means wrong URL or missing STB User-Agent
       if (body.trimStart().startsWith('<!') || body.trimStart().startsWith('<html')) {
         throw new StalkerError(
           'API',
@@ -268,7 +399,7 @@ class StalkerClient {
       `?channel=${encodeURIComponent(channel)}` +
       `&mac=${encodeURIComponent(this.identity.mac)}`;
 
-    const response = await axios.get(matrixUrl, {
+    const response = await this.http.get(matrixUrl, {
       headers: this._buildHeaders(),
       timeout: this.timeout,
     });
