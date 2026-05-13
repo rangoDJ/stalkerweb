@@ -46,7 +46,7 @@ export default function GuidePage() {
     if (!activeChannel?.id) return
     setLoadingEpg(true)
     setEpg([])
-    getChannelEpg(activeChannel.id, period)
+    getChannelEpg(activeChannel.uniqueId, period)
       .then(data => setEpg(Array.isArray(data) ? data : data?.epg || []))
       .catch(() => setEpg([]))
       .finally(() => setLoadingEpg(false))
@@ -71,7 +71,7 @@ export default function GuidePage() {
                 onClick={() => setActiveChannel(ch)}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-colors',
-                  ch.id === activeChannel?.id
+                  ch.uniqueId === activeChannel?.uniqueId
                     ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
                     : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
                 )}
@@ -111,7 +111,7 @@ export default function GuidePage() {
             <Button
               size="sm"
               variant="outline"
-              onClick={() => navigate(`/player?channel=${activeChannel.id}&name=${encodeURIComponent(activeChannel.name)}`)}
+              onClick={() => navigate(`/player?channel=${activeChannel.uniqueId}&name=${encodeURIComponent(activeChannel.name)}`)}
             >
               <Play size={13} /> Watch
             </Button>

@@ -93,11 +93,11 @@ function ChannelList({ channels, activeId, onSelect }) {
       <ScrollArea className="flex-1">
         {filtered.map(ch => (
           <button
-            key={ch.id}
+            key={ch.uniqueId}
             onClick={() => onSelect(ch)}
             className={cn(
               'w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors',
-              ch.id === activeId
+              String(ch.uniqueId) === String(activeId)
                 ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
                 : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
             )}
@@ -151,7 +151,7 @@ export default function PlayerPage() {
     setStatus('loading')
     setErrorMsg('')
     try {
-      const { url } = await getStreamUrl(channelId)
+      const { streamUrl: url } = await getStreamUrl(channelId)
       setStreamUrl(url)
     } catch (e) {
       setStatus('error')
@@ -250,7 +250,7 @@ export default function PlayerPage() {
 
   function selectChannel(ch) {
     setActiveChannel(ch)
-    setSearchParams({ channel: ch.id, name: encodeURIComponent(ch.name) })
+    setSearchParams({ channel: ch.uniqueId, name: encodeURIComponent(ch.name) })
   }
 
   return (
@@ -333,7 +333,7 @@ export default function PlayerPage() {
         {channels.length > 0 && (
           <ChannelList
             channels={channels}
-            activeId={activeChannel?.id}
+            activeId={activeChannel?.uniqueId}
             onSelect={selectChannel}
           />
         )}
