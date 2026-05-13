@@ -11,6 +11,7 @@
 const fs    = require('fs');
 const path  = require('path');
 const axios = require('axios');
+const CacheManager = require('../cache/CacheManager');
 
 const CHANNELS_URL = 'https://raw.githubusercontent.com/iptv-org/database/master/data/channels.csv';
 const LOGOS_URL    = 'https://raw.githubusercontent.com/iptv-org/database/master/data/logos.csv';
@@ -68,9 +69,8 @@ module.exports.normName = normName;
 class LogoManager {
   constructor(dataDir) {
     this._mapCacheFile  = path.join(dataDir, 'cache', 'iptv-org-logos.json');
-    this._overrideFile  = path.join(dataDir, 'logos.json');
+    this._cache         = new CacheManager(dataDir);
     this._logoMap       = null;   // Map<normalizedName, logoUrl>
-    this._overrides     = null;   // { channelName: logoUrl }
     this._cachedAt      = null;
     this._refreshing    = false;
   }
@@ -120,34 +120,30 @@ class LogoManager {
     };
   }
 
-  getOverrides() { return { ...this._getOverrides() }; }
+  getOverrides() { return this._getOverrides(); }
 
   setOverride(name, url) {
     const ov = this._getOverrides();
     ov[name] = url;
-    this._overrides = ov;
-    this._saveOverrides();
+    this._saveOverrides(ov);
   }
 
   deleteOverride(name) {
     const ov = this._getOverrides();
     delete ov[name];
-    this._overrides = ov;
-    this._saveOverrides();
+    this._saveOverrides(ov);
   }
 
   // ── Private ────────────────────────────────────────────────────────────────
 
   _getOverrides() {
-    if (this._overrides) return this._overrides;
-    try { this._overrides = JSON.parse(fs.readFileSync(this._overrideFile, 'utf8')); }
-    catch { this._overrides = {}; }
-    return this._overrides;
+    return this._cache.load()?.logo_overrides || {};
   }
 
-  _saveOverrides() {
-    try { fs.writeFileSync(this._overrideFile, JSON.stringify(this._overrides, null, 2), 'utf8'); }
-    catch (e) { console.error('[logos] failed to save overrides:', e.message); }
+  _saveOverrides(overrides) {
+    const config = this._cache.load() || {};
+    config.logo_overrides = overrides;
+    this._cache.save(config);
   }
 
   async _loadOrDownload(forceDownload) {
