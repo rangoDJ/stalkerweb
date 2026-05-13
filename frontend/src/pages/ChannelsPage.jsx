@@ -29,7 +29,7 @@ function ChannelCard({ channel, logoUrl, onClick }) {
       </div>
       <div className="w-full text-center">
         <p className="text-xs text-[var(--color-muted)] mb-0.5">Ch {channel.number}</p>
-        <p className="text-sm font-medium text-[var(--color-text)] truncate leading-tight">
+        <p className="text-sm font-medium text-[var(--color-text)] leading-tight break-words">
           {channel.name}
         </p>
       </div>
@@ -154,7 +154,7 @@ export default function ChannelsPage() {
         )}
 
         {!loading && !error && filtered.length > 0 && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
             {filtered.map(ch => (
               <ChannelCard key={ch.uniqueId} channel={ch} logoUrl={logoMap[String(ch.uniqueId)]} onClick={openChannel} />
             ))}
