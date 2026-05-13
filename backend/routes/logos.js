@@ -1,8 +1,10 @@
 // routes/logos.js
-// GET    /api/logos          — return overrides + iptv-org db stats
-// POST   /api/logos          — add/update a manual override { name, url }
-// DELETE /api/logos/:name    — remove a manual override
-// POST   /api/logos/refresh  — force re-download the iptv-org database
+// GET    /api/logos               — overrides + db stats + matched-channel count
+// GET    /api/logos/map           — { [uniqueId]: logoUrl } for all channels
+// GET    /api/logos/check?name=…  — diagnostic: resolve a single channel name
+// POST   /api/logos               — add/update a manual override { name, url }
+// DELETE /api/logos/:name         — remove a manual override
+// POST   /api/logos/refresh       — force re-download the iptv-org database
 
 'use strict';
 
@@ -12,10 +14,22 @@ module.exports = function logosModule(logoManager, appState) {
   const router = express.Router();
 
   router.get('/', (_req, res) => {
-    res.json({
-      overrides: logoManager.getOverrides(),
-      stats: logoManager.getStats(),
-    });
+    const stats = logoManager.getStats();
+    // Include matched-channel count when channel list is available
+    const channelManager = appState?.channelManager;
+    if (channelManager) {
+      const channels = channelManager.getChannels();
+      stats.total_channels  = channels.length;
+      stats.matched_channels = channels.filter(ch => !!logoManager.getLogo(ch.name)).length;
+    }
+    res.json({ overrides: logoManager.getOverrides(), stats });
+  });
+
+  // Debug: resolve a single channel name
+  router.get('/check', (req, res) => {
+    const { name } = req.query;
+    if (!name) return res.status(400).json({ error: 'name query param required' });
+    res.json(logoManager.checkName(name));
   });
 
   // Returns { [uniqueId]: logoUrl } for all loaded channels — used by the web UI

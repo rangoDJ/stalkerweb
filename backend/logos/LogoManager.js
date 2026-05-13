@@ -15,15 +15,23 @@ const axios = require('axios');
 const DB_URL     = 'https://raw.githubusercontent.com/iptv-org/database/master/data/channels.json';
 const CACHE_TTL  = 24 * 60 * 60 * 1000; // 24 h
 
-// Strip common suffixes and non-alphanumeric chars for fuzzy matching.
+// Normalize a channel name for fuzzy matching.
+// Handles common IPTV naming patterns:
+//   "BBC ONE HD"          → "bbcone"
+//   "BBC ONE (UK) FHD"    → "bbcone"
+//   "01 CNN INTERNATIONAL"→ "cnninternational"
+//   "Al Jazeera +1"       → "aljazeera"
 function normName(name) {
   return String(name || '')
     .toLowerCase()
-    .replace(/\b(hd|4k|uhd|fhd|sd)\b/g, '')
-    .replace(/\+1$/, '')
-    .replace(/[^a-z0-9]/g, '')
-    .trim();
+    .replace(/\s*\([^)]*\)/g, '')                              // strip (parenthetical)
+    .replace(/\b(hd|4k|uhd|fhd|sd|h265|hevc|avc|1080p|720p|480p|h\.?264)\b/g, '')
+    .replace(/\s*\+\d+$/, '')                                  // strip +1 / +2 etc.
+    .replace(/^\d+\s+/, '')                                    // strip leading "01 " numbers
+    .replace(/[^a-z0-9]/g, '');                                // keep only alphanumeric
 }
+
+module.exports.normName = normName;
 
 class LogoManager {
   constructor(dataDir) {
@@ -70,6 +78,13 @@ class LogoManager {
   async refresh() {
     await this._loadOrDownload(true);
     return this.getStats();
+  }
+
+  // Debug helper: returns the resolved logo URL plus diagnostic info for a name.
+  checkName(name) {
+    const norm = normName(name);
+    const logo = this.getLogo(name);
+    return { name, normalized: norm, logo: logo || null, db_loaded: this._logoMap !== null };
   }
 
   getStats() {
