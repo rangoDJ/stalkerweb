@@ -204,12 +204,26 @@ class StalkerClient {
   // ── Header building ────────────────────────────────────────────────────────
   // Mirrors sc_request_build_headers() in request.c + SAPI::StalkerCall() extras
   //
-  // request.c sets:   Cookie, Authorization (non-handshake)
-  // SAPI.cpp adds:    Referer, X-User-Agent, X-Requested-With, Accept
-  // We add:           User-Agent (STB string — CRITICAL for portal JSON responses)
+  // Identity cookies (mac, stb_lang, timezone, etc.) are set explicitly in the
+  // Cookie header — raw, no URL encoding — matching request.c behaviour.
+  // The cookie jar (via http-cookie-agent) merges in PHPSESSID on top of these.
   _buildHeaders(isHandshake = false) {
     const id = this.identity;
+
+    // Build raw cookie string — mirrors sc_request_build_headers() in request.c
+    const cookieParts = [
+      `mac=${id.mac}`,
+      `stb_lang=${id.lang || 'en'}`,
+      `timezone=${id.time_zone || 'America/New_York'}`,
+    ];
+    if (id.serial_number) cookieParts.push(`sn=${id.serial_number}`);
+    if (id.device_id)     cookieParts.push(`device_id=${id.device_id}`);
+    if (id.device_id2)    cookieParts.push(`device_id2=${id.device_id2}`);
+    if (id.signature)     cookieParts.push(`sig=${id.signature}`);
+    if (!isHandshake && id.token) cookieParts.push(`token=${id.token}`);
+
     const headers = {
+      'Cookie':            cookieParts.join('; '),
       'User-Agent':        STB_USER_AGENT,
       'Referer':           this.referer,
       'X-User-Agent':      'Model: MAG250; Link: WiFi',
