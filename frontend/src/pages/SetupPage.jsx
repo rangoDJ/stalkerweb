@@ -582,7 +582,7 @@ export default function SetupPage() {
               placeholder="Channel name"
               value={newLogoName}
               onChange={e => setNewLogoName(e.target.value)}
-              className="text-xs"
+              className="text-xs flex-1"
             />
             <Input
               placeholder="Logo URL"
