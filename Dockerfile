@@ -26,9 +26,9 @@ COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 RUN mkdir -p /app/data/cache
 
 ENV NODE_ENV=production \
-    PORT=3000 \
+    PORT=8983 \
     DATA_DIR=/app/data
 
-EXPOSE 3000
+EXPOSE 8983
 
 CMD ["node", "backend/server.js"]
