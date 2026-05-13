@@ -16,6 +16,11 @@ const { createIdentity } = require('../stalker/identity');
 const { DEVICE_PROFILE } = require('../stalker/deviceProfile');
 const CacheManager = require('../cache/CacheManager');
 
+// Ensure portal URL always ends with /c/
+function normalizePortal(url) {
+  return String(url).trim().replace(/\/c\/?$/, '').replace(/\/?$/, '') + '/c/';
+}
+
 module.exports = function authModule(appState, config) {
   const router = express.Router();
   const cache = new CacheManager(config.dataDir);
@@ -23,7 +28,6 @@ module.exports = function authModule(appState, config) {
   // ── Shared connect logic ───────────────────────────────────────────────────
   async function connectPortal(body) {
     const {
-      portal,
       mac,
       timezone,
       lang,
@@ -41,7 +45,8 @@ module.exports = function authModule(appState, config) {
     if (!portal) throw new Error('portal URL is required');
     if (!mac)    throw new Error('MAC address is required');
 
-    console.log(`[auth] connectPortal: portal=${portal} mac=${mac} timezone=${timezone || 'Europe/London'}`);
+    const portalUrl = normalizePortal(portal);
+    console.log(`[auth] connectPortal: portal=${portalUrl} mac=${mac} timezone=${timezone || 'Europe/London'}`);
 
     // Tear down existing session
     if (appState.sessionManager) {
@@ -56,7 +61,7 @@ module.exports = function authModule(appState, config) {
 
     // Resolve token: prefer the stalker_HASH entry saved for this portal over
     // any token passed in the request body — the saved one is the most recent.
-    const savedToken = cache.getToken(portal);
+    const savedToken = cache.getToken(portalUrl);
     const resolvedToken = savedToken || token || '';
     console.log(`[auth] token resolution: passed=${token || '(none)'}  saved=${savedToken || '(none)'}  using=${resolvedToken || '(none)'}`);
 
@@ -86,8 +91,8 @@ module.exports = function authModule(appState, config) {
     client.setIdentity(identity);
     client.setTimeout(connection_timeout || 10);
 
-    console.log(`[auth] initialising client for ${portal}`);
-    await client.initialize(portal);
+    console.log(`[auth] initialising client for ${portalUrl}`);
+    await client.initialize(portalUrl);
 
     const sessionManager = new SessionManager(client);
     sessionManager.setIdentity(identity, !!resolvedToken);
@@ -102,7 +107,7 @@ module.exports = function authModule(appState, config) {
     // Spread existing config first so stalker_HASH token entries are preserved.
     const configToSave = {
       ...existing,
-      portal, mac,
+      portal: portalUrl, mac,
       timezone: timezone || 'Europe/London',
       lang: lang || 'en',
       login: login || '',
@@ -121,7 +126,7 @@ module.exports = function authModule(appState, config) {
 
     // Persist token under stalker_HASH (STBEmu-compatible) and legacy field.
     if (identity.token) {
-      cache.saveToken(portal, identity.token);
+      cache.saveToken(portalUrl, identity.token);
     }
 
     // Persist portal_signature if the portal returned one during auth.
