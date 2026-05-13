@@ -73,7 +73,7 @@ export default function ChannelsPage() {
   }, [])
 
   useEffect(() => {
-    getGroups().then(r => setGroups(r.groups ?? [])).catch(() => {})
+    getGroups().then(r => setGroups((r.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all'))).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
     getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
   }, [])
