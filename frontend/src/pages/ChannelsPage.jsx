@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Tv2, AlertCircle, RefreshCw, Heart } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -62,6 +62,15 @@ export default function ChannelsPage() {
 
   const activeGroup = searchParams.get('group') || ''
   const [query, setQuery] = useState('')
+  const pillsRef = useRef(null)
+
+  useEffect(() => {
+    const el = pillsRef.current
+    if (!el) return
+    const onWheel = e => { e.preventDefault(); el.scrollLeft += e.deltaY }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
 
   useEffect(() => {
     getGroups().then(r => setGroups(r.groups ?? [])).catch(() => {})
@@ -120,7 +129,10 @@ export default function ChannelsPage() {
         </div>
 
         {/* Group pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none">
+        <div
+          ref={pillsRef}
+          className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none"
+        >
           <button
             onClick={() => selectGroup('')}
             className={cn(
