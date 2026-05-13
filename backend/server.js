@@ -1,5 +1,11 @@
 'use strict';
 
+// When stdout/stderr are pipes (Docker, CI) Node.js may buffer writes and
+// drop them on crash. Force synchronous (blocking) I/O so every console.log
+// line appears immediately in `docker logs`.
+if (process.stdout._handle?.setBlocking) process.stdout._handle.setBlocking(true);
+if (process.stderr._handle?.setBlocking) process.stderr._handle.setBlocking(true);
+
 require('express-async-errors');
 const express = require('express');
 const cors = require('cors');
