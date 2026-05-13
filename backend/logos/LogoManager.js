@@ -12,7 +12,7 @@ const fs   = require('fs');
 const path = require('path');
 const axios = require('axios');
 
-const DB_URL     = 'https://raw.githubusercontent.com/iptv-org/database/master/data/channels.json';
+const DB_URL     = 'https://raw.githubusercontent.com/iptv-org/database/main/data/channels.json';
 const CACHE_TTL  = 24 * 60 * 60 * 1000; // 24 h
 
 // Normalize a channel name for fuzzy matching.
