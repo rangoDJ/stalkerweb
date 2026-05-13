@@ -95,6 +95,10 @@ export default function SetupPage() {
       setLogoStats(stats || null)
     }).catch(() => {})
     getStatus().then(s => { if (s.device) setDeviceProfile(s.device) }).catch(() => {})
+  }, [])
+
+  useEffect(() => {
+    if (!connected) return
     Promise.all([getChannels(), getLogoMap()]).then(([chRes, logoMap]) => {
       const channels = chRes.channels ?? []
       const unmatched = channels
@@ -104,7 +108,7 @@ export default function SetupPage() {
         .sort((a, b) => a.localeCompare(b))
       setUnmatchedChannels(unmatched)
     }).catch(() => {})
-  }, [])
+  }, [connected])
 
   function set(k) {
     return (e) => setForm(f => ({ ...f, [k]: e.target.value }))
