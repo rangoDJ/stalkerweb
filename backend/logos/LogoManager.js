@@ -71,6 +71,7 @@ class LogoManager {
     this._mapCacheFile  = path.join(dataDir, 'cache', 'iptv-org-logos.json');
     this._cache         = new CacheManager(dataDir);
     this._logoMap       = null;   // Map<normalizedName, logoUrl>
+    this._overrides     = null;   // in-memory cache, invalidated on write
     this._cachedAt      = null;
     this._refreshing    = false;
   }
@@ -137,10 +138,13 @@ class LogoManager {
   // ── Private ────────────────────────────────────────────────────────────────
 
   _getOverrides() {
-    return this._cache.load()?.logo_overrides || {};
+    if (this._overrides) return this._overrides;
+    this._overrides = this._cache.load()?.logo_overrides || {};
+    return this._overrides;
   }
 
   _saveOverrides(overrides) {
+    this._overrides = overrides;
     const config = this._cache.load() || {};
     config.logo_overrides = overrides;
     this._cache.save(config);
