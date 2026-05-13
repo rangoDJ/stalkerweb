@@ -28,6 +28,7 @@ module.exports = function authModule(appState, config) {
   // ── Shared connect logic ───────────────────────────────────────────────────
   async function connectPortal(body) {
     const {
+      portal,
       mac,
       timezone,
       lang,
