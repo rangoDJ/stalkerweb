@@ -203,6 +203,21 @@ class StalkerClient {
     return this.basePath;
   }
 
+  // Returns the authenticated axios instance for use by the HLS proxy.
+  // The cookie jar (PHPSESSID, mac, token, etc.) is already attached.
+  getHttpClient() {
+    return this.http;
+  }
+
+  // Minimal headers for direct stream/segment requests (not Stalker API calls).
+  getStreamHeaders() {
+    return {
+      'User-Agent':   STB_USER_AGENT,
+      'Referer':      this.referer,
+      'X-User-Agent': 'Model: MAG250; Link: WiFi',
+    };
+  }
+
   // ── Header building ────────────────────────────────────────────────────────
   // Mirrors sc_request_build_headers() in request.c + SAPI::StalkerCall() extras
   //
