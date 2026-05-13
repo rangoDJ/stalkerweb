@@ -4,19 +4,17 @@ services:
     container_name: stalkerweb
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "8983:8983"
     volumes:
       - ./data:/app/data
     environment:
-      - PORT=3000
-      - DATA_DIR=/app/data
       - NODE_ENV=production
       # Optional: pre-seed portal credentials so the UI is skipped
       # - PORTAL_URL=http://your-portal.example.com/c/
       # - PORTAL_MAC=00:1A:79:XX:XX:XX
       # - PORTAL_TIMEZONE=Europe/London
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      test: ["CMD", "wget", "-qO-", "http://localhost:8983/api/health"]
       interval: 30s
       timeout: 10s
       retries: 3
