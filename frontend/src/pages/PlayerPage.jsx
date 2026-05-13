@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { getChannels, getStreamUrl } from '../stalkerApi'
+import { getChannels, getStreamUrl, getLogoMap } from '../stalkerApi'
 
 // ── Controls bar ──────────────────────────────────────────────────────────
 function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
@@ -73,7 +73,19 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
 }
 
 // ── Channel list panel ────────────────────────────────────────────────────
-function ChannelList({ channels, activeId, onSelect }) {
+function ChannelLogo({ src, name }) {
+  const [err, setErr] = useState(false)
+  if (!src || err) return <Tv2 size={13} className="shrink-0 text-[var(--color-muted)]" />
+  return (
+    <img
+      src={src} alt={name}
+      onError={() => setErr(true)}
+      className="w-5 h-5 object-contain shrink-0 rounded-sm"
+    />
+  )
+}
+
+function ChannelList({ channels, activeId, logoMap, onSelect }) {
   const [query, setQuery] = useState('')
   const filtered = channels.filter(c => !query || c.name?.toLowerCase().includes(query.toLowerCase()))
 
@@ -102,7 +114,7 @@ function ChannelList({ channels, activeId, onSelect }) {
                 : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
             )}
           >
-            <Tv2 size={13} className="shrink-0" />
+            <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} />
             <span className="text-xs truncate">{ch.name}</span>
           </button>
         ))}
@@ -123,6 +135,7 @@ export default function PlayerPage() {
   const hideTimer = useRef(null)
 
   const [channels, setChannels] = useState([])
+  const [logoMap, setLogoMap] = useState({})
   const [activeChannel, setActiveChannel] = useState(
     initChannelId ? { uniqueId: initChannelId, name: initChannelName } : null
   )
@@ -136,9 +149,10 @@ export default function PlayerPage() {
   const [volume, setVolume] = useState(80)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // Load channel list
+  // Load channel list and logo map
   useEffect(() => {
     getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
+    getLogoMap().then(setLogoMap).catch(() => {})
   }, [])
 
   // Load stream when active channel changes
@@ -334,6 +348,7 @@ export default function PlayerPage() {
           <ChannelList
             channels={channels}
             activeId={activeChannel?.uniqueId}
+            logoMap={logoMap}
             onSelect={selectChannel}
           />
         )}

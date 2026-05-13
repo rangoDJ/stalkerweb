@@ -8,7 +8,7 @@
 
 const express = require('express');
 
-module.exports = function logosModule(logoManager) {
+module.exports = function logosModule(logoManager, appState) {
   const router = express.Router();
 
   router.get('/', (_req, res) => {
@@ -16,6 +16,19 @@ module.exports = function logosModule(logoManager) {
       overrides: logoManager.getOverrides(),
       stats: logoManager.getStats(),
     });
+  });
+
+  // Returns { [uniqueId]: logoUrl } for all loaded channels — used by the web UI
+  router.get('/map', (_req, res) => {
+    const channelManager = appState?.channelManager;
+    if (!channelManager) return res.json({});
+    const channels = channelManager.getChannels();
+    const map = {};
+    for (const ch of channels) {
+      const logo = logoManager.getLogo(ch.name) || ch.iconPath || '';
+      if (logo) map[String(ch.uniqueId)] = logo;
+    }
+    res.json(map);
   });
 
   // Must be registered before /:name so it isn't caught as a name param
