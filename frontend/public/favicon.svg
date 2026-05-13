@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Dark background -->
+  <rect width="32" height="32" rx="7" fill="#0d0d1a"/>
+  <!-- Outer arc -->
+  <path d="M 3 25 A 13 13 0 0 0 29 25" stroke="#7c3aed" stroke-width="2" fill="none" stroke-linecap="round" opacity="0.35"/>
+  <!-- Middle arc -->
+  <path d="M 7 25 A 9 9 0 0 0 25 25" stroke="#9333ea" stroke-width="2.2" fill="none" stroke-linecap="round" opacity="0.65"/>
+  <!-- Inner arc -->
+  <path d="M 11 25 A 5 5 0 0 0 21 25" stroke="#c084fc" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+  <!-- Source dot -->
+  <circle cx="16" cy="25" r="2.5" fill="#e9d5ff"/>
+</svg>
