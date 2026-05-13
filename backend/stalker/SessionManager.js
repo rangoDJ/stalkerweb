@@ -38,6 +38,23 @@ class SessionManager {
     this._statusCallback = cb;
   }
 
+  // Capture portal_signature from any API response JS object.
+  // The portal may return a `signature` field in handshake, do_auth, or
+  // get_profile. Once captured it replaces the device signature in all
+  // subsequent Cookie headers (sig=...).
+  _applyPortalSignature(js) {
+    if (!js || typeof js !== 'object') return;
+    const sig = js.signature || js.portal_signature;
+    if (sig && typeof sig === 'string' && sig.trim()) {
+      const clean = sig.trim();
+      if (clean !== this.identity.portal_signature) {
+        console.log(`[SessionManager] portal_signature received: ${clean}`);
+        this.identity.portal_signature = clean;
+        this.client.setIdentity(this.identity);
+      }
+    }
+  }
+
   isAuthenticated() {
     return this.authenticated;
   }
@@ -65,6 +82,7 @@ class SessionManager {
       this.identity.valid_token = !Number(data.js.not_valid);
     }
 
+    this._applyPortalSignature(data.js);
     console.log(`[SessionManager] handshake ok  prev=${prev}  new=${this.identity.token || '(none)'}  valid=${this.identity.valid_token}`);
   }
 
@@ -78,14 +96,14 @@ class SessionManager {
       throw new Error('do_auth: authentication rejected by portal');
     }
     
-    // Check for token rotation
     if (data && data.js && typeof data.js === 'object') {
       if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        console.log(`[SessionManager] Token rotated during do_auth! Old: ${this.identity.token}, New: ${data.js.token}`);
+        console.log(`[SessionManager] token rotated during do_auth: ${data.js.token}`);
         this.identity.token = data.js.token;
         this.client.setIdentity(this.identity);
         this.client.updateTokenCookie(data.js.token);
       }
+      this._applyPortalSignature(data.js);
     }
   }
 
@@ -97,14 +115,14 @@ class SessionManager {
 
     if (!data || !data.js) throw new Error('get_profile: empty response');
 
-    // Check for token rotation
     if (data && data.js && typeof data.js === 'object') {
       if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        console.log(`[SessionManager] Token rotated during get_profile! Old: ${this.identity.token}, New: ${data.js.token}`);
+        console.log(`[SessionManager] token rotated during get_profile: ${data.js.token}`);
         this.identity.token = data.js.token;
         this.client.setIdentity(this.identity);
         this.client.updateTokenCookie(data.js.token);
       }
+      this._applyPortalSignature(data.js);
     }
 
     const js = data.js;
