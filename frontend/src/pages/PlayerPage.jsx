@@ -124,7 +124,7 @@ export default function PlayerPage() {
 
   const [channels, setChannels] = useState([])
   const [activeChannel, setActiveChannel] = useState(
-    initChannelId ? { id: initChannelId, name: initChannelName } : null
+    initChannelId ? { uniqueId: initChannelId, name: initChannelName } : null
   )
   const [streamUrl, setStreamUrl] = useState(null)
   const [status, setStatus] = useState('idle') // idle | loading | playing | error
@@ -138,14 +138,14 @@ export default function PlayerPage() {
 
   // Load channel list
   useEffect(() => {
-    getChannels().then(setChannels).catch(() => {})
+    getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
   }, [])
 
   // Load stream when active channel changes
   useEffect(() => {
-    if (!activeChannel?.id) return
-    loadStream(activeChannel.id)
-  }, [activeChannel?.id])
+    if (!activeChannel?.uniqueId) return
+    loadStream(activeChannel.uniqueId)
+  }, [activeChannel?.uniqueId])
 
   async function loadStream(channelId) {
     setStatus('loading')
@@ -283,7 +283,7 @@ export default function PlayerPage() {
             <p className="text-sm text-white/80">{errorMsg}</p>
             {activeChannel && (
               <button
-                onClick={(e) => { e.stopPropagation(); loadStream(activeChannel.id) }}
+                onClick={(e) => { e.stopPropagation(); loadStream(activeChannel.uniqueId) }}
                 className="px-4 py-2 rounded-[var(--radius-sm)] bg-[var(--color-primary)] text-white text-sm hover:bg-[var(--color-primary-hover)] transition-colors"
               >
                 Retry
