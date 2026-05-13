@@ -321,7 +321,8 @@ class StalkerClient {
       }
       throw new StalkerError('API', `Handshake failed on all paths. Last error: ${lastError ? lastError.message : '404 Not Found'}`);
     } else {
-      console.log(`[StalkerClient] GET ${url}`);
+      const bulkAction = queryParams.action === 'get_ordered_list' || queryParams.action === 'get_epg_info';
+      if (!bulkAction) console.log(`[StalkerClient] GET ${url}`);
       let response;
       try {
         response = await this.http.get(url, {
