@@ -1,35 +1,26 @@
 'use strict';
 
-const fs   = require('fs');
-const path = require('path');
+const CacheManager = require('../cache/CacheManager');
 
 class FavoritesManager {
   constructor(dataDir) {
-    this._file = path.join(dataDir, 'favorites.json');
-    this._data = null;
+    this._cache = new CacheManager(dataDir);
   }
 
   // ── Internal ───────────────────────────────────────────────────────────────
 
   _load() {
-    if (this._data) return this._data;
-    try {
-      this._data = JSON.parse(fs.readFileSync(this._file, 'utf8'));
-      // Migrate: ensure arrays exist
-      if (!Array.isArray(this._data.channels)) this._data.channels = [];
-      if (!Array.isArray(this._data.groups))   this._data.groups   = [];
-    } catch {
-      this._data = { channels: [], groups: [] };
-    }
-    return this._data;
+    const config = this._cache.load() || {};
+    const fav = config.favorites || {};
+    if (!Array.isArray(fav.channels)) fav.channels = [];
+    if (!Array.isArray(fav.groups))   fav.groups   = [];
+    return fav;
   }
 
-  _save() {
-    try {
-      fs.writeFileSync(this._file, JSON.stringify(this._data, null, 2), 'utf8');
-    } catch (e) {
-      console.error('[favorites] save failed:', e.message);
-    }
+  _save(fav) {
+    const config = this._cache.load() || {};
+    config.favorites = fav;
+    this._cache.save(config);
   }
 
   // ── Channel favorites ──────────────────────────────────────────────────────
@@ -51,15 +42,14 @@ class FavoritesManager {
     const id = String(uniqueId);
     if (!d.channels.includes(id)) {
       d.channels.push(id);
-      this._save();
+      this._save(d);
     }
   }
 
   removeChannel(uniqueId) {
     const d = this._load();
-    const id = String(uniqueId);
-    d.channels = d.channels.filter(c => c !== id);
-    this._save();
+    d.channels = d.channels.filter(c => c !== String(uniqueId));
+    this._save(d);
   }
 
   // ── Groups ─────────────────────────────────────────────────────────────────
@@ -72,41 +62,43 @@ class FavoritesManager {
       channels: [],
     };
     d.groups.push(group);
-    this._save();
+    this._save(d);
     return group;
   }
 
   renameGroup(id, name) {
-    const g = this._load().groups.find(g => g.id === id);
+    const d = this._load();
+    const g = d.groups.find(g => g.id === id);
     if (!g) return null;
     g.name = String(name || '').trim() || g.name;
-    this._save();
+    this._save(d);
     return g;
   }
 
   deleteGroup(id) {
     const d = this._load();
     d.groups = d.groups.filter(g => g.id !== id);
-    this._save();
+    this._save(d);
   }
 
   addChannelToGroup(groupId, uniqueId) {
-    const g = this._load().groups.find(g => g.id === groupId);
+    const d = this._load();
+    const g = d.groups.find(g => g.id === groupId);
     if (!g) return null;
     const id = String(uniqueId);
     if (!g.channels.includes(id)) {
       g.channels.push(id);
-      this._save();
+      this._save(d);
     }
     return g;
   }
 
   removeChannelFromGroup(groupId, uniqueId) {
-    const g = this._load().groups.find(g => g.id === groupId);
+    const d = this._load();
+    const g = d.groups.find(g => g.id === groupId);
     if (!g) return null;
-    const id = String(uniqueId);
-    g.channels = g.channels.filter(c => c !== id);
-    this._save();
+    g.channels = g.channels.filter(c => c !== String(uniqueId));
+    this._save(d);
     return g;
   }
 }
