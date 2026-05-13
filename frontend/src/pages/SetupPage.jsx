@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { connect, disconnect, getConfig, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb } from '../stalkerApi'
+import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb } from '../stalkerApi'
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -60,6 +60,7 @@ export default function SetupPage() {
   const [logoNotice, setLogoNotice] = useState(null)
   const [testName, setTestName] = useState('')
   const [testResult, setTestResult] = useState(null)
+  const [deviceProfile, setDeviceProfile] = useState(null)
 
   useEffect(() => {
     getConfig().then(cfg => {
@@ -71,6 +72,7 @@ export default function SetupPage() {
       setLogoOverrides(overrides || {})
       setLogoStats(stats || null)
     }).catch(() => {})
+    getStatus().then(s => { if (s.device) setDeviceProfile(s.device) }).catch(() => {})
   }, [])
 
   function set(k) {
@@ -416,6 +418,37 @@ export default function SetupPage() {
           </div>
         </form>
       </Card>
+
+      {/* Device Profile card */}
+      {deviceProfile && (
+        <Card title="Device Profile" description="STB identity sent to the Stalker portal on every request.">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+            {[
+              ['STB Model',           deviceProfile.stb_type],
+              ['HW Version',          deviceProfile.hw_version],
+              ['Image Version',       deviceProfile.image_version],
+              ['Firmware',            deviceProfile.image_description],
+              ['Portal API',          deviceProfile.portal_version],
+              ['JS API Version',      deviceProfile.js_api_version],
+              ['STB API Version',     deviceProfile.stb_api_version],
+              ['Player Engine',       deviceProfile.player_engine_version],
+            ].map(([label, value]) => value && (
+              <div key={label} className="flex flex-col gap-0.5">
+                <span className="text-xs text-[var(--color-muted)]">{label}</span>
+                <span className="text-xs font-mono text-[var(--color-text)]">{value}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-col gap-0.5 pt-1 border-t border-[var(--color-border)]">
+            <span className="text-xs text-[var(--color-muted)]">User-Agent</span>
+            <span className="text-xs font-mono text-[var(--color-text)] break-all">{deviceProfile.user_agent}</span>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            <span className="text-xs text-[var(--color-muted)]">X-User-Agent</span>
+            <span className="text-xs font-mono text-[var(--color-text)]">{deviceProfile.x_user_agent}</span>
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
