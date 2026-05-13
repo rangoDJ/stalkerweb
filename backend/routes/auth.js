@@ -182,6 +182,24 @@ module.exports = function authModule(appState, config) {
     });
   });
 
+  // ── PUT /api/auth/config ───────────────────────────────────────────────────
+  // Persist portal config fields WITHOUT initiating a connection.
+  router.put('/config', (req, res) => {
+    const existing = cache.load() || {};
+    const allowed = ['portal', 'mac', 'timezone', 'lang', 'login',
+                     'serial_number', 'device_id', 'device_id2',
+                     'signature', 'connection_timeout'];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) {
+        existing[key] = key === 'portal'
+          ? normalizePortal(req.body[key])
+          : req.body[key];
+      }
+    }
+    cache.save(existing);
+    res.json({ success: true });
+  });
+
   // ── GET /api/auth/config ───────────────────────────────────────────────────
   // Returns saved portal config so the WebUI can pre-fill the Setup form.
   router.get('/config', (req, res) => {
