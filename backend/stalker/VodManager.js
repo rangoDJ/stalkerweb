@@ -79,26 +79,36 @@ class VodManager {
     }));
   }
 
-  // ── Stream URL resolution (2-step fallback) ────────────────────────────────
+  // ── Stream URL resolution (3-step fallback) ────────────────────────────────
   // episodeNumber: '0' for movies, episode number string for series episodes
   async getStreamUrl(item, type, episodeNumber = '0') {
-    const resolve = async (cmd) => {
-      const res = type === 'series'
-        ? await this.client.seriesCreateLink(cmd, episodeNumber)
-        : await this.client.vodCreateLink(cmd, episodeNumber);
-      const raw = res?.js?.cmd || '';
+    const extractUrl = (raw) => {
+      if (!raw) return '';
       const sp = raw.indexOf(' ');
       return sp !== -1 ? raw.slice(sp + 1) : raw;
     };
 
-    // Step 1: synthetic /media/<id>.mpg (matches plugin.video.stalkervod behaviour)
+    const resolveViaApi = async (cmd) => {
+      const res = type === 'series'
+        ? await this.client.seriesCreateLink(cmd, episodeNumber)
+        : await this.client.vodCreateLink(cmd, episodeNumber);
+      return extractUrl(res?.js?.cmd || '');
+    };
+
+    // Step 1: synthetic /media/<id>.mpg (matches plugin.video.stalkervod)
     try {
-      const url = await resolve(`/media/${item.id}.mpg`);
+      const url = await resolveViaApi(`/media/${item.id}.mpg`);
       if (url) return url;
     } catch (_) {}
 
-    // Step 2: use the cmd field from the item object
-    return resolve(item.cmd);
+    // Step 2: create_link with the item's own cmd
+    try {
+      const url = await resolveViaApi(item.cmd);
+      if (url) return url;
+    } catch (_) {}
+
+    // Step 3: use cmd directly — many portals embed the URL in the cmd field
+    return extractUrl(item.cmd);
   }
 
   // ── Item lookup by id (from cache) ─────────────────────────────────────────
