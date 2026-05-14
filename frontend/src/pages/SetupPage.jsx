@@ -38,7 +38,7 @@ function Card({ title, description, children, className }) {
 
 export default function SetupPage() {
   const navigate = useNavigate()
-  const { connected, setConnected, setEpgEnabled } = useApp()
+  const { connected, setConnected, setEpgEnabled, setLastPingAt } = useApp()
 
   const [form, setForm] = useState({
     portal: '', mac: '', timezone: 'Europe/London', lang: 'en',
@@ -149,7 +149,9 @@ export default function SetupPage() {
     try {
       await disconnect()
       setConnected(false)
+      setLastPingAt(null)
       setNotice({ type: 'success', msg: 'Disconnected.' })
+      setTimeout(() => setNotice(null), 2500)
     } catch (err) {
       setNotice({ type: 'error', msg: err.message })
     } finally {

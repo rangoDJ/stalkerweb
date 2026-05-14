@@ -131,6 +131,7 @@ function AppInner() {
         const s = await getStatus()
         setConnected(s.connected)
         if (s.watchdog?.lastPingAt) setLastPingAt(s.watchdog.lastPingAt)
+        else if (!s.connected) setLastPingAt(null)
       } catch {
         setConnected(false)
       }
@@ -147,7 +148,7 @@ function AppInner() {
   }
 
   return (
-    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled }}>
+    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, setLastPingAt }}>
       <TooltipProvider delayDuration={300}>
         <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} />
         <main className="pt-14 min-h-full">
