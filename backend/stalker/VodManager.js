@@ -59,9 +59,6 @@ class VodManager {
 
     const raw = data.js.data;
     const items = _parseItems(this.client.getBasePath(), raw);
-    // Log the first item's raw data to diagnose cmd field format
-    const firstRaw = Array.isArray(raw) ? raw[0] : Object.values(raw || {})[0];
-    if (firstRaw) console.log(`[vod] sample raw item: id=${firstRaw.id} cmd="${firstRaw.cmd}" name="${firstRaw.name}"`);
 
 
     const result = { items, total, totalPages, page };
@@ -85,8 +82,8 @@ class VodManager {
 
   // ── Stream URL resolution ──────────────────────────────────────────────────
   // episodeNumber: '0' for movies, episode number string for series episodes
+  // Throws if the portal explicitly rejects the item (e.g. nothing_to_play).
   async getStreamUrl(item, type, episodeNumber = '0') {
-    const basePath = this.client.getBasePath(); // e.g. http://host/stalker_portal/
     const isHttpUrl = (u) => /^https?:\/\//i.test(u);
 
     const extractUrl = (raw) => {
@@ -95,13 +92,16 @@ class VodManager {
       return sp !== -1 ? raw.slice(sp + 1) : raw;
     };
 
+    let portalError = null;
+
     const resolveViaApi = async (cmd) => {
       const res = type === 'series'
         ? await this.client.seriesCreateLink(cmd, episodeNumber)
         : await this.client.vodCreateLink(cmd, episodeNumber);
-      console.log(`[vod] create_link cmd="${cmd}" → full js=${JSON.stringify(res?.js)}`);
-      const raw = res?.js?.cmd || '';
-      const url = extractUrl(raw);
+      const js = res?.js || {};
+      const err = js.error;
+      if (err && err !== 'none' && err !== '') portalError = err;
+      const url = extractUrl(js.cmd || '');
       return isHttpUrl(url) ? url : '';
     };
 
@@ -119,23 +119,14 @@ class VodManager {
       } catch (_) {}
     }
 
-    // Step 3a: cmd relative to basePath (e.g. http://host/stalker_portal/media/<id>.mpg)
-    const cmdPath = extractUrl(item.cmd);
-    if (cmdPath && cmdPath.startsWith('/')) {
-      try {
-        const base = new URL(basePath);
-        const baseRelative = `${base.origin}${base.pathname.replace(/\/$/, '')}${cmdPath}`;
-        console.log(`[vod] step3a basePath-relative="${baseRelative}"`);
-        return baseRelative;
-      } catch (_) {}
-    }
+    // Portal explicitly rejected the item — surface the error rather than 404-ing
+    if (portalError) throw new Error(`Portal: ${portalError}`);
 
-    // Step 3b: cmd relative to origin (e.g. http://host/media/<id>.mpg)
-    const fallback = isHttpUrl(cmdPath) ? cmdPath : (() => {
-      try { return `${new URL(basePath).origin}${cmdPath}`; } catch { return cmdPath; }
-    })();
-    console.log(`[vod] step3b origin-relative="${fallback}"`);
-    return fallback;
+    // Step 3: cmd field is already a full URL (some portals embed the URL directly)
+    const cmdUrl = extractUrl(item.cmd);
+    if (isHttpUrl(cmdUrl)) return cmdUrl;
+
+    return '';
   }
 
   // ── Item lookup by id (from cache) ─────────────────────────────────────────
