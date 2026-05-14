@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Heart, Tv2, Layers, Pencil, Trash2, Plus, Check, X, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { Heart, Tv2, Layers, Pencil, Trash2, Plus, Check, X, Search, ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -9,7 +9,42 @@ import {
   addFavoriteChannel, removeFavoriteChannel,
   createFavoriteGroup, renameFavoriteGroup, deleteFavoriteGroup,
   addChannelToGroup, removeChannelFromGroup,
+  reorderFavoriteChannels, reorderFavoriteGroups,
 } from '../stalkerApi'
+
+// ── Drag-and-drop helpers ─────────────────────────────────────────────────
+function useDragReorder(items, setItems, onReorder) {
+  const dragIdx  = useRef(null)
+  const [draggingIndex, setDraggingIndex] = useState(null)
+
+  function onDragStart(i) { dragIdx.current = i; setDraggingIndex(i) }
+
+  function onDragOver(e, i) {
+    e.preventDefault()
+    if (dragIdx.current === null || dragIdx.current === i) return
+    const from = dragIdx.current
+    dragIdx.current = i
+    setDraggingIndex(i)
+    setItems(prev => {
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(i, 0, moved)
+      return next
+    })
+  }
+
+  // items ref so onDragEnd sees the latest order without stale closure
+  const itemsRef = useRef(items)
+  itemsRef.current = items
+
+  function onDragEnd() {
+    dragIdx.current = null
+    setDraggingIndex(null)
+    onReorder(itemsRef.current.map(it => String(it.uniqueId ?? it.id)))
+  }
+
+  return { onDragStart, onDragOver, onDragEnd, draggingIndex }
+}
 
 // ── Shared logo helper ────────────────────────────────────────────────────
 function ChannelLogo({ src, name, size = 'md' }) {
@@ -26,10 +61,22 @@ function ChannelLogo({ src, name, size = 'md' }) {
 }
 
 // ── Favorited channel card ────────────────────────────────────────────────
-function ChannelCard({ channel, logoUrl, onRemove, onClick }) {
+function ChannelCard({ channel, logoUrl, onRemove, onClick, dragHandlers, isDragging }) {
   return (
-    <div className="group relative rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 flex flex-col items-center gap-2.5 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] transition-all cursor-pointer"
-      onClick={() => onClick(channel)}>
+    <div
+      draggable
+      onDragStart={dragHandlers?.onDragStart}
+      onDragOver={dragHandlers?.onDragOver}
+      onDragEnd={dragHandlers?.onDragEnd}
+      className={cn(
+        'group relative rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 flex flex-col items-center gap-2.5 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] transition-all cursor-pointer select-none',
+        isDragging && 'opacity-40'
+      )}
+      onClick={() => onClick(channel)}
+    >
+      <div className="absolute top-2 left-2 p-1 text-[var(--color-muted)] opacity-0 group-hover:opacity-50 cursor-grab active:cursor-grabbing">
+        <GripVertical size={12} />
+      </div>
       <button
         onClick={e => { e.stopPropagation(); onRemove(channel) }}
         className="absolute top-2 right-2 p-1 rounded-full text-[var(--color-live)] opacity-0 group-hover:opacity-100 hover:bg-[var(--color-live)]/10 transition-all"
@@ -179,13 +226,20 @@ function GroupEditor({ group, logoMap, allChannels, onSave, onCancel }) {
 }
 
 // ── Group card ────────────────────────────────────────────────────────────
-function GroupCard({ group, logoMap, allChannels, onEdit, onDelete, onNavigate }) {
+function GroupCard({ group, logoMap, allChannels, onEdit, onDelete, onNavigate, dragHandlers, isDragging }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
-    <div className="rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 flex flex-col gap-3">
+    <div
+      draggable
+      onDragStart={dragHandlers?.onDragStart}
+      onDragOver={dragHandlers?.onDragOver}
+      onDragEnd={dragHandlers?.onDragEnd}
+      className={cn('rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 flex flex-col gap-3 select-none', isDragging && 'opacity-40')}
+    >
       {/* Header row */}
       <div className="flex items-center gap-3">
+        <GripVertical size={14} className="text-[var(--color-muted)] opacity-40 hover:opacity-80 cursor-grab active:cursor-grabbing shrink-0" />
         <GroupPreview channels={group.channels} logoMap={logoMap} />
         <div className="flex-1 min-w-0">
           <p className="font-medium text-sm text-[var(--color-text)] truncate">{group.name}</p>
@@ -257,8 +311,8 @@ function SectionHeader({ icon: Icon, title, count, action }) {
 export default function FavoritesPage() {
   const navigate = useNavigate()
 
-  const [channels, setChannels] = useState([])    // favorited channels (enriched)
-  const [groups, setGroups] = useState([])         // favorite groups (enriched)
+  const [channels, setChannels] = useState([])    // favorited channels (enriched), order matters
+  const [groups, setGroups] = useState([])         // favorite groups (enriched), order matters
   const [logoMap, setLogoMap] = useState({})
   const [allChannels, setAllChannels] = useState([]) // loaded lazily for group editor
   const [editingGroupId, setEditingGroupId] = useState(null)
@@ -322,6 +376,10 @@ export default function FavoritesPage() {
     navigate(`/player?channel=${ch.uniqueId}&name=${encodeURIComponent(ch.name)}`)
   }
 
+  // ── Drag-and-drop reordering ──────────────────────────────────────────────
+  const channelDrag = useDragReorder(channels, setChannels, reorderFavoriteChannels)
+  const groupDrag   = useDragReorder(groups,   setGroups,   reorderFavoriteGroups)
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   if (loading) {
@@ -354,13 +412,19 @@ export default function FavoritesPage() {
         <section>
           <SectionHeader icon={Heart} title="Channels" count={channels.length} />
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-            {channels.map(ch => (
+            {channels.map((ch, i) => (
               <ChannelCard
                 key={ch.uniqueId}
                 channel={ch}
                 logoUrl={logoMap[String(ch.uniqueId)]}
                 onRemove={handleRemoveChannel}
                 onClick={navigateToChannel}
+                isDragging={channelDrag.draggingIndex === i}
+                dragHandlers={{
+                  onDragStart: () => channelDrag.onDragStart(i),
+                  onDragOver:  (e) => channelDrag.onDragOver(e, i),
+                  onDragEnd:   channelDrag.onDragEnd,
+                }}
               />
             ))}
           </div>
@@ -409,7 +473,7 @@ export default function FavoritesPage() {
         )}
 
         <div className="flex flex-col gap-3">
-          {groups.map(group =>
+          {groups.map((group, i) =>
             editingGroupId === group.id ? (
               <GroupEditor
                 key={group.id}
@@ -428,6 +492,12 @@ export default function FavoritesPage() {
                 onEdit={() => openGroupEditor(group.id)}
                 onDelete={() => handleDeleteGroup(group.id)}
                 onNavigate={navigateToChannel}
+                isDragging={groupDrag.draggingIndex === i}
+                dragHandlers={{
+                  onDragStart: () => groupDrag.onDragStart(i),
+                  onDragOver:  (e) => groupDrag.onDragOver(e, i),
+                  onDragEnd:   groupDrag.onDragEnd,
+                }}
               />
             )
           )}

@@ -6,6 +6,9 @@
 
 'use strict';
 
+const log = require('../logger');
+const TAG = 'Watchdog';
+
 class WatchdogService {
   constructor(intervalSeconds, client, errorCallback) {
     this.intervalSeconds = intervalSeconds || 90;
@@ -13,12 +16,14 @@ class WatchdogService {
     this.errorCallback = errorCallback; // (errCode: string) => void
     this._timer = null;
     this._active = false;
+    this.lastPingAt = null;   // ISO timestamp of last successful ping
+    this.pingCount  = 0;
   }
 
   start() {
     if (this._active) return;
     this._active = true;
-    console.log(`[Watchdog] starting (interval=${this.intervalSeconds}s)`);
+    log.info(TAG, `starting (interval=${this.intervalSeconds}s)`);
     this._scheduleNext();
   }
 
@@ -28,7 +33,7 @@ class WatchdogService {
       clearTimeout(this._timer);
       this._timer = null;
     }
-    console.log('[Watchdog] stopped');
+    log.info(TAG, 'stopped');
   }
 
   _scheduleNext() {
@@ -40,11 +45,12 @@ class WatchdogService {
     if (!this._active) return;
 
     try {
-      // curPlayType=1 (TV), eventActiveId=0 — hardcoded as in CWatchdog::Process()
       await this.client.watchdogGetEvents(1, 0);
-      console.log('[Watchdog] ping ok');
+      this.lastPingAt = new Date().toISOString();
+      this.pingCount++;
+      log.info(TAG, `ping ok (total=${this.pingCount})`);
     } catch (err) {
-      console.error('[Watchdog] ping failed:', err.message);
+      log.error(TAG, `ping failed: ${err.message}`);
       const code = err.code || 'UNKNOWN';
       if (this.errorCallback) this.errorCallback(code);
     }

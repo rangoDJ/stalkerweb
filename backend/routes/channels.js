@@ -30,6 +30,13 @@ module.exports = function channelRoutes(appState) {
     res.json({ total: channels.length, channels });
   });
 
+  // GET /api/channels/progress — channel load progress (poll while loading)
+  router.get('/progress', (req, res) => {
+    const { channelManager } = appState;
+    if (!channelManager) return res.json({ loading: false, page: 0, totalPages: 0, channelCount: 0 });
+    res.json(channelManager.getProgress());
+  });
+
   // GET /api/channels/groups/all — MUST be registered before /:id
   router.get('/groups/all', guard, async (req, res) => {
     const { channelManager } = appState;

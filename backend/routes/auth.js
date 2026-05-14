@@ -172,6 +172,7 @@ module.exports = function authModule(appState, config) {
   router.get('/status', (req, res) => {
     const connected = !!(appState.sessionManager?.isAuthenticated());
     const saved = cache.load();
+    const watchdog = appState.sessionManager?._watchdog;
     res.json({
       connected,
       portal: saved?.portal || null,
@@ -179,6 +180,7 @@ module.exports = function authModule(appState, config) {
       profile: connected ? appState.sessionManager.getProfile() : null,
       token: connected ? appState.identity?.token : null,
       device: DEVICE_PROFILE,
+      watchdog: watchdog ? { lastPingAt: watchdog.lastPingAt, pingCount: watchdog.pingCount } : null,
     });
   });
 

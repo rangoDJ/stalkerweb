@@ -11,13 +11,17 @@ class ChannelManager {
     this.client = client;
     this._channels = [];
     this._groups = [];
+    this._progress = { loading: false, page: 0, totalPages: 0, channelCount: 0 };
   }
+
+  getProgress() { return { ...this._progress }; }
 
   // ── Load channels ──────────────────────────────────────────────────────────
   // Mirrors ChannelManager::LoadChannels()
   // First calls GetAllChannels to seed, then pages through GetOrderedList.
   async loadChannels() {
     this._channels = [];
+    this._progress = { loading: true, page: 0, totalPages: 0, channelCount: 0 };
 
     // Step 1: get_all_channels (seeds the basic list)
     const allData = await this.client.itvGetAllChannels();
@@ -25,11 +29,10 @@ class ChannelManager {
       this._parseChannels(allData);
     }
 
-    // Step 2: get_ordered_list (paginated, concurrent) — mirrors C# FetchLogosFromOrderedListAsync
+    // Step 2: get_ordered_list (paginated, concurrent)
     const GENRE = '*';
     const MAX_CONCURRENT = 10;
 
-    // Page 1: discover pagination
     const page1 = await this.client.itvGetOrderedList(GENRE, 1);
     if (page1?.js) {
       const totalItems   = Number(page1.js.total_items)    || 0;
@@ -38,9 +41,11 @@ class ChannelManager {
         ? Math.ceil(totalItems / maxPageItems)
         : 1;
       console.log(`[ChannelManager] totalItems=${totalItems} maxPages=${maxPages}`);
+      this._progress.totalPages = maxPages;
+      this._progress.page = 1;
       this._parseChannels(page1);
+      this._progress.channelCount = this._channels.length;
 
-      // Remaining pages fetched concurrently with a semaphore
       if (maxPages > 1) {
         const pages = Array.from({ length: maxPages - 1 }, (_, i) => i + 2);
         const semaphore = new _Semaphore(MAX_CONCURRENT);
@@ -52,6 +57,8 @@ class ChannelManager {
           } catch (e) {
             console.warn(`[ChannelManager] page ${p} failed: ${e.message}`);
           } finally {
+            this._progress.page = Math.max(this._progress.page, p);
+            this._progress.channelCount = this._channels.length;
             semaphore.release();
           }
         }));
@@ -66,6 +73,7 @@ class ChannelManager {
       return true;
     });
 
+    this._progress = { loading: false, page: this._progress.totalPages, totalPages: this._progress.totalPages, channelCount: this._channels.length };
     console.log(`[ChannelManager] loaded ${this._channels.length} channels`);
     return this._channels;
   }
