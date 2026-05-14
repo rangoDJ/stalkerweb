@@ -469,7 +469,7 @@ class StalkerClient {
 
   // ── VOD: create_link ──────────────────────────────────────────────────────
   async vodCreateLink(cmd, series = '0') {
-    return this._stalkerCall({ type: 'vod', action: 'create_link', cmd, series, forced_storage: 'undefined' });
+    return this._stalkerCall({ type: 'vod', action: 'create_link', cmd, series, forced_storage: '', disable_ad: '0' });
   }
 
   // ── VOD: favorites ────────────────────────────────────────────────────────
@@ -495,7 +495,7 @@ class StalkerClient {
 
   // ── Series: create_link (series = episode number as string) ───────────────
   async seriesCreateLink(cmd, episodeNumber) {
-    return this._stalkerCall({ type: 'series', action: 'create_link', cmd, series: String(episodeNumber), forced_storage: 'undefined' });
+    return this._stalkerCall({ type: 'series', action: 'create_link', cmd, series: String(episodeNumber), forced_storage: '', disable_ad: '0' });
   }
 
   // ── Series: favorites ─────────────────────────────────────────────────────
