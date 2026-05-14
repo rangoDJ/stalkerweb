@@ -30,6 +30,7 @@ const appState = {
   sessionManager: null,
   channelManager: null,
   guideManager: null,
+  vodManager: null,
   identity: null,
 };
 
@@ -67,6 +68,7 @@ function destroySession() {
   appState.client = null;
   appState.channelManager = null;
   appState.guideManager = null;
+  appState.vodManager = null;
   appState.identity = null;
 }
 
@@ -92,6 +94,9 @@ const xmltvRoutes = require('./routes/xmltv')(appState);
 const logosRoutes     = require('./routes/logos')(logoManager, appState);
 const favoritesRoutes = require('./routes/favorites')(favoritesManager, appState);
 const exportRoutes    = require('./routes/export')(config);
+const vodFactory      = require('./routes/vod');
+const vodRoutes       = vodFactory(appState, 'vod');
+const seriesRoutes    = vodFactory(appState, 'series');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/channels', channelRoutes);
@@ -101,6 +106,8 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/logos', logosRoutes);
 app.use('/api/favorites', favoritesRoutes);
 app.use('/api/export', exportRoutes);
+app.use('/api/vod',    vodRoutes);
+app.use('/api/series', seriesRoutes);
 app.use('/api/m3u', m3uRoutes);
 app.use('/api/xmltv', xmltvRoutes);
 // /proxy must be registered before the SPA static fallback
