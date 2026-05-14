@@ -12,6 +12,7 @@ const { StalkerClient } = require('../stalker/StalkerClient');
 const SessionManager = require('../stalker/SessionManager');
 const ChannelManager = require('../stalker/ChannelManager');
 const GuideManager = require('../stalker/GuideManager');
+const VodManager = require('../stalker/VodManager');
 const { createIdentity } = require('../stalker/identity');
 const { DEVICE_PROFILE } = require('../stalker/deviceProfile');
 const CacheManager = require('../cache/CacheManager');
@@ -57,6 +58,7 @@ module.exports = function authModule(appState, config) {
       appState.client = null;
       appState.channelManager = null;
       appState.guideManager = null;
+      appState.vodManager = null;
       appState.identity = null;
     }
 
@@ -103,6 +105,7 @@ module.exports = function authModule(appState, config) {
 
     const channelManager = new ChannelManager(client);
     const guideManager = new GuideManager(client, `${config.dataDir}/cache`);
+    const vodManager = new VodManager(client);
 
     // Persist config before auth so settings survive a failed attempt or restart.
     // Spread existing config first so stalker_HASH token entries are preserved.
@@ -139,6 +142,7 @@ module.exports = function authModule(appState, config) {
     appState.sessionManager = sessionManager;
     appState.channelManager = channelManager;
     appState.guideManager = guideManager;
+    appState.vodManager = vodManager;
     appState.identity = identity;
 
     console.log('[auth] starting background channel/group pre-load');
@@ -236,6 +240,7 @@ module.exports = function authModule(appState, config) {
       appState.client = null;
       appState.channelManager = null;
       appState.guideManager = null;
+      appState.vodManager = null;
       appState.identity = null;
     }
     clearTimeout(appState._idleTimer);

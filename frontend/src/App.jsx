@@ -1,6 +1,6 @@
 import { useEffect, useState, createContext, useContext } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Film, Clapperboard } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getStatus, getSettings } from './stalkerApi'
@@ -9,6 +9,8 @@ import ChannelsPage from './pages/ChannelsPage'
 import PlayerPage from './pages/PlayerPage'
 import GuidePage from './pages/GuidePage'
 import FavoritesPage from './pages/FavoritesPage'
+import VodPage from './pages/VodPage'
+import SeriesPage from './pages/SeriesPage'
 
 // ── App-wide context ──────────────────────────────────────────────────────
 export const AppContext = createContext({})
@@ -104,6 +106,8 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
         <nav className="flex items-center gap-1">
           <NavItem to="/channels" icon={Tv2} label="Channels" />
           <NavItem to="/favorites" icon={Heart} label="Favorites" />
+          <NavItem to="/vod" icon={Film} label="Movies" />
+          <NavItem to="/series" icon={Clapperboard} label="Series" />
           {epgEnabled && <NavItem to="/guide" icon={BookOpen} label="Guide" />}
         </nav>
       )}
@@ -214,6 +218,22 @@ function AppInner() {
               element={
                 <RequireAuth connected={connected}>
                   <GuidePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/vod"
+              element={
+                <RequireAuth connected={connected}>
+                  <VodPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/series"
+              element={
+                <RequireAuth connected={connected}>
+                  <SeriesPage />
                 </RequireAuth>
               }
             />
