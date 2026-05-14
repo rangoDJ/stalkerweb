@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { getChannels, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
+import { getChannels, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getVodStreamUrl, getVodEpisodeStream, getSeriesEpisodeStream } from '../stalkerApi'
 
 const RECENTLY_WATCHED_KEY = 'sw_recently_watched'
 const RECENTLY_WATCHED_MAX = 15
@@ -121,9 +121,10 @@ export default function PlayerPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const initChannelId   = searchParams.get('channel')
   const initChannelName = searchParams.get('name') ? decodeURIComponent(searchParams.get('name')) : ''
-  const isVod           = searchParams.get('mode') === 'vod'
-  // VOD passes the resolved stream URL directly to avoid a redundant API round-trip
-  const initStreamUrl   = isVod && searchParams.get('stream') ? decodeURIComponent(searchParams.get('stream')) : null
+  const isVod      = searchParams.get('mode') === 'vod'
+  const vodId      = searchParams.get('vodId') || null
+  const vodType    = searchParams.get('vodType') || 'vod'   // 'vod' | 'series'
+  const vodEpisode = searchParams.get('episode') || null
 
   const videoRef     = useRef(null)
   const hlsRef       = useRef(null)
@@ -154,12 +155,22 @@ export default function PlayerPage() {
     getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
   }, [isVod])
 
-  // VOD: seed stream URL directly from the URL param (already resolved by VodBrowsePage)
+  // VOD: resolve stream URL via API on mount
   useEffect(() => {
-    if (isVod && initStreamUrl) {
-      setStatus('loading')
-      setStreamUrl(initStreamUrl)
+    if (!isVod || !vodId) return
+    setStatus('loading')
+    setErrorMsg('')
+    let call
+    if (vodEpisode) {
+      call = vodType === 'series'
+        ? getSeriesEpisodeStream(vodId, vodEpisode)
+        : getVodEpisodeStream(vodId, vodEpisode)
+    } else {
+      call = getVodStreamUrl(vodId)
     }
+    call
+      .then(({ streamUrl: url }) => setStreamUrl(url))
+      .catch((e) => { setStatus('error'); setErrorMsg(e.message) })
   }, [])
 
   async function toggleFavorite(channel) {
@@ -207,6 +218,22 @@ export default function PlayerPage() {
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
 
+    const playNative = (src) => {
+      video.src = src
+      video.volume = volume / 100
+      video.muted = muted
+      video.play().then(() => { setStatus('playing'); setPlaying(true) }).catch(() => {
+        setStatus('error'); setErrorMsg('Playback blocked. Click play to start.')
+      })
+    }
+
+    // MP4 and other non-HLS formats — use native video element directly
+    const isNativeFormat = /\.(mp4|mkv|avi|mov|webm|ts)(\?|$)/i.test(streamUrl)
+    if (isNativeFormat) {
+      playNative(streamUrl)
+      return
+    }
+
     if (Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
       hlsRef.current = hls
@@ -221,19 +248,22 @@ export default function PlayerPage() {
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
-          if (retryCount.current < 1) {
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retryCount.current < 1) {
             retryCount.current++
-            hls.startLoad()
+            hls.recoverMediaError()
+          } else if (retryCount.current < 1) {
+            retryCount.current++
+            // HLS parse failed — try native playback as fallback
+            hls.destroy()
+            hlsRef.current = null
+            playNative(streamUrl)
           } else {
             setStatus('error'); setErrorMsg('Stream error. Try reloading.')
           }
         }
       })
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = streamUrl
-      video.volume = volume / 100
-      video.muted = muted
-      video.play().then(() => { setStatus('playing'); setPlaying(true) }).catch(() => {})
+      playNative(streamUrl)
     }
 
     return () => { hlsRef.current?.destroy(); hlsRef.current = null }

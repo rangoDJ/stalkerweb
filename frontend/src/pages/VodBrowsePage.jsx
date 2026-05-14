@@ -5,8 +5,8 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  getVodCategories, getVodList, getVodStreamUrl, getVodEpisodeStream,
-  getSeriesCategories, getSeriesList, getSeriesSeasons, getSeriesEpisodeStream,
+  getVodCategories, getVodList,
+  getSeriesCategories, getSeriesList, getSeriesSeasons,
 } from '../stalkerApi'
 
 // ── VOD card ──────────────────────────────────────────────────────────────
@@ -54,7 +54,6 @@ function EpisodeModal({ item, type, onClose, onPlay }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [expanded, setExpanded] = useState(null) // index of expanded season
-  const [resolving, setResolving] = useState(null) // episode number being resolved
 
   useEffect(() => {
     setLoading(true)
@@ -68,19 +67,8 @@ function EpisodeModal({ item, type, onClose, onPlay }) {
       .finally(() => setLoading(false))
   }, [item.id])
 
-  async function handleEpisode(season, episode) {
-    setResolving(`${season.id}-${episode}`)
-    try {
-      const fetch = type === 'series'
-        ? getSeriesEpisodeStream(item.id, episode)
-        : getVodEpisodeStream(item.id, episode)
-      const { streamUrl } = await fetch
-      onPlay(streamUrl, `${item.name} · Ep ${episode}`)
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setResolving(null)
-    }
+  function handleEpisode(season, episode) {
+    onPlay(item.id, episode, `${item.name} · Ep ${episode}`)
   }
 
   return (
@@ -129,25 +117,15 @@ function EpisodeModal({ item, type, onClose, onPlay }) {
 
               {expanded === idx && (
                 <div className="mt-1 grid grid-cols-4 gap-1.5 px-1">
-                  {season.episodes.map((ep) => {
-                    const key = `${season.id}-${ep}`
-                    const isResolving = resolving === key
-                    return (
-                      <button
-                        key={ep}
-                        disabled={!!resolving}
-                        onClick={() => handleEpisode(season, ep)}
-                        className={cn(
-                          'flex items-center justify-center rounded-[var(--radius-sm)] py-2 text-xs font-medium transition-colors',
-                          isResolving
-                            ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
-                            : 'bg-[var(--color-surface-2)] text-[var(--color-text)] hover:bg-[var(--color-primary)]/20 hover:text-[var(--color-primary-light)]'
-                        )}
-                      >
-                        {isResolving ? <Loader2 size={12} className="animate-spin" /> : `Ep ${ep}`}
-                      </button>
-                    )
-                  })}
+                  {season.episodes.map((ep) => (
+                    <button
+                      key={ep}
+                      onClick={() => handleEpisode(season, ep)}
+                      className="flex items-center justify-center rounded-[var(--radius-sm)] py-2 text-xs font-medium transition-colors bg-[var(--color-surface-2)] text-[var(--color-text)] hover:bg-[var(--color-primary)]/20 hover:text-[var(--color-primary-light)]"
+                    >
+                      Ep {ep}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
@@ -176,7 +154,6 @@ export default function VodBrowsePage({ type }) {
   const [query, setQuery]             = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [modalItem, setModalItem]     = useState(null) // item for episode picker
-  const [resolvingId, setResolvingId] = useState(null) // id of movie being resolved
 
   const activeCategory = searchParams.get('category') || '*'
   const pillsRef = useRef(null)
@@ -243,27 +220,17 @@ export default function VodBrowsePage({ type }) {
     else setSearchParams({})
   }
 
-  async function handleItemClick(item) {
+  function handleItemClick(item) {
     if (item.isSeries) {
-      // Series items require season/episode selection
       setModalItem(item)
     } else {
-      // Single movie — resolve stream directly
-      setResolvingId(item.id)
-      try {
-        const { streamUrl } = await getVodStreamUrl(item.id)
-        navigate(`/player?mode=vod&vodId=${item.id}&name=${encodeURIComponent(item.name)}&stream=${encodeURIComponent(streamUrl)}`)
-      } catch (e) {
-        setError(`Stream error: ${e.message}`)
-      } finally {
-        setResolvingId(null)
-      }
+      navigate(`/player?mode=vod&vodId=${item.id}&vodType=${type}&name=${encodeURIComponent(item.name)}`)
     }
   }
 
-  function handleEpisodePlay(streamUrl, name) {
+  function handleEpisodePlay(vodId, episode, name) {
     setModalItem(null)
-    navigate(`/player?mode=vod&name=${encodeURIComponent(name)}&stream=${encodeURIComponent(streamUrl)}`)
+    navigate(`/player?mode=vod&vodId=${vodId}&vodType=${type}&episode=${episode}&name=${encodeURIComponent(name)}`)
   }
 
   const hasMore = page < totalPages - 1
@@ -347,14 +314,7 @@ export default function VodBrowsePage({ type }) {
           <>
             <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
               {items.map((item) => (
-                <div key={item.id} className="relative">
-                  {resolvingId === item.id && (
-                    <div className="absolute inset-0 z-10 flex items-center justify-center rounded-[var(--radius-md)] bg-black/60">
-                      <div className="h-5 w-5 rounded-full border-2 border-[var(--color-primary)] border-t-transparent animate-spin" />
-                    </div>
-                  )}
-                  <VodCard item={item} onClick={handleItemClick} />
-                </div>
+                <VodCard key={item.id} item={item} onClick={handleItemClick} />
               ))}
             </div>
 
