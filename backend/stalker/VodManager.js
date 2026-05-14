@@ -82,17 +82,35 @@ class VodManager {
   // ── Stream URL resolution (3-step fallback) ────────────────────────────────
   // episodeNumber: '0' for movies, episode number string for series episodes
   async getStreamUrl(item, type, episodeNumber = '0') {
+    const isHttpUrl = (u) => /^https?:\/\//i.test(u);
+
     const extractUrl = (raw) => {
       if (!raw) return '';
       const sp = raw.indexOf(' ');
       return sp !== -1 ? raw.slice(sp + 1) : raw;
     };
 
+    // Resolve a possibly-relative path to an absolute URL using the portal base.
+    const toAbsolute = (url) => {
+      if (!url) return '';
+      if (isHttpUrl(url)) return url;
+      if (url.startsWith('/')) {
+        // Strip the portal sub-path so we get just the origin+port
+        try {
+          const base = new URL(this.client.getBasePath());
+          return `${base.origin}${url}`;
+        } catch { return url; }
+      }
+      return url;
+    };
+
     const resolveViaApi = async (cmd) => {
       const res = type === 'series'
         ? await this.client.seriesCreateLink(cmd, episodeNumber)
         : await this.client.vodCreateLink(cmd, episodeNumber);
-      return extractUrl(res?.js?.cmd || '');
+      const url = extractUrl(res?.js?.cmd || '');
+      // Only accept a real HTTP URL — portals often echo the cmd back unchanged
+      return isHttpUrl(url) ? url : '';
     };
 
     // Step 1: synthetic /media/<id>.mpg (matches plugin.video.stalkervod)
@@ -107,8 +125,8 @@ class VodManager {
       if (url) return url;
     } catch (_) {}
 
-    // Step 3: use cmd directly — many portals embed the URL in the cmd field
-    return extractUrl(item.cmd);
+    // Step 3: use cmd directly, resolving relative paths against the portal origin
+    return toAbsolute(extractUrl(item.cmd));
   }
 
   // ── Item lookup by id (from cache) ─────────────────────────────────────────
