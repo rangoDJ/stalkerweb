@@ -59,6 +59,9 @@ class VodManager {
 
     const raw = data.js.data;
     const items = _parseItems(this.client.getBasePath(), raw);
+    const firstRaw = Array.isArray(raw) ? raw[0] : Object.values(raw || {})[0];
+    if (firstRaw) console.log(`[vod] raw item keys: ${Object.keys(firstRaw).join(', ')}\n[vod] raw item: ${JSON.stringify(firstRaw)}`);
+
 
 
     const result = { items, total, totalPages, page };
@@ -99,6 +102,7 @@ class VodManager {
         ? await this.client.seriesCreateLink(cmd, episodeNumber)
         : await this.client.vodCreateLink(cmd, episodeNumber);
       const js = res?.js || {};
+      console.log(`[vod] create_link(${cmd}) full response: ${JSON.stringify(js)}`);
       const err = js.error;
       if (err && err !== 'none' && err !== '') portalError = err;
       const url = extractUrl(js.cmd || '');
