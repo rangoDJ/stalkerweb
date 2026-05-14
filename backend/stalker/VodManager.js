@@ -59,6 +59,10 @@ class VodManager {
 
     const raw = data.js.data;
     const items = _parseItems(this.client.getBasePath(), raw);
+    // Log the first item's raw data to diagnose cmd field format
+    const firstRaw = Array.isArray(raw) ? raw[0] : Object.values(raw || {})[0];
+    if (firstRaw) console.log(`[vod] sample raw item: id=${firstRaw.id} cmd="${firstRaw.cmd}" name="${firstRaw.name}"`);
+
 
     const result = { items, total, totalPages, page };
     this._itemCache.set(cacheKey, result);
@@ -95,9 +99,9 @@ class VodManager {
       const res = type === 'series'
         ? await this.client.seriesCreateLink(cmd, episodeNumber)
         : await this.client.vodCreateLink(cmd, episodeNumber);
+      console.log(`[vod] create_link cmd="${cmd}" → full js=${JSON.stringify(res?.js)}`);
       const raw = res?.js?.cmd || '';
       const url = extractUrl(raw);
-      console.log(`[vod] create_link cmd="${cmd}" → raw="${raw}" url="${url}"`);
       return isHttpUrl(url) ? url : '';
     };
 
