@@ -222,9 +222,9 @@ export default function PlayerPage() {
       video.src = src
       video.volume = volume / 100
       video.muted = muted
-      video.play().then(() => { setStatus('playing'); setPlaying(true) }).catch(() => {
-        setStatus('error'); setErrorMsg('Playback blocked. Click play to start.')
-      })
+      video.play()
+        .then(() => { setStatus('playing'); setPlaying(true) })
+        .catch(() => { setStatus('paused'); setPlaying(false) })
     }
 
     // MP4 and other non-HLS formats — use native video element directly
@@ -242,9 +242,9 @@ export default function PlayerPage() {
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.volume = volume / 100
         video.muted = muted
-        video.play().then(() => { setStatus('playing'); setPlaying(true) }).catch(() => {
-          setStatus('error'); setErrorMsg('Playback blocked. Click play to start.')
-        })
+        video.play()
+          .then(() => { setStatus('playing'); setPlaying(true) })
+          .catch(() => { setStatus('paused'); setPlaying(false) })
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
@@ -329,8 +329,15 @@ export default function PlayerPage() {
   function togglePlayPause() {
     const v = videoRef.current
     if (!v) return
-    if (v.paused) { v.play(); setPlaying(true) }
-    else { v.pause(); setPlaying(false) }
+    if (v.paused) {
+      v.play()
+        .then(() => { setPlaying(true); setStatus('playing') })
+        .catch(() => {})
+    } else {
+      v.pause()
+      setPlaying(false)
+      setStatus('paused')
+    }
   }
 
   function toggleFullscreen() {
@@ -373,6 +380,14 @@ export default function PlayerPage() {
                 Retry
               </button>
             )}
+          </div>
+        )}
+
+        {status === 'paused' && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="rounded-full bg-black/50 p-5">
+              <Play size={36} className="text-white" fill="currentColor" />
+            </div>
           </div>
         )}
 
