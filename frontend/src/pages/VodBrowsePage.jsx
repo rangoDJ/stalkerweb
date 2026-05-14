@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  getVodCategories, getVodList, getVodStreamUrl,
+  getVodCategories, getVodList, getVodStreamUrl, getVodEpisodeStream,
   getSeriesCategories, getSeriesList, getSeriesSeasons, getSeriesEpisodeStream,
 } from '../stalkerApi'
 
@@ -71,10 +71,10 @@ function EpisodeModal({ item, type, onClose, onPlay }) {
   async function handleEpisode(season, episode) {
     setResolving(`${season.id}-${episode}`)
     try {
-      const apiCall = type === 'series'
+      const fetch = type === 'series'
         ? getSeriesEpisodeStream(item.id, episode)
-        : getSeriesEpisodeStream(item.id, episode) // same endpoint
-      const { streamUrl } = await apiCall
+        : getVodEpisodeStream(item.id, episode)
+      const { streamUrl } = await fetch
       onPlay(streamUrl, `${item.name} · Ep ${episode}`)
     } catch (e) {
       setError(e.message)
