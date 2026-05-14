@@ -93,6 +93,23 @@ class FavoritesManager {
     return g;
   }
 
+  reorderChannels(orderedIds) {
+    const d = this._load();
+    const idSet = new Set(orderedIds.map(String));
+    const rest = d.channels.filter(id => !idSet.has(String(id)));
+    d.channels = [...orderedIds.map(String).filter(id => d.channels.includes(id)), ...rest];
+    this._save(d);
+  }
+
+  reorderGroups(orderedIds) {
+    const d = this._load();
+    const map = new Map(d.groups.map(g => [g.id, g]));
+    const reordered = orderedIds.map(id => map.get(id)).filter(Boolean);
+    const rest = d.groups.filter(g => !orderedIds.includes(g.id));
+    d.groups = [...reordered, ...rest];
+    this._save(d);
+  }
+
   removeChannelFromGroup(groupId, uniqueId) {
     const d = this._load();
     const g = d.groups.find(g => g.id === groupId);

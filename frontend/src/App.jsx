@@ -1,6 +1,6 @@
 import { useEffect, useState, createContext, useContext } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getStatus, getSettings } from './stalkerApi'
@@ -34,8 +34,34 @@ function NavItem({ to, icon: Icon, label }) {
   )
 }
 
+// ── Keepalive badge ───────────────────────────────────────────────────────
+function KeepaliveBadge({ lastPingAt }) {
+  const [label, setLabel] = useState('')
+
+  useEffect(() => {
+    if (!lastPingAt) return
+    function update() {
+      const diff = Math.floor((Date.now() - new Date(lastPingAt).getTime()) / 1000)
+      if (diff < 60) setLabel('just now')
+      else if (diff < 3600) setLabel(`${Math.floor(diff / 60)}m ago`)
+      else setLabel(`${Math.floor(diff / 3600)}h ago`)
+    }
+    update()
+    const id = setInterval(update, 30_000)
+    return () => clearInterval(id)
+  }, [lastPingAt])
+
+  if (!lastPingAt) return null
+  return (
+    <span className="hidden sm:flex items-center gap-1 text-xs text-[var(--color-muted)] opacity-70 hover:opacity-100 transition-opacity" title={`Session keepalive last sent: ${new Date(lastPingAt).toLocaleTimeString()}`}>
+      <RefreshCw size={11} className="shrink-0" />
+      {label}
+    </span>
+  )
+}
+
 // ── Top nav ───────────────────────────────────────────────────────────────
-function TopNav({ connected, epgEnabled }) {
+function TopNav({ connected, epgEnabled, lastPingAt }) {
   return (
     <header className="fixed top-0 inset-x-0 z-40 h-14 flex items-center px-6 gap-6 border-b border-[var(--color-border)] bg-[var(--color-bg)]/90 backdrop-blur-sm">
       <div className="flex items-center gap-2 shrink-0">
@@ -59,6 +85,7 @@ function TopNav({ connected, epgEnabled }) {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
+        {connected && <KeepaliveBadge lastPingAt={lastPingAt} />}
         <span className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
           <span
             className={cn(
@@ -83,6 +110,7 @@ function AppInner() {
   const [connected, setConnected] = useState(false)
   const [statusLoaded, setStatusLoaded] = useState(false)
   const [epgEnabled, setEpgEnabled] = useState(true)
+  const [lastPingAt, setLastPingAt] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -90,6 +118,7 @@ function AppInner() {
         const [status, settings] = await Promise.all([getStatus(), getSettings()])
         setConnected(status.connected)
         setEpgEnabled(settings.epg_enabled !== false)
+        if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)
       } catch {
         setConnected(false)
       } finally {
@@ -101,6 +130,7 @@ function AppInner() {
       try {
         const s = await getStatus()
         setConnected(s.connected)
+        if (s.watchdog?.lastPingAt) setLastPingAt(s.watchdog.lastPingAt)
       } catch {
         setConnected(false)
       }
@@ -119,7 +149,7 @@ function AppInner() {
   return (
     <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled }}>
       <TooltipProvider delayDuration={300}>
-        <TopNav connected={connected} epgEnabled={epgEnabled} />
+        <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} />
         <main className="pt-14 min-h-full">
           <Routes>
             <Route path="/settings" element={<SetupPage />} />

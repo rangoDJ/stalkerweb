@@ -111,5 +111,12 @@ export async function downloadStbEmuBackup() {
   URL.revokeObjectURL(url)
 }
 
+// ── Channel progress ──────────────────────────────────────────────────────
+export const getChannelProgress = () => _get('/channels/progress')
+
+// ── Favorites order ───────────────────────────────────────────────────────
+export const reorderFavoriteChannels = (order) => _put('/favorites/channels/order', { order })
+export const reorderFavoriteGroups   = (order) => _put('/favorites/groups/order',   { order })
+
 // ── Stream ────────────────────────────────────────────────────────────────
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)

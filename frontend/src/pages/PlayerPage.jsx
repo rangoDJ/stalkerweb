@@ -11,60 +11,51 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { getChannels, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
 
+const RECENTLY_WATCHED_KEY = 'sw_recently_watched'
+const RECENTLY_WATCHED_MAX = 15
+
+export function getRecentlyWatched() {
+  try { return JSON.parse(localStorage.getItem(RECENTLY_WATCHED_KEY) || '[]') } catch { return [] }
+}
+
+function pushRecentlyWatched(channel, logoUrl) {
+  const entry = { uniqueId: String(channel.uniqueId), name: channel.name, number: channel.number, logo: logoUrl || '' }
+  const prev = getRecentlyWatched().filter(c => String(c.uniqueId) !== String(channel.uniqueId))
+  localStorage.setItem(RECENTLY_WATCHED_KEY, JSON.stringify([entry, ...prev].slice(0, RECENTLY_WATCHED_MAX)))
+}
+
 // ── Controls bar ──────────────────────────────────────────────────────────
 function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent">
-      {/* Left */}
       <div className="flex items-center gap-2">
-        <button
-          onClick={onPlayPause}
-          className="text-white/90 hover:text-white transition-colors p-1"
-          aria-label={playing ? 'Pause' : 'Play'}
-        >
+        <button onClick={onPlayPause} className="text-white/90 hover:text-white transition-colors p-1" aria-label={playing ? 'Pause' : 'Play'}>
           {playing ? <Pause size={20} fill="currentColor" /> : <Play size={20} fill="currentColor" />}
         </button>
-
-        {/* Volume */}
         <div className="flex items-center gap-2 group/vol">
           <button onClick={onMute} className="text-white/90 hover:text-white transition-colors p-1">
             {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
           </button>
           <div className="w-0 overflow-hidden group-hover/vol:w-20 transition-all duration-200">
-            <Slider
-              min={0} max={100} step={1}
-              value={[muted ? 0 : volume]}
-              onValueChange={([v]) => onVolume(v)}
-              className="w-20"
-            />
+            <Slider min={0} max={100} step={1} value={[muted ? 0 : volume]} onValueChange={([v]) => onVolume(v)} className="w-20" />
           </div>
         </div>
-
         <Badge variant="live" className="ml-1">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-white animate-pulse" />
           LIVE
         </Badge>
       </div>
-
-      {/* Center */}
       <div className="flex-1 text-center">
         <span className="text-sm font-medium text-white/90 truncate">{channelName}</span>
       </div>
-
-      {/* Right */}
+      <div className="flex items-center gap-1 text-xs text-white/50 mr-2 hidden sm:block">
+        Space·F·M·↑↓
+      </div>
       <div className="flex items-center gap-1">
-        <button
-          onClick={onToggleList}
-          className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10"
-          aria-label="Toggle channel list"
-        >
+        <button onClick={onToggleList} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label="Toggle channel list">
           <List size={18} />
         </button>
-        <button
-          onClick={onFullscreen}
-          className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10"
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-        >
+        <button onClick={onFullscreen} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
           {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
         </button>
       </div>
@@ -76,13 +67,7 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
 function ChannelLogo({ src, name }) {
   const [err, setErr] = useState(false)
   if (!src || err) return <Tv2 size={13} className="shrink-0 text-[var(--color-muted)]" />
-  return (
-    <img
-      src={src} alt={name}
-      onError={() => setErr(true)}
-      className="w-5 h-5 object-contain shrink-0 rounded-sm"
-    />
-  )
+  return <img src={src} alt={name} onError={() => setErr(true)} className="w-5 h-5 object-contain shrink-0 rounded-sm" />
 }
 
 function ChannelList({ channels, activeId, logoMap, favoriteIds, onSelect, onToggleFavorite }) {
@@ -106,26 +91,18 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, onSelect, onTog
         {filtered.map(ch => {
           const isFav = favoriteIds.has(String(ch.uniqueId))
           return (
-            <div
-              key={ch.uniqueId}
-              className={cn(
-                'group flex items-center gap-2.5 px-3 py-2 transition-colors',
-                String(ch.uniqueId) === String(activeId)
-                  ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
-                  : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
-              )}
-            >
+            <div key={ch.uniqueId} className={cn('group flex items-center gap-2.5 px-3 py-2 transition-colors',
+              String(ch.uniqueId) === String(activeId)
+                ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
+                : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
+            )}>
               <button className="flex items-center gap-2.5 flex-1 text-left min-w-0" onClick={() => onSelect(ch)}>
                 <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} />
                 <span className="text-xs truncate">{ch.name}</span>
               </button>
               <button
                 onClick={() => onToggleFavorite(ch)}
-                className={cn(
-                  'shrink-0 p-0.5 rounded transition-colors',
-                  isFav ? 'text-rose-500' : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400'
-                )}
-                aria-label={isFav ? 'Remove from favorites' : 'Add to favorites'}
+                className={cn('shrink-0 p-0.5 rounded transition-colors', isFav ? 'text-rose-500' : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400')}
               >
                 <Heart size={12} fill={isFav ? 'currentColor' : 'none'} />
               </button>
@@ -143,28 +120,28 @@ export default function PlayerPage() {
   const initChannelId = searchParams.get('channel')
   const initChannelName = searchParams.get('name') ? decodeURIComponent(searchParams.get('name')) : ''
 
-  const videoRef = useRef(null)
-  const hlsRef = useRef(null)
+  const videoRef     = useRef(null)
+  const hlsRef       = useRef(null)
   const containerRef = useRef(null)
-  const hideTimer = useRef(null)
+  const hideTimer    = useRef(null)
+  const retryCount   = useRef(0)
 
-  const [channels, setChannels] = useState([])
-  const [logoMap, setLogoMap] = useState({})
+  const [channels, setChannels]       = useState([])
+  const [logoMap, setLogoMap]         = useState({})
   const [favoriteIds, setFavoriteIds] = useState(new Set())
   const [activeChannel, setActiveChannel] = useState(
     initChannelId ? { uniqueId: initChannelId, name: initChannelName } : null
   )
-  const [streamUrl, setStreamUrl] = useState(null)
-  const [status, setStatus] = useState('idle') // idle | loading | playing | error
-  const [errorMsg, setErrorMsg] = useState('')
+  const [streamUrl, setStreamUrl]   = useState(null)
+  const [status, setStatus]         = useState('idle')
+  const [errorMsg, setErrorMsg]     = useState('')
   const [showControls, setShowControls] = useState(true)
-  const [showList, setShowList] = useState(false)
-  const [playing, setPlaying] = useState(false)
-  const [muted, setMuted] = useState(false)
-  const [volume, setVolume] = useState(80)
+  const [showList, setShowList]     = useState(false)
+  const [playing, setPlaying]       = useState(false)
+  const [muted, setMuted]           = useState(false)
+  const [volume, setVolume]         = useState(80)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
-  // Load channel list, logo map, and favorites
   useEffect(() => {
     getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
@@ -182,21 +159,30 @@ export default function PlayerPage() {
     }
   }
 
-  // Load stream when active channel changes
   useEffect(() => {
     if (!activeChannel?.uniqueId) return
+    retryCount.current = 0
     loadStream(activeChannel.uniqueId)
   }, [activeChannel?.uniqueId])
 
-  async function loadStream(channelId) {
+  async function loadStream(channelId, isRetry = false) {
     setStatus('loading')
     setErrorMsg('')
     try {
       const { streamUrl: url } = await getStreamUrl(channelId)
       setStreamUrl(url)
+      // Track in recently watched
+      const ch = channels.find(c => String(c.uniqueId) === String(channelId)) || activeChannel
+      if (ch) pushRecentlyWatched(ch, logoMap[String(ch.uniqueId)])
     } catch (e) {
-      setStatus('error')
-      setErrorMsg(e.message)
+      if (!isRetry && retryCount.current < 1) {
+        retryCount.current++
+        setErrorMsg('Stream unavailable, retrying…')
+        setTimeout(() => loadStream(channelId, true), 2000)
+      } else {
+        setStatus('error')
+        setErrorMsg(e.message)
+      }
     }
   }
 
@@ -205,10 +191,7 @@ export default function PlayerPage() {
     if (!streamUrl || !videoRef.current) return
     const video = videoRef.current
 
-    if (hlsRef.current) {
-      hlsRef.current.destroy()
-      hlsRef.current = null
-    }
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
 
     if (Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
@@ -218,37 +201,30 @@ export default function PlayerPage() {
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.volume = volume / 100
         video.muted = muted
-        video.play().then(() => {
-          setStatus('playing')
-          setPlaying(true)
-        }).catch(() => {
-          setStatus('error')
-          setErrorMsg('Playback blocked. Click play to start.')
+        video.play().then(() => { setStatus('playing'); setPlaying(true) }).catch(() => {
+          setStatus('error'); setErrorMsg('Playback blocked. Click play to start.')
         })
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
-          setStatus('error')
-          setErrorMsg('Stream error. Try reloading.')
+          if (retryCount.current < 1) {
+            retryCount.current++
+            hls.startLoad()
+          } else {
+            setStatus('error'); setErrorMsg('Stream error. Try reloading.')
+          }
         }
       })
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = streamUrl
       video.volume = volume / 100
       video.muted = muted
-      video.play().then(() => {
-        setStatus('playing')
-        setPlaying(true)
-      }).catch(() => {})
+      video.play().then(() => { setStatus('playing'); setPlaying(true) }).catch(() => {})
     }
 
-    return () => {
-      hlsRef.current?.destroy()
-      hlsRef.current = null
-    }
+    return () => { hlsRef.current?.destroy(); hlsRef.current = null }
   }, [streamUrl])
 
-  // Sync volume/mute to video element
   useEffect(() => {
     if (!videoRef.current) return
     videoRef.current.volume = volume / 100
@@ -262,16 +238,48 @@ export default function PlayerPage() {
     hideTimer.current = setTimeout(() => setShowControls(false), 3000)
   }, [])
 
-  useEffect(() => {
-    resetHideTimer()
-    return () => clearTimeout(hideTimer.current)
-  }, [])
+  useEffect(() => { resetHideTimer(); return () => clearTimeout(hideTimer.current) }, [])
 
   // Fullscreen sync
   useEffect(() => {
     const handler = () => setIsFullscreen(!!document.fullscreenElement)
     document.addEventListener('fullscreenchange', handler)
     return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  // ── Keyboard shortcuts ────────────────────────────────────────────────────
+  useEffect(() => {
+    function onKey(e) {
+      // Don't steal keys when typing in an input
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+
+      switch (e.code) {
+        case 'Space':
+          e.preventDefault()
+          togglePlayPause()
+          break
+        case 'KeyF':
+          e.preventDefault()
+          toggleFullscreen()
+          break
+        case 'KeyM':
+          e.preventDefault()
+          setMuted(m => !m)
+          break
+        case 'ArrowUp':
+          e.preventDefault()
+          setVolume(v => { const n = Math.min(100, v + 10); setMuted(false); return n })
+          break
+        case 'ArrowDown':
+          e.preventDefault()
+          setVolume(v => Math.max(0, v - 10))
+          break
+        default:
+          break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [])
 
   function togglePlayPause() {
@@ -282,11 +290,8 @@ export default function PlayerPage() {
   }
 
   function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      containerRef.current?.requestFullscreen()
-    } else {
-      document.exitFullscreen()
-    }
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen()
+    else document.exitFullscreen()
   }
 
   function selectChannel(ch) {
@@ -296,7 +301,6 @@ export default function PlayerPage() {
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-black">
-      {/* Video area */}
       <div
         ref={containerRef}
         className="relative flex-1 flex items-center justify-center bg-black"
@@ -304,27 +308,22 @@ export default function PlayerPage() {
         onMouseLeave={() => clearTimeout(hideTimer.current)}
         onClick={togglePlayPause}
       >
-        <video
-          ref={videoRef}
-          className="w-full h-full object-contain"
-          playsInline
-        />
+        <video ref={videoRef} className="w-full h-full object-contain" playsInline />
 
-        {/* Loading overlay */}
         {status === 'loading' && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/60">
             <Loader2 size={40} className="text-[var(--color-primary-light)] animate-spin" />
+            {errorMsg && <p className="absolute mt-16 text-xs text-white/60">{errorMsg}</p>}
           </div>
         )}
 
-        {/* Error overlay */}
         {status === 'error' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
             <AlertCircle size={40} className="text-[var(--color-live)]" />
             <p className="text-sm text-white/80">{errorMsg}</p>
             {activeChannel && (
               <button
-                onClick={(e) => { e.stopPropagation(); loadStream(activeChannel.uniqueId) }}
+                onClick={(e) => { e.stopPropagation(); retryCount.current = 0; loadStream(activeChannel.uniqueId) }}
                 className="px-4 py-2 rounded-[var(--radius-sm)] bg-[var(--color-primary)] text-white text-sm hover:bg-[var(--color-primary-hover)] transition-colors"
               >
                 Retry
@@ -333,7 +332,6 @@ export default function PlayerPage() {
           </div>
         )}
 
-        {/* Idle state */}
         {status === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
             <Tv2 size={48} className="text-[var(--color-muted)]" />
@@ -341,19 +339,12 @@ export default function PlayerPage() {
           </div>
         )}
 
-        {/* Controls overlay */}
         <div
-          className={cn(
-            'absolute bottom-0 inset-x-0 transition-opacity duration-300',
-            showControls || status !== 'playing' ? 'opacity-100' : 'opacity-0 pointer-events-none'
-          )}
+          className={cn('absolute bottom-0 inset-x-0 transition-opacity duration-300', showControls || status !== 'playing' ? 'opacity-100' : 'opacity-0 pointer-events-none')}
           onClick={e => e.stopPropagation()}
         >
           <Controls
-            playing={playing}
-            muted={muted}
-            volume={volume}
-            isFullscreen={isFullscreen}
+            playing={playing} muted={muted} volume={volume} isFullscreen={isFullscreen}
             channelName={activeChannel?.name || 'No channel selected'}
             onPlayPause={togglePlayPause}
             onMute={() => setMuted(m => !m)}
@@ -364,21 +355,12 @@ export default function PlayerPage() {
         </div>
       </div>
 
-      {/* Slide-in channel list */}
-      <div
-        className={cn(
-          'transition-all duration-300 overflow-hidden shrink-0',
-          showList ? 'w-56' : 'w-0'
-        )}
-      >
+      <div className={cn('transition-all duration-300 overflow-hidden shrink-0', showList ? 'w-56' : 'w-0')}>
         {channels.length > 0 && (
           <ChannelList
-            channels={channels}
-            activeId={activeChannel?.uniqueId}
-            logoMap={logoMap}
-            favoriteIds={favoriteIds}
-            onSelect={selectChannel}
-            onToggleFavorite={toggleFavorite}
+            channels={channels} activeId={activeChannel?.uniqueId}
+            logoMap={logoMap} favoriteIds={favoriteIds}
+            onSelect={selectChannel} onToggleFavorite={toggleFavorite}
           />
         )}
       </div>

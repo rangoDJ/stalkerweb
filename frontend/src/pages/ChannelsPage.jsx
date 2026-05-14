@@ -1,14 +1,32 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Tv2, AlertCircle, RefreshCw, Heart } from 'lucide-react'
+import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
+import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress } from '../stalkerApi'
+import { getRecentlyWatched } from './PlayerPage'
 
-function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick }) {
+// ── Channel card ──────────────────────────────────────────────────────────
+function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact }) {
   const [imgError, setImgError] = useState(false)
   const logo = logoUrl || channel.iconPath || ''
+
+  if (compact) {
+    return (
+      <button
+        onClick={() => onClick(channel)}
+        className="group relative flex flex-col items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-2.5 text-left transition-all duration-200 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] cursor-pointer w-20 shrink-0"
+      >
+        <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
+          {logo && !imgError
+            ? <img src={logo} alt={channel.name} onError={() => setImgError(true)} className="h-full w-full object-contain p-0.5" />
+            : <Tv2 size={18} className="text-[var(--color-muted)]" />}
+        </div>
+        <p className="text-[10px] font-medium text-[var(--color-text)] leading-tight text-center break-words line-clamp-2 w-full">{channel.name}</p>
+      </button>
+    )
+  }
 
   return (
     <button
@@ -17,35 +35,34 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick }
     >
       <button
         onClick={e => { e.stopPropagation(); onToggleFavorite(channel) }}
-        className={cn(
-          'absolute top-2 right-2 p-1 rounded transition-colors',
-          isFavorite
-            ? 'text-rose-500'
-            : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400'
-        )}
+        className={cn('absolute top-2 right-2 p-1 rounded transition-colors',
+          isFavorite ? 'text-rose-500' : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400')}
         aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
       >
         <Heart size={14} fill={isFavorite ? 'currentColor' : 'none'} />
       </button>
       <div className="flex h-16 w-16 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
-        {logo && !imgError ? (
-          <img
-            src={logo}
-            alt={channel.name}
-            onError={() => setImgError(true)}
-            className="h-full w-full object-contain p-1"
-          />
-        ) : (
-          <Tv2 size={28} className="text-[var(--color-muted)]" />
-        )}
+        {logo && !imgError
+          ? <img src={logo} alt={channel.name} onError={() => setImgError(true)} className="h-full w-full object-contain p-1" />
+          : <Tv2 size={28} className="text-[var(--color-muted)]" />}
       </div>
       <div className="w-full text-center">
         <p className="text-xs text-[var(--color-muted)] mb-0.5">Ch {channel.number}</p>
-        <p className="text-sm font-medium text-[var(--color-text)] leading-tight break-words">
-          {channel.name}
-        </p>
+        <p className="text-sm font-medium text-[var(--color-text)] leading-tight break-words">{channel.name}</p>
       </div>
     </button>
+  )
+}
+
+// ── Number jump overlay ───────────────────────────────────────────────────
+function NumberJumpOverlay({ digits, onClose }) {
+  return (
+    <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-1 pointer-events-none">
+      <div className="rounded-[var(--radius-md)] bg-black/80 border border-[var(--color-border)] px-6 py-3 text-center backdrop-blur-sm">
+        <p className="text-xs text-[var(--color-muted)] mb-1">Jump to channel</p>
+        <p className="text-3xl font-bold font-mono text-[var(--color-primary-light)] tracking-widest">{digits}</p>
+      </div>
+    </div>
   )
 }
 
@@ -53,12 +70,18 @@ export default function ChannelsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const [channels, setChannels] = useState([])
-  const [groups, setGroups] = useState([])
-  const [logoMap, setLogoMap] = useState({})
+  const [channels, setChannels]       = useState([])
+  const [groups, setGroups]           = useState([])
+  const [logoMap, setLogoMap]         = useState({})
   const [favoriteIds, setFavoriteIds] = useState(new Set())
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [loading, setLoading]         = useState(true)
+  const [error, setError]             = useState(null)
+  const [progress, setProgress]       = useState(null) // { loading, page, totalPages, channelCount }
+  const [recentlyWatched, setRecentlyWatched] = useState([])
+
+  // Channel number jump
+  const [jumpDigits, setJumpDigits]   = useState('')
+  const jumpTimer                     = useRef(null)
 
   const activeGroup = searchParams.get('group') || ''
   const [query, setQuery] = useState('')
@@ -76,7 +99,54 @@ export default function ChannelsPage() {
     getGroups().then(r => setGroups((r.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all'))).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
     getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
+    setRecentlyWatched(getRecentlyWatched())
   }, [])
+
+  // Poll progress while channels are loading
+  useEffect(() => {
+    let id
+    async function poll() {
+      try {
+        const p = await getChannelProgress()
+        setProgress(p)
+        if (p.loading) id = setTimeout(poll, 800)
+      } catch {}
+    }
+    poll()
+    return () => clearTimeout(id)
+  }, [])
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    getChannels(activeGroup || null)
+      .then(r => setChannels(r.channels ?? []))
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false))
+  }, [activeGroup])
+
+  // ── Keyboard: channel number jump ────────────────────────────────────────
+  useEffect(() => {
+    function onKey(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      if (e.key === 'Escape') { setJumpDigits(''); clearTimeout(jumpTimer.current); return }
+      if (!/^\d$/.test(e.key)) return
+
+      setJumpDigits(prev => {
+        const next = (prev + e.key).slice(-4) // max 4 digits
+        clearTimeout(jumpTimer.current)
+        jumpTimer.current = setTimeout(() => {
+          const num = parseInt(next, 10)
+          const ch = channels.find(c => c.number === num)
+          if (ch) openChannel(ch)
+          setJumpDigits('')
+        }, 1200)
+        return next
+      })
+    }
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey); clearTimeout(jumpTimer.current) }
+  }, [channels])
 
   async function toggleFavorite(channel) {
     const id = String(channel.uniqueId)
@@ -88,15 +158,6 @@ export default function ChannelsPage() {
       setFavoriteIds(prev => new Set(prev).add(id))
     }
   }
-
-  useEffect(() => {
-    setLoading(true)
-    setError(null)
-    getChannels(activeGroup || null)
-      .then(r => setChannels(r.channels ?? []))
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [activeGroup])
 
   const filtered = useMemo(() => {
     if (!query.trim()) return channels
@@ -114,49 +175,38 @@ export default function ChannelsPage() {
     navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
   }
 
+  // Enrich recently watched with current logoMap
+  const recentChannels = useMemo(() =>
+    recentlyWatched.map(r => ({
+      ...r,
+      logoUrl: logoMap[r.uniqueId] || r.logo,
+    })).slice(0, 10),
+    [recentlyWatched, logoMap]
+  )
+
   return (
     <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+      {/* Number jump overlay */}
+      {jumpDigits && <NumberJumpOverlay digits={jumpDigits} />}
+
       {/* Sticky filter bar */}
       <div className="sticky top-14 z-30 bg-[var(--color-bg)]/90 backdrop-blur-sm border-b border-[var(--color-border)] px-6 py-3 flex items-center gap-3">
         <div className="relative flex-1 max-w-64">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
-          <Input
-            placeholder="Search channels…"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            className="pl-8"
-          />
+          <Input placeholder="Search channels…" value={query} onChange={e => setQuery(e.target.value)} className="pl-8" />
         </div>
 
-        {/* Group pills */}
-        <div
-          ref={pillsRef}
-          className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none"
-        >
+        <div ref={pillsRef} className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none">
           <button
             onClick={() => selectGroup('')}
-            className={cn(
-              'shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors',
-              !activeGroup
-                ? 'bg-[var(--color-primary)] text-white'
-                : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
-            )}
-          >
-            All
-          </button>
+            className={cn('shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors',
+              !activeGroup ? 'bg-[var(--color-primary)] text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]')}
+          >All</button>
           {groups.map(g => (
-            <button
-              key={g.id}
-              onClick={() => selectGroup(g.id)}
-              className={cn(
-                'shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap',
-                activeGroup === String(g.id)
-                  ? 'bg-[var(--color-primary)] text-white'
-                  : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
-              )}
-            >
-              {g.name}
-            </button>
+            <button key={g.id} onClick={() => selectGroup(g.id)}
+              className={cn('shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap',
+                activeGroup === String(g.id) ? 'bg-[var(--color-primary)] text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]')}
+            >{g.name}</button>
           ))}
         </div>
 
@@ -166,8 +216,48 @@ export default function ChannelsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-5">
-        {loading && (
+      <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6">
+
+        {/* Recently watched */}
+        {recentChannels.length > 0 && !query && (
+          <section>
+            <div className="flex items-center gap-2 mb-3">
+              <Clock size={14} className="text-[var(--color-muted)]" />
+              <span className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Recently Watched</span>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
+              {recentChannels.map(r => (
+                <ChannelCard
+                  key={r.uniqueId}
+                  channel={{ uniqueId: r.uniqueId, name: r.name, number: r.number }}
+                  logoUrl={r.logoUrl}
+                  isFavorite={favoriteIds.has(String(r.uniqueId))}
+                  onToggleFavorite={ch => toggleFavorite(ch)}
+                  onClick={openChannel}
+                  compact
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Progress bar while loading */}
+        {loading && progress?.loading && progress.totalPages > 0 && (
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between text-xs text-[var(--color-muted)]">
+              <span>Loading channels…</span>
+              <span>{progress.page} / {progress.totalPages} pages · {progress.channelCount} channels</span>
+            </div>
+            <div className="h-1 w-full rounded-full bg-[var(--color-surface-2)] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-[var(--color-primary)] transition-all duration-500"
+                style={{ width: `${Math.round((progress.page / progress.totalPages) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {loading && (!progress?.loading || !progress?.totalPages) && (
           <div className="flex h-48 items-center justify-center">
             <div className="h-6 w-6 rounded-full border-2 border-[var(--color-primary)] border-t-transparent animate-spin" />
           </div>
@@ -194,8 +284,7 @@ export default function ChannelsPage() {
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
             {filtered.map(ch => (
               <ChannelCard
-                key={ch.uniqueId}
-                channel={ch}
+                key={ch.uniqueId} channel={ch}
                 logoUrl={logoMap[String(ch.uniqueId)]}
                 isFavorite={favoriteIds.has(String(ch.uniqueId))}
                 onToggleFavorite={toggleFavorite}

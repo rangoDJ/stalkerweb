@@ -81,6 +81,22 @@ module.exports = function favoritesModule(favoritesManager, appState) {
     res.json({ success: true });
   });
 
+  // PUT /api/favorites/channels/order  { order: string[] }
+  router.put('/channels/order', (req, res) => {
+    const { order } = req.body;
+    if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
+    favoritesManager.reorderChannels(order);
+    res.json({ success: true });
+  });
+
+  // PUT /api/favorites/groups/order  { order: string[] }
+  router.put('/groups/order', (req, res) => {
+    const { order } = req.body;
+    if (!Array.isArray(order)) return res.status(400).json({ error: 'order array required' });
+    favoritesManager.reorderGroups(order);
+    res.json({ success: true });
+  });
+
   // DELETE /api/favorites/groups/:id/channels/:chId
   router.delete('/groups/:id/channels/:chId', (req, res) => {
     const g = favoritesManager.removeChannelFromGroup(req.params.id, req.params.chId);
