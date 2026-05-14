@@ -218,13 +218,22 @@ export default function PlayerPage() {
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
 
+    const tryPlay = () =>
+      video.play()
+        .then(() => { setStatus('playing'); setPlaying(true) })
+        .catch(() => {
+          // Browsers always allow muted autoplay — retry muted so stream starts
+          video.muted = true
+          return video.play()
+            .then(() => { setStatus('playing'); setPlaying(true) })
+            .catch(() => { setStatus('paused'); setPlaying(false) })
+        })
+
     const playNative = (src) => {
       video.src = src
       video.volume = volume / 100
       video.muted = muted
-      video.play()
-        .then(() => { setStatus('playing'); setPlaying(true) })
-        .catch(() => { setStatus('paused'); setPlaying(false) })
+      tryPlay()
     }
 
     // MP4 and other non-HLS formats — use native video element directly
@@ -242,9 +251,7 @@ export default function PlayerPage() {
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.volume = volume / 100
         video.muted = muted
-        video.play()
-          .then(() => { setStatus('playing'); setPlaying(true) })
-          .catch(() => { setStatus('paused'); setPlaying(false) })
+        tryPlay()
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
         if (data.fatal) {
@@ -332,7 +339,12 @@ export default function PlayerPage() {
     if (v.paused) {
       v.play()
         .then(() => { setPlaying(true); setStatus('playing') })
-        .catch(() => {})
+        .catch(() => {
+          v.muted = true
+          v.play()
+            .then(() => { setPlaying(true); setStatus('playing') })
+            .catch(() => {})
+        })
     } else {
       v.pause()
       setPlaying(false)
