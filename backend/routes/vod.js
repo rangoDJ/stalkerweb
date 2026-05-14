@@ -70,17 +70,27 @@ module.exports = function vodRoutes(appState, type) {
       return res.status(404).json({ error: `${type} item ${id} not found — load the list first` });
     }
 
+    let rawUrl;
     try {
-      const streamUrl = await vodManager.getStreamUrl(item, type, episode);
-      if (!streamUrl) {
+      rawUrl = await vodManager.getStreamUrl(item, type, episode);
+      if (!rawUrl) {
         return res.status(502).json({ error: 'Could not resolve stream URL' });
       }
-      appState.touchActivity?.();
-      res.json({ id, name: item.name, streamUrl });
     } catch (err) {
       log.error(TAG, `getStreamUrl failed: ${err.message}`);
-      res.status(502).json({ error: err.message });
+      return res.status(502).json({ error: err.message });
     }
+
+    // Cache the resolved URL on the item so the proxy can serve it with auth headers
+    item._cachedStreamUrl = rawUrl;
+    item._cachedEpisode   = episode;
+
+    appState.touchActivity?.();
+
+    // Return a proxy URL — the proxy adds portal auth headers to every request
+    const epSuffix = episode !== '0' ? `?ep=${encodeURIComponent(episode)}` : '';
+    const streamUrl = `/proxy/vod/${type}/${id}${epSuffix}`;
+    res.json({ id, name: item.name, streamUrl });
   });
 
   return router;
