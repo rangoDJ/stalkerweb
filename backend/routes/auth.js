@@ -161,6 +161,7 @@ module.exports = function authModule(appState, config) {
   router.post('/connect', async (req, res) => {
     try {
       const result = await connectPortal(req.body);
+      appState.touchActivity?.();
       res.json({ success: true, ...result });
     } catch (err) {
       console.error('[auth] connect failed:', err.message);
@@ -181,6 +182,8 @@ module.exports = function authModule(appState, config) {
       token: connected ? appState.identity?.token : null,
       device: DEVICE_PROFILE,
       watchdog: watchdog ? { lastPingAt: watchdog.lastPingAt, pingCount: watchdog.pingCount } : null,
+      lastActivityAt: appState.lastActivityAt || null,
+      idleTimeoutMs: appState.idleTimeoutMs || null,
     });
   });
 
@@ -235,6 +238,9 @@ module.exports = function authModule(appState, config) {
       appState.guideManager = null;
       appState.identity = null;
     }
+    clearTimeout(appState._idleTimer);
+    appState._idleTimer = null;
+    appState.lastActivityAt = null;
     res.json({ success: true });
   });
 

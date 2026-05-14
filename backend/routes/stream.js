@@ -1,23 +1,54 @@
 // routes/stream.js
 // GET /api/stream/:channelId  — resolve stream URL for a channel
 //
-// Mirrors StalkerInstance::GetChannelStreamURL() exactly:
-//   1. If "matrix" in cmd → call matrix.php endpoint
-//   2. If useHttpTmpLink or useLoadBalancing → call itvCreateLink
-//   3. Otherwise → use channel.cmd directly
-// Strip "ffrt<n> " prefix from cmd before returning.
+// If the session is not active, auto-reconnects from saved config before
+// serving the stream URL (transparent to the caller).
 
 'use strict';
 
 const express = require('express');
 const router = express.Router();
-const sessionMiddleware = require('../middleware/session');
+const CacheManager = require('../cache/CacheManager');
+const log = require('../logger');
+const TAG = 'stream';
 
-module.exports = function streamRoutes(appState) {
-  const guard = sessionMiddleware(appState);
+module.exports = function streamRoutes(appState, config) {
+
+  // ── Ensure an authenticated session exists, reconnecting if needed ─────────
+  async function ensureSession() {
+    if (appState.sessionManager?.isAuthenticated()) return;
+
+    // Serialise concurrent reconnect attempts
+    if (!appState._reconnecting) {
+      const cache = new CacheManager(config.dataDir);
+      const saved = cache.load();
+      if (!saved?.portal || !saved?.mac) {
+        throw new Error('Not connected to a portal. Configure portal first.');
+      }
+      log.info(TAG, 'session inactive — auto-reconnecting');
+      appState._reconnecting = appState.connectPortal(saved)
+        .then(() => {
+          log.info(TAG, 'auto-reconnect succeeded');
+          appState.touchActivity?.();
+        })
+        .catch((e) => {
+          log.error(TAG, `auto-reconnect failed: ${e.message}`);
+          throw e;
+        })
+        .finally(() => { appState._reconnecting = null; });
+    }
+
+    await appState._reconnecting;
+  }
 
   // GET /api/stream/:channelId
-  router.get('/:channelId', guard, async (req, res) => {
+  router.get('/:channelId', async (req, res) => {
+    try {
+      await ensureSession();
+    } catch (e) {
+      return res.status(503).json({ error: e.message });
+    }
+
     const { client, channelManager } = appState;
     const uniqueId = parseInt(req.params.channelId, 10);
 
@@ -28,23 +59,17 @@ module.exports = function streamRoutes(appState) {
 
     try {
       if (channel.cmd.includes('matrix')) {
-        // ── Matrix channel (non-standard) ──────────────────────────────────
-        console.log(`[stream] resolving matrix url for ch ${channel.number}`);
+        log.info(TAG, `resolving matrix url for ch ${channel.number}`);
         let cmd = '';
-
         try {
           cmd = await client.resolveMatrixUrl(channel.cmd);
         } catch (e) {
-          console.warn('[stream] matrix call failed, falling back to cmd');
+          log.warn(TAG, `matrix call failed, falling back to cmd: ${e.message}`);
           cmd = channel.cmd;
         }
-
-        // strip "ffrt<n> " prefix
         const spacePos = cmd.indexOf(' ');
         streamUrl = spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;
-
       } else {
-        // ── Standard channel ───────────────────────────────────────────────
         streamUrl = await channelManager.getStreamUrl(channel);
       }
     } catch (err) {
@@ -55,11 +80,9 @@ module.exports = function streamRoutes(appState) {
       return res.status(502).json({ error: 'Could not resolve stream URL' });
     }
 
-    res.json({
-      channelId: uniqueId,
-      channelName: channel.name,
-      streamUrl,
-    });
+    appState.touchActivity?.();
+
+    res.json({ channelId: uniqueId, channelName: channel.name, streamUrl });
   });
 
   return router;

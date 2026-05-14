@@ -1,6 +1,6 @@
 import { useEffect, useState, createContext, useContext } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart, RefreshCw } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getStatus, getSettings } from './stalkerApi'
@@ -60,8 +60,34 @@ function KeepaliveBadge({ lastPingAt }) {
   )
 }
 
+// ── Idle countdown badge ──────────────────────────────────────────────────
+function IdleBadge({ idleInfo }) {
+  const [label, setLabel] = useState('')
+
+  useEffect(() => {
+    if (!idleInfo?.lastActivityAt || !idleInfo?.idleTimeoutMs) return
+    function update() {
+      const elapsed = Date.now() - new Date(idleInfo.lastActivityAt).getTime()
+      const remaining = Math.max(0, idleInfo.idleTimeoutMs - elapsed)
+      const mins = Math.ceil(remaining / 60000)
+      setLabel(remaining === 0 ? 'disconnecting…' : `idle · ${mins}m`)
+    }
+    update()
+    const id = setInterval(update, 30_000)
+    return () => clearInterval(id)
+  }, [idleInfo])
+
+  if (!idleInfo?.lastActivityAt) return null
+  return (
+    <span className="hidden sm:flex items-center gap-1 text-xs text-[var(--color-muted)] opacity-60 hover:opacity-100 transition-opacity" title="Auto-disconnect when idle">
+      <Timer size={11} className="shrink-0" />
+      {label}
+    </span>
+  )
+}
+
 // ── Top nav ───────────────────────────────────────────────────────────────
-function TopNav({ connected, epgEnabled, lastPingAt }) {
+function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
   return (
     <header className="fixed top-0 inset-x-0 z-40 h-14 flex items-center px-6 gap-6 border-b border-[var(--color-border)] bg-[var(--color-bg)]/90 backdrop-blur-sm">
       <div className="flex items-center gap-2 shrink-0">
@@ -85,6 +111,7 @@ function TopNav({ connected, epgEnabled, lastPingAt }) {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
+        {connected && <IdleBadge idleInfo={idleInfo} />}
         {connected && <KeepaliveBadge lastPingAt={lastPingAt} />}
         <span className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
           <span
@@ -111,6 +138,7 @@ function AppInner() {
   const [statusLoaded, setStatusLoaded] = useState(false)
   const [epgEnabled, setEpgEnabled] = useState(true)
   const [lastPingAt, setLastPingAt] = useState(null)
+  const [idleInfo, setIdleInfo] = useState(null) // { lastActivityAt, idleTimeoutMs }
 
   useEffect(() => {
     async function load() {
@@ -119,6 +147,7 @@ function AppInner() {
         setConnected(status.connected)
         setEpgEnabled(settings.epg_enabled !== false)
         if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)
+        if (status.lastActivityAt) setIdleInfo({ lastActivityAt: status.lastActivityAt, idleTimeoutMs: status.idleTimeoutMs })
       } catch {
         setConnected(false)
       } finally {
@@ -132,6 +161,8 @@ function AppInner() {
         setConnected(s.connected)
         if (s.watchdog?.lastPingAt) setLastPingAt(s.watchdog.lastPingAt)
         else if (!s.connected) setLastPingAt(null)
+        if (s.lastActivityAt) setIdleInfo({ lastActivityAt: s.lastActivityAt, idleTimeoutMs: s.idleTimeoutMs })
+        else if (!s.connected) setIdleInfo(null)
       } catch {
         setConnected(false)
       }
@@ -148,9 +179,9 @@ function AppInner() {
   }
 
   return (
-    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, setLastPingAt }}>
+    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, setLastPingAt, setIdleInfo }}>
       <TooltipProvider delayDuration={300}>
-        <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} />
+        <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} idleInfo={idleInfo} />
         <main className="pt-14 min-h-full">
           <Routes>
             <Route path="/settings" element={<SetupPage />} />
