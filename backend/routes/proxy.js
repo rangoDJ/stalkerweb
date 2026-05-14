@@ -163,6 +163,7 @@ module.exports = function proxyModule(appState) {
   // ── GET /proxy/hls?url=<encoded> — sub-playlist proxy ────────────────────
   router.get('/hls', async (req, res) => {
     if (!requireSession(res)) return;
+    appState.touchActivity?.();
 
     const encoded = req.query.url;
     if (!encoded) return res.status(400).send('Missing url parameter');
@@ -183,6 +184,7 @@ module.exports = function proxyModule(appState) {
   // regardless of the actual container (FFmpeg detects format from content bytes).
   router.get('/hls/seg/:encoded', async (req, res) => {
     if (!requireSession(res)) return;
+    appState.touchActivity?.();
 
     // Strip the .ts (or any other) extension we appended for FFmpeg compatibility
     let encoded = req.params.encoded.replace(/\.[^.]+$/, '');

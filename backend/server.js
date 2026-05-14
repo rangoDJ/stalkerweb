@@ -53,9 +53,38 @@ const FavoritesManager = require('./favorites/FavoritesManager');
 const favoritesManager = new FavoritesManager(config.dataDir);
 
 const { authRoutes, connectPortal } = require('./routes/auth')(appState, config);
+
+// ── Idle auto-disconnect ───────────────────────────────────────────────────
+// Tear down the session after IDLE_TIMEOUT_MS of no stream/proxy activity.
+const log = require('./logger');
+const IDLE_TIMEOUT_MS = parseInt(process.env.IDLE_TIMEOUT_MINUTES || '30', 10) * 60 * 1000;
+
+function destroySession() {
+  if (!appState.sessionManager) return;
+  log.info('server', `idle timeout (${IDLE_TIMEOUT_MS / 60000}m) — auto-disconnecting session`);
+  appState.sessionManager.destroy();
+  appState.sessionManager = null;
+  appState.client = null;
+  appState.channelManager = null;
+  appState.guideManager = null;
+  appState.identity = null;
+}
+
+appState.idleTimeoutMs   = IDLE_TIMEOUT_MS;
+appState.lastActivityAt  = null;
+appState._idleTimer      = null;
+appState._reconnecting   = null;   // serialise concurrent auto-reconnects
+appState.connectPortal   = connectPortal;
+
+appState.touchActivity = function touchActivity() {
+  appState.lastActivityAt = new Date().toISOString();
+  clearTimeout(appState._idleTimer);
+  appState._idleTimer = setTimeout(destroySession, IDLE_TIMEOUT_MS);
+};
+
 const channelRoutes = require('./routes/channels')(appState);
 const epgRoutes = require('./routes/epg')(appState);
-const streamRoutes = require('./routes/stream')(appState);
+const streamRoutes = require('./routes/stream')(appState, config);
 const settingsRoutes = require('./routes/settings')(config);
 const proxyRoutes = require('./routes/proxy')(appState);
 const m3uRoutes = require('./routes/m3u')(appState, logoManager);
@@ -145,6 +174,7 @@ async function tryAutoConnect() {
   try {
     await connectPortal(saved);
     console.log('[server] auto-connect: session established ✓');
+    appState.touchActivity();
   } catch (e) {
     console.error('[server] auto-connect failed:', e.message);
   }
