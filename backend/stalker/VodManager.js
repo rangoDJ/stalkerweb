@@ -79,9 +79,10 @@ class VodManager {
     }));
   }
 
-  // ── Stream URL resolution (3-step fallback) ────────────────────────────────
+  // ── Stream URL resolution ──────────────────────────────────────────────────
   // episodeNumber: '0' for movies, episode number string for series episodes
   async getStreamUrl(item, type, episodeNumber = '0') {
+    const basePath = this.client.getBasePath(); // e.g. http://host/stalker_portal/
     const isHttpUrl = (u) => /^https?:\/\//i.test(u);
 
     const extractUrl = (raw) => {
@@ -90,26 +91,13 @@ class VodManager {
       return sp !== -1 ? raw.slice(sp + 1) : raw;
     };
 
-    // Resolve a possibly-relative path to an absolute URL using the portal base.
-    const toAbsolute = (url) => {
-      if (!url) return '';
-      if (isHttpUrl(url)) return url;
-      if (url.startsWith('/')) {
-        // Strip the portal sub-path so we get just the origin+port
-        try {
-          const base = new URL(this.client.getBasePath());
-          return `${base.origin}${url}`;
-        } catch { return url; }
-      }
-      return url;
-    };
-
     const resolveViaApi = async (cmd) => {
       const res = type === 'series'
         ? await this.client.seriesCreateLink(cmd, episodeNumber)
         : await this.client.vodCreateLink(cmd, episodeNumber);
-      const url = extractUrl(res?.js?.cmd || '');
-      // Only accept a real HTTP URL — portals often echo the cmd back unchanged
+      const raw = res?.js?.cmd || '';
+      const url = extractUrl(raw);
+      console.log(`[vod] create_link cmd="${cmd}" → raw="${raw}" url="${url}"`);
       return isHttpUrl(url) ? url : '';
     };
 
@@ -119,14 +107,31 @@ class VodManager {
       if (url) return url;
     } catch (_) {}
 
-    // Step 2: create_link with the item's own cmd
-    try {
-      const url = await resolveViaApi(item.cmd);
-      if (url) return url;
-    } catch (_) {}
+    // Step 2: create_link with the item's own cmd (skip if identical to step 1)
+    if (item.cmd && item.cmd !== `/media/${item.id}.mpg`) {
+      try {
+        const url = await resolveViaApi(item.cmd);
+        if (url) return url;
+      } catch (_) {}
+    }
 
-    // Step 3: use cmd directly, resolving relative paths against the portal origin
-    return toAbsolute(extractUrl(item.cmd));
+    // Step 3a: cmd relative to basePath (e.g. http://host/stalker_portal/media/<id>.mpg)
+    const cmdPath = extractUrl(item.cmd);
+    if (cmdPath && cmdPath.startsWith('/')) {
+      try {
+        const base = new URL(basePath);
+        const baseRelative = `${base.origin}${base.pathname.replace(/\/$/, '')}${cmdPath}`;
+        console.log(`[vod] step3a basePath-relative="${baseRelative}"`);
+        return baseRelative;
+      } catch (_) {}
+    }
+
+    // Step 3b: cmd relative to origin (e.g. http://host/media/<id>.mpg)
+    const fallback = isHttpUrl(cmdPath) ? cmdPath : (() => {
+      try { return `${new URL(basePath).origin}${cmdPath}`; } catch { return cmdPath; }
+    })();
+    console.log(`[vod] step3b origin-relative="${fallback}"`);
+    return fallback;
   }
 
   // ── Item lookup by id (from cache) ─────────────────────────────────────────
