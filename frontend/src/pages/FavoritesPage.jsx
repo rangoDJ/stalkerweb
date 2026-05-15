@@ -10,6 +10,7 @@ import {
   createFavoriteGroup, renameFavoriteGroup, deleteFavoriteGroup,
   addChannelToGroup, removeChannelFromGroup,
   reorderFavoriteChannels, reorderFavoriteGroups,
+  getProxiedLogoUrl,
 } from '../stalkerApi'
 import { useApp } from '../App'
 
@@ -84,7 +85,7 @@ function ChannelCard({ channel, logoUrl, onRemove, onClick, dragHandlers, isDrag
       >
         <X size={13} />
       </button>
-      <ChannelLogo src={logoUrl} name={channel.name} />
+      <ChannelLogo src={logoUrl || getProxiedLogoUrl(channel.iconPath)} name={channel.name} />
       <div className="w-full text-center">
         <p className="text-xs text-[var(--color-muted)] mb-0.5">Ch {channel.number}</p>
         <p className="text-sm font-medium text-[var(--color-text)] leading-tight break-words">{channel.name}</p>

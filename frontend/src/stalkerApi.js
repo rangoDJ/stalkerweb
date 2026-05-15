@@ -1,5 +1,10 @@
 const BASE = '/api'
 
+export const getProxiedLogoUrl = (url) => {
+  if (!url || !url.startsWith('http') || url.startsWith('/api/logos/render')) return url
+  return `/api/logos/render?url=${encodeURIComponent(url)}`
+}
+
 async function _get(path) {
   const r = await fetch(BASE + path)
   if (!r.ok) {

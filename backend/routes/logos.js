@@ -29,7 +29,32 @@ module.exports = function logosModule(logoManager, appState) {
   router.get('/check', (req, res) => {
     const { name } = req.query;
     if (!name) return res.status(400).json({ error: 'name query param required' });
-    res.json(logoManager.checkName(name));
+  res.json(logoManager.checkName(name));
+  });
+
+  // Proxy and cache a logo image
+  router.get('/render', async (req, res) => {
+    const { url } = req.query;
+    if (!url) return res.status(400).send('url required');
+
+    try {
+      const headers = {};
+      const portalUrl = appState?.client?.portalUrl;
+      
+      // If the logo is from the portal, inject session headers
+      if (portalUrl && url.startsWith(new URL(portalUrl).origin)) {
+        if (appState.client.userAgent) headers['User-Agent'] = appState.client.userAgent;
+        if (appState.client.cookie)    headers['Cookie']     = appState.client.cookie;
+      }
+
+      const filePath = await logoManager.getLogoPath(url, headers);
+      if (!filePath) return res.status(404).send('Not found');
+
+      res.setHeader('Cache-Control', 'public, max-age=604800, immutable'); // 7 days
+      res.sendFile(filePath);
+    } catch (e) {
+      res.status(500).send(e.message);
+    }
   });
 
   // Returns { [uniqueId]: logoUrl } for all loaded channels — used by the web UI
@@ -40,7 +65,9 @@ module.exports = function logosModule(logoManager, appState) {
     const map = {};
     for (const ch of channels) {
       const logo = logoManager.getLogo(ch.name) || ch.iconPath || '';
-      if (logo) map[String(ch.uniqueId)] = logo;
+      if (logo) {
+        map[String(ch.uniqueId)] = `/api/logos/render?url=${encodeURIComponent(logo)}`;
+      }
     }
     res.json(map);
   });

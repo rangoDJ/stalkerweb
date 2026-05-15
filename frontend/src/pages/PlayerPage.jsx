@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { getChannels, getGroups, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
+import { getChannels, getGroups, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getProxiedLogoUrl } from '../stalkerApi'
 import { useApp } from '../App'
 
 const RECENTLY_WATCHED_KEY = 'sw_recently_watched'
@@ -171,7 +171,7 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
                 : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
             )}>
               <button className="flex items-center gap-2.5 flex-1 text-left min-w-0" onClick={() => onSelect(ch)}>
-                <ChannelLogo src={logoMap[String(ch.uniqueId)]} name={ch.name} />
+                <ChannelLogo src={logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)} name={ch.name} />
                 <span className="text-xs truncate">{ch.name}</span>
               </button>
               <button

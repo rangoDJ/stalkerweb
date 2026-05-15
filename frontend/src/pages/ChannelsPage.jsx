@@ -4,14 +4,14 @@ import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress } from '../stalkerApi'
+import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress, getProxiedLogoUrl } from '../stalkerApi'
 import { getRecentlyWatched } from './PlayerPage'
 import { useApp } from '../App'
 
 // ── Channel card ──────────────────────────────────────────────────────────
 function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact }) {
   const [imgError, setImgError] = useState(false)
-  const logo = logoUrl || channel.iconPath || ''
+  const logo = logoUrl || getProxiedLogoUrl(channel.iconPath) || ''
 
   if (compact) {
     return (

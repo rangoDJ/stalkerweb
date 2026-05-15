@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, saveConfig, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup, getChannels, getLogoMap } from '../stalkerApi'
+import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, saveConfig, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup, getChannels, getLogoMap, getProxiedLogoUrl } from '../stalkerApi'
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -547,7 +547,7 @@ export default function SetupPage() {
                     className="flex items-center gap-2 text-left hover:opacity-80 transition-opacity group"
                     title="Click to use in Add Override"
                   >
-                    <img src={testResult.logo} alt="" className="h-8 w-8 object-contain rounded shrink-0" onError={e => e.currentTarget.style.display='none'} />
+                    <img src={getProxiedLogoUrl(testResult.logo)} alt="" className="h-8 w-8 object-contain rounded shrink-0" onError={e => e.currentTarget.style.display='none'} />
                     <span className="text-[var(--color-success)] truncate group-hover:underline">{testResult.logo}</span>
                   </button>
                 : <span className={testResult.db_loaded ? 'text-[var(--color-live)]' : 'text-[var(--color-muted)]'}>
@@ -567,7 +567,7 @@ export default function SetupPage() {
                 <div key={name} className="flex items-center gap-2 rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-bg)] px-3 py-1.5">
                   {url && (
                     <img
-                      src={url}
+                      src={getProxiedLogoUrl(url)}
                       alt=""
                       className="w-6 h-6 object-contain shrink-0 rounded"
                       onError={e => { e.currentTarget.style.display = 'none' }}
