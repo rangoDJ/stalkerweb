@@ -144,7 +144,7 @@ class ChannelManager {
   getGroups() { return this._groups; }
 
   getChannel(uniqueId) {
-    return this._channels.find((c) => c.uniqueId === uniqueId) || null;
+    return this._channels.find((c) => String(c.uniqueId) === String(uniqueId)) || null;
   }
 
   // ── Stream URL resolution ─────────────────────────────────────────────────
