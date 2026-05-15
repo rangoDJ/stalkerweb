@@ -11,6 +11,7 @@
 const fs    = require('fs');
 const path  = require('path');
 const axios = require('axios');
+const crypto = require('crypto');
 const CacheManager = require('../cache/CacheManager');
 
 const CHANNELS_URL = 'https://raw.githubusercontent.com/iptv-org/database/master/data/channels.csv';
@@ -74,6 +75,8 @@ class LogoManager {
     this._overrides     = null;   // in-memory cache, invalidated on write
     this._cachedAt      = null;
     this._refreshing    = false;
+    this._cacheDir      = path.join(dataDir, 'cache', 'logos');
+    fs.mkdirSync(this._cacheDir, { recursive: true });
   }
 
   // ── Public ─────────────────────────────────────────────────────────────────
@@ -133,6 +136,39 @@ class LogoManager {
     const ov = this._getOverrides();
     delete ov[name];
     this._saveOverrides(ov);
+  }
+
+  /**
+   * Fetches an image from URL and returns its local path (cached).
+   * If not in cache, downloads it.
+   */
+  async getLogoPath(url, headers = {}) {
+    if (!url || !url.startsWith('http')) return null;
+
+    const hash = crypto.createHash('md5').update(url).digest('hex');
+    const ext  = path.extname(new URL(url).pathname) || '.png';
+    const filePath = path.join(this._cacheDir, hash + ext);
+
+    if (fs.existsSync(filePath)) {
+      return filePath;
+    }
+
+    // Download
+    try {
+      const resp = await axios.get(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          ...headers
+        },
+        responseType: 'arraybuffer',
+        timeout: 10000,
+      });
+      fs.writeFileSync(filePath, resp.data);
+      return filePath;
+    } catch (err) {
+      console.warn(`[logos] failed to download ${url}: ${err.message}`);
+      return null;
+    }
   }
 
   // ── Private ────────────────────────────────────────────────────────────────
