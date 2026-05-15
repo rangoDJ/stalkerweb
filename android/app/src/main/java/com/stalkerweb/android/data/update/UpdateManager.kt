@@ -7,7 +7,6 @@ import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import android.util.Log
-import com.stalkerweb.android.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -24,9 +23,9 @@ class UpdateManager(private val context: Context) {
     suspend fun checkForUpdate(): ReleaseInfo? = withContext(Dispatchers.IO) {
         runCatching {
             val req  = Request.Builder()
-                .url("https://api.github.com/repos/${BuildConfig.GITHUB_REPO}/releases/latest")
+                .url("https://api.github.com/repos/${com.stalkerweb.android.BuildConfig.GITHUB_REPO}/releases/latest")
                 .header("Accept", "application/vnd.github+json")
-                .header("User-Agent", "StalkerWeb-Android/${BuildConfig.VERSION_NAME}")
+                .header("User-Agent", "StalkerWeb-Android/${com.stalkerweb.android.BuildConfig.VERSION_NAME}")
                 .build()
             val response = client.newCall(req).execute()
             if (!response.isSuccessful) {
@@ -37,8 +36,8 @@ class UpdateManager(private val context: Context) {
             val json    = JSONObject(body)
             val tagName = json.getString("tag_name")
             val version = tagName.trimStart('v')
-            if (!isNewer(version, BuildConfig.VERSION_NAME)) {
-                Log.d("UpdateManager", "Current version (${BuildConfig.VERSION_NAME}) is up to date with $version")
+            if (!isNewer(version, com.stalkerweb.android.BuildConfig.VERSION_NAME)) {
+                Log.d("UpdateManager", "Current version (${com.stalkerweb.android.BuildConfig.VERSION_NAME}) is up to date with $version")
                 return@withContext null
             }
             val assets  = json.getJSONArray("assets")
@@ -58,12 +57,12 @@ class UpdateManager(private val context: Context) {
     suspend fun downloadApk(url: String, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
         val req      = Request.Builder()
             .url(url)
-            .header("User-Agent", "StalkerWeb-Android/${BuildConfig.VERSION_NAME}")
+            .header("User-Agent", "StalkerWeb-Android/${com.stalkerweb.android.BuildConfig.VERSION_NAME}")
             .build()
         val response = client.newCall(req).execute()
         val body     = response.body ?: throw Exception("Empty response body")
         val total    = body.contentLength()
-        val dir      = File(context.cacheDir, "apk_downloads").also { it.mkdirs() }
+        val dir      = File(context.externalCacheDir ?: context.cacheDir, "apk_downloads").also { it.mkdirs() }
         val file     = File(dir, "update.apk")
         var received = 0L
         body.byteStream().use { input ->
@@ -77,6 +76,7 @@ class UpdateManager(private val context: Context) {
                 }
             }
         }
+        file.setReadable(true, false)
         file
     }
 

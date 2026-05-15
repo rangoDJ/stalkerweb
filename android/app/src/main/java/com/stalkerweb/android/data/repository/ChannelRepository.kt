@@ -2,6 +2,7 @@ package com.stalkerweb.android.data.repository
 
 import com.stalkerweb.android.data.api.AddFavoriteRequest
 import com.stalkerweb.android.data.api.Channel
+import com.stalkerweb.android.data.api.Group
 import com.stalkerweb.android.data.api.StalkerApi
 import com.stalkerweb.android.data.api.StatusResponse
 import com.stalkerweb.android.data.prefs.AppPrefs

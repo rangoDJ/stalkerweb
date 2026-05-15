@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.Channel
+import com.stalkerweb.android.data.api.Group
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
