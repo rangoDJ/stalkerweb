@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { getChannels, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
+import { getChannels, getGroups, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
 
 const RECENTLY_WATCHED_KEY = 'sw_recently_watched'
 const RECENTLY_WATCHED_MAX = 15
@@ -67,24 +67,110 @@ function ChannelLogo({ src, name }) {
   return <img src={src} alt={name} onError={() => setErr(true)} className="w-5 h-5 object-contain shrink-0 rounded-sm" />
 }
 
-function ChannelList({ channels, activeId, logoMap, favoriteIds, onSelect, onToggleFavorite }) {
-  const [query, setQuery] = useState('')
-  const filtered = channels.filter(c => !query || c.name?.toLowerCase().includes(query.toLowerCase()))
+function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelect, onToggleFavorite }) {
+  const [query, setQuery]         = useState('')
+  const [activeGroup, setGroup]   = useState('')   // genre group id (string) or '' for All
+  const [favsOnly, setFavsOnly]   = useState(false)
+  const pillsRef                  = useRef(null)
+
+  // Horizontal scroll on genre pills via mouse-wheel
+  useEffect(() => {
+    const el = pillsRef.current
+    if (!el) return
+    const onWheel = e => { e.preventDefault(); el.scrollLeft += e.deltaY }
+    el.addEventListener('wheel', onWheel, { passive: false })
+    return () => el.removeEventListener('wheel', onWheel)
+  }, [])
+
+  const filtered = channels.filter(ch => {
+    if (favsOnly && !favoriteIds.has(String(ch.uniqueId))) return false
+    if (activeGroup && String(ch.genreId ?? '') !== String(activeGroup)) return false
+    if (query && !ch.name?.toLowerCase().includes(query.toLowerCase())) return false
+    return true
+  })
+
+  function selectGroup(id) {
+    setGroup(id)
+    if (id) setFavsOnly(false)   // genre filter and favs-only are mutually exclusive
+  }
+
+  function toggleFavsOnly() {
+    setFavsOnly(v => !v)
+    if (!favsOnly) setGroup('')  // clear genre when switching to favs-only
+  }
 
   return (
     <div className="flex flex-col h-full bg-[var(--color-surface)] border-l border-[var(--color-border)]">
-      <div className="p-3 border-b border-[var(--color-border)]">
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
-          <input
-            placeholder="Search…"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            className="w-full rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] border border-[var(--color-border)] pl-7 pr-3 py-1.5 text-xs text-[var(--color-text)] placeholder:text-[var(--color-muted)] outline-none focus:border-[var(--color-primary-light)]"
-          />
+
+      {/* ── Search + favs toggle ── */}
+      <div className="p-3 pb-2 border-b border-[var(--color-border)] flex flex-col gap-2">
+        <div className="flex items-center gap-1.5">
+          <div className="relative flex-1">
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
+            <input
+              placeholder="Search…"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              className="w-full rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] border border-[var(--color-border)] pl-7 pr-3 py-1.5 text-xs text-[var(--color-text)] placeholder:text-[var(--color-muted)] outline-none focus:border-[var(--color-primary-light)]"
+            />
+          </div>
+          <button
+            onClick={toggleFavsOnly}
+            title={favsOnly ? 'Show all channels' : 'Show favorites only'}
+            className={cn(
+              'shrink-0 flex items-center gap-1 px-2 py-1.5 rounded-[var(--radius-sm)] border text-xs font-medium transition-colors',
+              favsOnly
+                ? 'bg-rose-500/15 border-rose-500/40 text-rose-400'
+                : 'bg-[var(--color-surface-2)] border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
+            )}
+          >
+            <Heart size={11} fill={favsOnly ? 'currentColor' : 'none'} />
+            Favs
+          </button>
         </div>
+
+        {/* ── Genre pills ── */}
+        {groups.length > 0 && (
+          <div
+            ref={pillsRef}
+            className="flex items-center gap-1 overflow-x-auto scrollbar-none pb-0.5"
+          >
+            <button
+              onClick={() => selectGroup('')}
+              className={cn(
+                'shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap',
+                !activeGroup
+                  ? 'bg-[var(--color-primary)] text-white'
+                  : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
+              )}
+            >
+              All
+            </button>
+            {groups.map(g => (
+              <button
+                key={g.id}
+                onClick={() => selectGroup(String(g.id))}
+                className={cn(
+                  'shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap',
+                  activeGroup === String(g.id)
+                    ? 'bg-[var(--color-primary)] text-white'
+                    : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
+                )}
+              >
+                {g.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {/* ── Channel rows ── */}
       <ScrollArea className="flex-1">
+        {filtered.length === 0 && (
+          <p className="px-3 py-4 text-xs text-[var(--color-muted)] text-center">
+            {favsOnly ? 'No favorites in this view.' : 'No channels found.'}
+          </p>
+        )}
         {filtered.map(ch => {
           const isFav = favoriteIds.has(String(ch.uniqueId))
           return (
@@ -124,6 +210,7 @@ export default function PlayerPage() {
   const retryCount   = useRef(0)
 
   const [channels, setChannels]       = useState([])
+  const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
   const [favoriteIds, setFavoriteIds] = useState(new Set())
   // Refs so keyboard handler always sees current values without re-registering
@@ -148,6 +235,7 @@ export default function PlayerPage() {
 
   useEffect(() => {
     getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
+    getGroups().then(r => setGroups((r.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all'))).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
     getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
   }, [])
@@ -412,11 +500,12 @@ export default function PlayerPage() {
         </div>
       </div>
 
-      <div className={cn('transition-all duration-300 overflow-hidden shrink-0', showList ? 'w-56' : 'w-0')}>
+      <div className={cn('transition-all duration-300 overflow-hidden shrink-0', showList ? 'w-72' : 'w-0')}>
         {channels.length > 0 && (
           <ChannelList
             channels={channels} activeId={activeChannel?.uniqueId}
             logoMap={logoMap} favoriteIds={favoriteIds}
+            groups={groups}
             onSelect={selectChannel} onToggleFavorite={toggleFavorite}
           />
         )}
