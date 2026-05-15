@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -48,8 +50,9 @@ fun PlayerScreen(
 
     var showControls by remember { mutableStateOf(true) }
     var isPlaying    by remember { mutableStateOf(false) }
+    var isBuffering  by remember { mutableStateOf(true) }
+    var playerError  by remember { mutableStateOf<String?>(null) }
 
-    // Lock to landscape; restore on exit
     DisposableEffect(Unit) {
         val activity = context as? Activity
         activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -73,15 +76,32 @@ fun PlayerScreen(
         ExoPlayer.Builder(context).build().apply {
             playWhenReady = true
             addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    isBuffering = playbackState == Player.STATE_BUFFERING ||
+                                  playbackState == Player.STATE_IDLE
+                    if (playbackState == Player.STATE_READY) playerError = null
+                }
+                override fun onPlayerError(error: PlaybackException) {
+                    isBuffering = false
+                    playerError = error.message ?: "Playback error"
+                }
             })
         }
     }
 
-    // Reload stream when the active channel changes
+    // Load stream whenever the active channel changes
     LaunchedEffect(activeId) {
+        playerError = null
+        isBuffering = true
         val url = viewModel.streamUrl(activeId)
-        exoPlayer.setMediaItem(MediaItem.fromUri(url))
+        val mediaItem = MediaItem.Builder()
+            .setUri(url)
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .build()
+        exoPlayer.setMediaItem(mediaItem)
         exoPlayer.prepare()
     }
 
@@ -100,13 +120,44 @@ fun PlayerScreen(
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
-                    player             = exoPlayer
-                    useController      = false
-                    resizeMode         = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    player        = exoPlayer
+                    useController = false
+                    resizeMode    = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
             },
             modifier = Modifier.fillMaxSize(),
         )
+
+        // ── Buffering spinner ─────────────────────────────────────────────────
+        if (isBuffering && playerError == null) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color    = Color.White,
+            )
+        }
+
+        // ── Error overlay ─────────────────────────────────────────────────────
+        if (playerError != null) {
+            Column(
+                modifier            = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Icon(Icons.Default.ErrorOutline, null, tint = Color.Red, modifier = Modifier.size(40.dp))
+                Text(playerError ?: "", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = {
+                    playerError = null
+                    isBuffering = true
+                    val url = viewModel.streamUrl(activeId)
+                    val item = MediaItem.Builder()
+                        .setUri(url)
+                        .setMimeType(MimeTypes.APPLICATION_M3U8)
+                        .build()
+                    exoPlayer.setMediaItem(item)
+                    exoPlayer.prepare()
+                }) { Text("Retry") }
+            }
+        }
 
         // ── Top bar (back + title + channel list toggle) ──────────────────────
         AnimatedVisibility(
@@ -136,8 +187,8 @@ fun PlayerScreen(
                     modifier = Modifier.weight(1f),
                 )
                 Surface(
-                    color  = MaterialTheme.colorScheme.error,
-                    shape  = MaterialTheme.shapes.extraSmall,
+                    color = MaterialTheme.colorScheme.error,
+                    shape = MaterialTheme.shapes.extraSmall,
                 ) {
                     Text(
                         "LIVE",
@@ -253,12 +304,12 @@ private fun ChannelListPanel(
                     )
                     IconButton(onClick = { onToggleFavorite(ch) }, modifier = Modifier.size(28.dp)) {
                         Icon(
-                            imageVector = if (isFav) Icons.Default.Favorite
-                                          else Icons.Default.FavoriteBorder,
+                            imageVector        = if (isFav) Icons.Default.Favorite
+                                                else Icons.Default.FavoriteBorder,
                             contentDescription = null,
-                            tint     = if (isFav) MaterialTheme.colorScheme.error
-                                       else Color.White.copy(alpha = 0.25f),
-                            modifier = Modifier.size(14.dp),
+                            tint               = if (isFav) MaterialTheme.colorScheme.error
+                                                else Color.White.copy(alpha = 0.25f),
+                            modifier           = Modifier.size(14.dp),
                         )
                     }
                 }
