@@ -201,8 +201,10 @@ export default function PlayerPage() {
       video.play()
         .then(() => { setStatus('playing'); setPlaying(true) })
         .catch(() => {
-          // Browsers always allow muted autoplay — retry muted so stream starts
+          // Browsers always allow muted autoplay — retry muted so stream starts.
+          // Sync React state so the UI mute icon matches the DOM.
           video.muted = true
+          setMuted(true)
           return video.play()
             .then(() => { setStatus('playing'); setPlaying(true) })
             .catch(() => { setStatus('paused'); setPlaying(false) })
