@@ -95,6 +95,8 @@ class VodManager {
       return sp !== -1 ? raw.slice(sp + 1) : raw;
     };
 
+    console.log(`[vod] getStreamUrl id=${item.id} cmd=${item.cmd} rtspUrl=${item.rtspUrl} hasFiles=${item.hasFiles} isSeries=${item.isSeries}`);
+
     let portalError = null;
 
     const resolveViaApi = async (cmd) => {
@@ -108,6 +110,9 @@ class VodManager {
       const url = extractUrl(js.cmd || '');
       return isHttpUrl(url) ? url : '';
     };
+
+    // Step 0: rtsp_url field — some portals embed a direct HTTP stream URL here
+    if (isHttpUrl(item.rtspUrl)) return item.rtspUrl;
 
     // Step 1: synthetic /media/<id>.mpg (matches plugin.video.stalkervod)
     try {
@@ -186,6 +191,7 @@ function _parseItems(basePath, raw) {
       categoryId:    item.category_id || item.genre_id || '',
       screenshotUri: _resolveUri(basePath, item.screenshot_uri || ''),
       cmd:           item.cmd || '',
+      rtspUrl:       item.rtsp_url || '',
       fav:           !!parseInt(item.fav, 10),
       hasFiles:      parseInt(item.has_files, 10) || 0,
       // is_series='1' with series:[] means portal stores episodes as files, not in series array
