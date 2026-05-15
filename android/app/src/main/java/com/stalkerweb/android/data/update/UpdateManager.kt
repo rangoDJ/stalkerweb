@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import android.util.Log
 import com.stalkerweb.android.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -25,26 +26,40 @@ class UpdateManager(private val context: Context) {
             val req  = Request.Builder()
                 .url("https://api.github.com/repos/${BuildConfig.GITHUB_REPO}/releases/latest")
                 .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "StalkerWeb-Android/${BuildConfig.VERSION_NAME}")
                 .build()
-            val body = client.newCall(req).execute().use { it.body?.string() }
-                ?: return@withContext null
+            val response = client.newCall(req).execute()
+            if (!response.isSuccessful) {
+                Log.w("UpdateManager", "Check failed: ${response.code} ${response.message}")
+                return@withContext null
+            }
+            val body = response.body?.string() ?: return@withContext null
             val json    = JSONObject(body)
             val tagName = json.getString("tag_name")
             val version = tagName.trimStart('v')
-            if (!isNewer(version, BuildConfig.VERSION_NAME)) return@withContext null
+            if (!isNewer(version, BuildConfig.VERSION_NAME)) {
+                Log.d("UpdateManager", "Current version ($BuildConfig.VERSION_NAME) is up to date with $version")
+                return@withContext null
+            }
             val assets  = json.getJSONArray("assets")
             for (i in 0 until assets.length()) {
                 val asset = assets.getJSONObject(i)
                 if (asset.getString("name").endsWith(".apk")) {
+                    Log.i("UpdateManager", "New version found: $version")
                     return@withContext ReleaseInfo(tagName, version, asset.getString("browser_download_url"))
                 }
             }
             null
+        }.onFailure {
+            Log.e("UpdateManager", "Update check error: ${it.message}", it)
         }.getOrNull()
     }
 
     suspend fun downloadApk(url: String, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
-        val req      = Request.Builder().url(url).build()
+        val req      = Request.Builder()
+            .url(url)
+            .header("User-Agent", "StalkerWeb-Android/${BuildConfig.VERSION_NAME}")
+            .build()
         val response = client.newCall(req).execute()
         val body     = response.body ?: throw Exception("Empty response body")
         val total    = body.contentLength()
