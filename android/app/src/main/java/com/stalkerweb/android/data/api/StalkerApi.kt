@@ -11,7 +11,7 @@ import java.util.concurrent.TimeUnit
 
 interface StalkerApi {
 
-    @GET("api/status")
+    @GET("api/auth/status")
     suspend fun getStatus(): StatusResponse
 
     @GET("api/channels")
