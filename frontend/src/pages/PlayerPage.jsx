@@ -202,6 +202,7 @@ export default function PlayerPage() {
   const [channels, setChannels]       = useState([])
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
+  const { showAdult }                 = useApp()
   const [favoriteIds, setFavoriteIds] = useState(new Set())
   // Refs so keyboard handler always sees current values without re-registering
   const channelsRef      = useRef([])
@@ -224,11 +225,28 @@ export default function PlayerPage() {
   useEffect(() => { activeChannelRef.current = activeChannel }, [activeChannel])
 
   useEffect(() => {
-    getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
-    getGroups().then(r => setGroups((r.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all'))).catch(() => {})
+    Promise.all([getChannels(), getGroups(), getFavorites()])
+      .then(([chRes, grpRes, favRes]) => {
+        let chList = chRes.channels ?? []
+        let gList  = (grpRes.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')
+
+        // Parental Filter
+        if (!showAdult) {
+          const isAdult = (name) => {
+            const lower = name?.toLowerCase() || ''
+            return lower.includes('adult') || lower.includes('for adults')
+          }
+          chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+          gList  = gList.filter(g => !isAdult(g.name))
+        }
+
+        setChannels(chList)
+        setGroups(gList)
+        setFavoriteIds(new Set(favRes.channels.map(c => String(c.uniqueId))))
+      })
+      .catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
-    getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
-  }, [])
+  }, [showAdult])
 
   async function toggleFavorite(channel) {
     const id = String(channel.uniqueId)

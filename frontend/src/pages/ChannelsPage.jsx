@@ -68,6 +68,7 @@ function NumberJumpOverlay({ digits, onClose }) {
 
 export default function ChannelsPage() {
   const navigate = useNavigate()
+  const { showAdult } = useApp()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [channels, setChannels]       = useState([])
@@ -96,7 +97,6 @@ export default function ChannelsPage() {
   }, [])
 
   useEffect(() => {
-    getGroups().then(r => setGroups((r.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all'))).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
     getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
     setRecentlyWatched(getRecentlyWatched())
@@ -107,23 +107,35 @@ export default function ChannelsPage() {
     let id
     async function poll() {
       try {
+        const [chRes, grpRes] = await Promise.all([getChannels(activeGroup || null), getGroups()])
+        let chList = chRes.channels ?? []
+        let gList  = (grpRes.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')
+
+        // Parental Filter
+        if (!showAdult) {
+          const isAdult = (name) => {
+            const lower = name?.toLowerCase() || ''
+            return lower.includes('adult') || lower.includes('for adults')
+          }
+          chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+          gList  = gList.filter(g => !isAdult(g.name))
+        }
+
+        setChannels(chList)
+        setGroups(gList)
+        setLoading(false)
+
         const p = await getChannelProgress()
         setProgress(p)
         if (p.loading) id = setTimeout(poll, 800)
-      } catch {}
+      } catch (err) {
+        setError(err.message)
+        setLoading(false)
+      }
     }
     poll()
     return () => clearTimeout(id)
-  }, [])
-
-  useEffect(() => {
-    setLoading(true)
-    setError(null)
-    getChannels(activeGroup || null)
-      .then(r => setChannels(r.channels ?? []))
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [activeGroup])
+  }, [activeGroup, showAdult])
 
   // ── Keyboard: channel number jump ────────────────────────────────────────
   useEffect(() => {

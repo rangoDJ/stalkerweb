@@ -38,7 +38,7 @@ function Card({ title, description, children, className }) {
 
 export default function SetupPage() {
   const navigate = useNavigate()
-  const { connected, setConnected, setEpgEnabled, setLastPingAt, setIdleInfo } = useApp()
+  const { connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, setLastPingAt, setIdleInfo } = useApp()
 
   const [form, setForm] = useState({
     portal: '', mac: '', timezone: 'Europe/London', lang: 'en',
@@ -205,6 +205,14 @@ export default function SetupPage() {
       // non-critical
     }
   }
+  async function handleAdultToggle(val) {
+    setShowAdult(val)
+    try {
+      await saveSettings({ show_adult: val })
+    } catch {
+      // non-critical
+    }
+  }
 
   async function handleStbEmuSave(e) {
     e.preventDefault()
@@ -353,6 +361,13 @@ export default function SetupPage() {
             <p className="text-xs text-[var(--color-muted)] mt-0.5">Disable if your portal does not support EPG data.</p>
           </div>
           <Switch checked={epg} onCheckedChange={handleEpgToggle} />
+        </div>
+        <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
+          <div>
+            <p className="text-sm font-medium text-[var(--color-text)]">Show Adult Content</p>
+            <p className="text-xs text-[var(--color-muted)] mt-0.5">Parental lock for categories like "FOR ADULTS".</p>
+          </div>
+          <Switch checked={showAdult} onCheckedChange={handleAdultToggle} />
         </div>
       </Card>
 
