@@ -8,9 +8,11 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -142,7 +144,9 @@ fun PlayerScreen(
             isBuffering      = isBuffering,
             playerError      = playerError,
             showControls     = showControls,
-            channels         = state.channels,
+            channels         = state.displayedChannels,
+            genres           = state.genres,
+            selectedGenre    = state.selectedGenre,
             activeId         = activeId,
             logoMap          = state.logoMap,
             favoriteIds      = state.favoriteIds,
@@ -153,6 +157,7 @@ fun PlayerScreen(
             },
             onSelectChannel  = { viewModel.selectChannel(it.uniqueId) },
             onToggleFavorite = { viewModel.toggleFavorite(it) },
+            onSelectGenre    = { viewModel.setGenre(it) },
             onRetry          = { loadStream(activeId) },
         )
     }
@@ -289,6 +294,8 @@ private fun PortraitPlayer(
     playerError: String?,
     showControls: Boolean,
     channels: List<Channel>,
+    genres: List<String>,
+    selectedGenre: String?,
     activeId: String,
     logoMap: Map<String, String>,
     favoriteIds: Set<String>,
@@ -297,9 +304,15 @@ private fun PortraitPlayer(
     onGoFullscreen: () -> Unit,
     onSelectChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
+    onSelectGenre: (String?) -> Unit,
     onRetry: () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .statusBarsPadding()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
 
         // 16:9 video box
         Box(
@@ -367,6 +380,31 @@ private fun PortraitPlayer(
         }
 
         HorizontalDivider()
+
+        // Genre filter chips
+        if (genres.isNotEmpty()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                genres.forEach { genre ->
+                    FilterChip(
+                        selected = selectedGenre == genre,
+                        onClick  = { onSelectGenre(genre) },
+                        label    = { Text(genre, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+                FilterChip(
+                    selected = selectedGenre == null,
+                    onClick  = { onSelectGenre(null) },
+                    label    = { Text("All", style = MaterialTheme.typography.labelSmall) },
+                )
+            }
+            HorizontalDivider()
+        }
 
         // Channel list fills remaining space
         ChannelListPanel(

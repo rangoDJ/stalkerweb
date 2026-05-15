@@ -16,7 +16,15 @@ data class PlayerUiState(
     val favoriteIds: Set<String>     = emptySet(),
     val activeChannelId: String      = "",
     val showChannelList: Boolean     = false,
-)
+    val selectedGenre: String?       = null,   // null = All
+) {
+    val genres: List<String>
+        get() = channels.mapNotNull { it.genre }.filter { it.isNotBlank() }.distinct().sorted()
+
+    val displayedChannels: List<Channel>
+        get() = if (selectedGenre == null) channels
+                else channels.filter { it.genre == selectedGenre }
+}
 
 class PlayerViewModel(private val repository: ChannelRepository) : ViewModel() {
 
@@ -32,10 +40,13 @@ class PlayerViewModel(private val repository: ChannelRepository) : ViewModel() {
                 val favs     = async { repository.getFavoriteIds() }
                 Triple(channels.await(), logos.await(), favs.await())
             }.onSuccess { (channels, logos, favs) ->
+                val firstGenre = channels.mapNotNull { it.genre }
+                    .filter { it.isNotBlank() }.distinct().sorted().firstOrNull()
                 _state.value = _state.value.copy(
-                    channels    = channels,
-                    logoMap     = logos,
-                    favoriteIds = favs,
+                    channels      = channels,
+                    logoMap       = logos,
+                    favoriteIds   = favs,
+                    selectedGenre = firstGenre,
                 )
             }
         }
@@ -50,6 +61,10 @@ class PlayerViewModel(private val repository: ChannelRepository) : ViewModel() {
 
     fun toggleChannelList() {
         _state.value = _state.value.copy(showChannelList = !_state.value.showChannelList)
+    }
+
+    fun setGenre(genre: String?) {
+        _state.value = _state.value.copy(selectedGenre = genre)
     }
 
     fun toggleFavorite(channel: Channel) {
