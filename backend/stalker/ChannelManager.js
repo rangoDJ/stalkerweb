@@ -11,6 +11,8 @@ class ChannelManager {
     this.client = client;
     this._channels = [];
     this._groups = [];
+    this._genreMap = new Map();
+    this._loadGroupsPromise = null;   // deduplicates concurrent loadGroups calls
     this._progress = { loading: false, page: 0, totalPages: 0, channelCount: 0 };
   }
 
@@ -23,8 +25,9 @@ class ChannelManager {
     this._channels = [];
     this._progress = { loading: true, page: 0, totalPages: 0, channelCount: 0 };
 
-    // Load groups first so genre names can be resolved during channel parsing
-    if (this._groups.length === 0) await this.loadGroups();
+    // Load groups first so genre names can be resolved during channel parsing.
+    // Always reload groups alongside channels so they stay in sync.
+    await this.loadGroups();
     this._genreMap = new Map(this._groups.map((g) => [String(g.id), g.name]));
 
     // Step 1: get_all_channels (seeds the basic list)
@@ -117,7 +120,17 @@ class ChannelManager {
 
   // ── Load groups (genres) ───────────────────────────────────────────────────
   // Mirrors ChannelManager::LoadChannelGroups()
-  async loadGroups() {
+  // Deduplicates concurrent calls — only one fetch runs at a time.
+  loadGroups() {
+    if (!this._loadGroupsPromise) {
+      this._loadGroupsPromise = this._doLoadGroups().finally(() => {
+        this._loadGroupsPromise = null;
+      });
+    }
+    return this._loadGroupsPromise;
+  }
+
+  async _doLoadGroups() {
     this._groups = [];
     const data = await this.client.itvGetGenres();
     if (!data?.js) return this._groups;
