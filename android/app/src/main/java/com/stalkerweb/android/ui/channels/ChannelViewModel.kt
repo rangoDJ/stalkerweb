@@ -16,6 +16,8 @@ data class ChannelUiState(
     val channels: List<Channel>    = emptyList(),
     val logoMap: Map<String, String> = emptyMap(),
     val favoriteIds: Set<String>   = emptySet(),
+    val groups: List<Group>        = emptyList(),
+    val selectedGroupId: String?   = null,
     val query: String              = "",
     val tab: ChannelTab            = ChannelTab.ALL,
     val loading: Boolean           = true,
@@ -23,10 +25,15 @@ data class ChannelUiState(
 ) {
     val displayed: List<Channel>
         get() {
-            val base = if (tab == ChannelTab.FAVORITES)
+            var base = if (tab == ChannelTab.FAVORITES)
                 channels.filter { it.uniqueId in favoriteIds }
             else
                 channels
+
+            if (selectedGroupId != null && tab == ChannelTab.ALL) {
+                base = base.filter { it.genreId == selectedGroupId }
+            }
+
             return if (query.isBlank()) base
             else base.filter { it.name.contains(query, ignoreCase = true) }
         }
@@ -48,12 +55,17 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
                 val channels = async { repository.getChannels() }
                 val logos    = async { repository.getLogoMap() }
                 val favs     = async { repository.getFavoriteIds() }
-                Triple(channels.await(), logos.await(), favs.await())
-            }.onSuccess { (channels, logos, favs) ->
+                val groups   = async { repository.getGroups() }
+                val data = Triple(channels.await(), logos.await(), favs.await())
+                val grps = groups.await()
+                data to grps
+            }.onSuccess { (triple, groups) ->
+                val (channels, logos, favs) = triple
                 _state.value = _state.value.copy(
                     channels    = channels,
                     logoMap     = logos,
                     favoriteIds = favs,
+                    groups      = groups,
                     loading     = false,
                 )
             }.onFailure { e ->
@@ -64,6 +76,7 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
 
     fun setQuery(q: String) { _state.value = _state.value.copy(query = q) }
     fun setTab(tab: ChannelTab) { _state.value = _state.value.copy(tab = tab) }
+    fun setSelectedGroup(id: String?) { _state.value = _state.value.copy(selectedGroupId = id) }
 
     fun toggleFavorite(channel: Channel) {
         val id    = channel.uniqueId

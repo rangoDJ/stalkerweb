@@ -34,6 +34,9 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     suspend fun getChannels(): List<Channel> = requireApi().getChannels().channels
 
+    suspend fun getGroups(): List<Group> =
+        runCatching { requireApi().getGroups().groups }.getOrDefault(emptyList())
+
     suspend fun getLogoMap(): Map<String, String> =
         runCatching { requireApi().getLogoMap() }.getOrDefault(emptyMap())
 
