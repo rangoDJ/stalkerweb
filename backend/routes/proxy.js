@@ -141,7 +141,7 @@ module.exports = function proxyModule(appState) {
     if (!requireSession(res)) return;
 
     const { channelManager } = appState;
-    const uniqueId = parseInt(req.params.channelId, 10);
+    const uniqueId = req.params.channelId;
 
     const channel = channelManager.getChannel(uniqueId);
     if (!channel) return res.status(404).send('Channel not found');
