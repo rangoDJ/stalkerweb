@@ -27,7 +27,9 @@ jobs:
 
       - name: Build debug APK
         working-directory: android
-        run: gradle :app:assembleDebug
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gradle :app:assembleDebug -PversionName="$VERSION"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

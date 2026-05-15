@@ -4,6 +4,13 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Version is injected by CI as -PversionName=X.Y.Z; falls back to default for local builds.
+val appVersionName: String = (project.findProperty("versionName") as String?) ?: "0.1.1"
+val versionParts = appVersionName.split(".").map { it.toIntOrNull() ?: 0 }
+val appVersionCode = (versionParts.getOrElse(0) { 0 } * 10_000) +
+                     (versionParts.getOrElse(1) { 0 } * 100) +
+                     (versionParts.getOrElse(2) { 0 })
+
 android {
     namespace = "com.stalkerweb.android"
     compileSdk = 35
@@ -12,8 +19,10 @@ android {
         applicationId = "com.stalkerweb.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode.coerceAtLeast(1)
+        versionName = appVersionName
+
+        buildConfigField("String", "GITHUB_REPO", "\"rangoDJ/stalkerweb\"")
     }
 
     buildTypes {
@@ -37,6 +46,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
