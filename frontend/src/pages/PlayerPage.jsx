@@ -46,7 +46,7 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
         <span className="text-sm font-medium text-white/90 truncate">{channelName}</span>
       </div>
       <div className="flex items-center gap-1 text-xs text-white/50 mr-2 hidden sm:block">
-        Space·F·M·↑↓
+        Space·F·M·↑↓ ch
       </div>
       <div className="flex items-center gap-1">
         <button onClick={onToggleList} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label="Toggle channel list">
@@ -126,6 +126,10 @@ export default function PlayerPage() {
   const [channels, setChannels]       = useState([])
   const [logoMap, setLogoMap]         = useState({})
   const [favoriteIds, setFavoriteIds] = useState(new Set())
+  // Refs so keyboard handler always sees current values without re-registering
+  const channelsRef      = useRef([])
+  const activeChannelRef = useRef(null)
+  const selectChannelRef = useRef(null)
   const [activeChannel, setActiveChannel] = useState(
     initChannelId ? { uniqueId: initChannelId, name: initChannelName } : null
   )
@@ -138,6 +142,9 @@ export default function PlayerPage() {
   const [muted, setMuted]           = useState(false)
   const [volume, setVolume]         = useState(80)
   const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => { channelsRef.current = channels }, [channels])
+  useEffect(() => { activeChannelRef.current = activeChannel }, [activeChannel])
 
   useEffect(() => {
     getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
@@ -290,13 +297,17 @@ export default function PlayerPage() {
           setMuted(m => !m)
           break
         case 'ArrowUp':
+        case 'ArrowDown': {
           e.preventDefault()
-          setVolume(v => { const n = Math.min(100, v + 10); setMuted(false); return n })
+          const delta = e.code === 'ArrowUp' ? -1 : 1
+          const list  = channelsRef.current
+          const cur   = activeChannelRef.current
+          if (!list.length) break
+          const idx  = cur ? list.findIndex(c => String(c.uniqueId) === String(cur.uniqueId)) : -1
+          const next = list[(idx + delta + list.length) % list.length]
+          if (next) selectChannelRef.current(next)
           break
-        case 'ArrowDown':
-          e.preventDefault()
-          setVolume(v => Math.max(0, v - 10))
-          break
+        }
         default:
           break
       }
@@ -333,6 +344,7 @@ export default function PlayerPage() {
     setActiveChannel(ch)
     setSearchParams({ channel: ch.uniqueId, name: encodeURIComponent(ch.name) })
   }
+  selectChannelRef.current = selectChannel
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)] bg-black">
