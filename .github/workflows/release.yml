@@ -2,7 +2,11 @@ name: Release
 
 on:
   push:
-    tags: ['v*.*', 'v*.*.*']
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+      - '.github/workflows/ci.yml'
 
 env:
   REGISTRY:   ghcr.io
@@ -10,12 +14,32 @@ env:
 
 jobs:
 
+  # ── Generate Version Tag ───────────────────────────────────────────────────
+  tag:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      new_tag: ${{ steps.tag_action.outputs.new_tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: '0'
+      - name: Bump version and push tag
+        id: tag_action
+        uses: anothrNick/github-tag-action@1.71.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WITH_V: true
+          DEFAULT_BUMP: patch
+
   # ── Build Android debug APK ──────────────────────────────────────────────
   build-apk:
+    needs: tag
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
+      
       - uses: actions/setup-java@v4
         with:
           java-version: '17'
@@ -33,8 +57,9 @@ jobs:
       - name: Build debug APK
         working-directory: android
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          gradle :app:assembleDebug -PversionName="$VERSION"
+          VERSION="${{ needs.tag.outputs.new_tag }}"
+          VERSION_CLEAN="${VERSION#v}"
+          gradle :app:assembleDebug -PversionName="$VERSION_CLEAN"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -45,6 +70,7 @@ jobs:
 
   # ── Build & push Docker image ────────────────────────────────────────────
   build-docker:
+    needs: tag
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -70,10 +96,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ needs.tag.outputs.new_tag }}
+            type=raw,value=latest
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -88,7 +112,7 @@ jobs:
 
   # ── Create GitHub Release ────────────────────────────────────────────────
   release:
-    needs: [build-apk, build-docker]
+    needs: [tag, build-apk, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -100,21 +124,22 @@ jobs:
           name: stalkerweb-apk
 
       - name: Rename APK to include version
-        run: mv app-debug.apk stalkerweb-${{ github.ref_name }}.apk
+        run: mv app-debug.apk stalkerweb-${{ needs.tag.outputs.new_tag }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.tag.outputs.new_tag }}
           generate_release_notes: true
-          files: stalkerweb-${{ github.ref_name }}.apk
+          files: stalkerweb-${{ needs.tag.outputs.new_tag }}.apk
           body: |
             ## Docker image
 
             ```
-            docker pull ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.tag.outputs.new_tag }}
             ```
 
             ## Android APK
 
-            Download `stalkerweb-${{ github.ref_name }}.apk` from the assets below.
+            Download `stalkerweb-${{ needs.tag.outputs.new_tag }}.apk` from the assets below.
             Requires Android 8.0+ (API 26). Enable **Install from unknown sources** before sideloading.
