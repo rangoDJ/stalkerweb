@@ -190,29 +190,30 @@ export default function ChannelsPage() {
       {jumpDigits && <NumberJumpOverlay digits={jumpDigits} />}
 
       {/* Sticky filter bar */}
-      <div className="sticky top-14 z-30 bg-[var(--color-bg)]/90 backdrop-blur-sm border-b border-[var(--color-border)] px-6 py-3 flex items-center gap-3">
-        <div className="relative flex-1 max-w-64">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
-          <Input placeholder="Search channels…" value={query} onChange={e => setQuery(e.target.value)} className="pl-8" />
+      <div className="sticky top-14 z-30 bg-[var(--color-bg)]/90 backdrop-blur-sm border-b border-[var(--color-border)] px-6 py-4 flex flex-col gap-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="relative flex-1 max-w-sm">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
+            <Input placeholder="Search channels…" value={query} onChange={e => setQuery(e.target.value)} className="pl-9 py-5" />
+          </div>
+          <span className="shrink-0 text-sm font-medium text-[var(--color-muted)] bg-[var(--color-surface-2)] px-3 py-1 rounded-md">
+            {filtered.length} {filtered.length === 1 ? 'channel' : 'channels'}
+          </span>
         </div>
 
-        <div ref={pillsRef} className="flex items-center gap-1.5 overflow-x-auto flex-1 scrollbar-none">
+        <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => selectGroup('')}
-            className={cn('shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors',
-              !activeGroup ? 'bg-[var(--color-primary)] text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]')}
+            className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all shadow-sm',
+              !activeGroup ? 'bg-[var(--color-primary)] text-white ring-2 ring-[var(--color-primary)] ring-offset-2 ring-offset-[var(--color-bg)]' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
           >All</button>
           {groups.map(g => (
             <button key={g.id} onClick={() => selectGroup(g.id)}
-              className={cn('shrink-0 px-3 py-1 rounded-full text-xs font-medium transition-colors whitespace-nowrap',
-                activeGroup === String(g.id) ? 'bg-[var(--color-primary)] text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]')}
+              className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all shadow-sm whitespace-nowrap',
+                activeGroup === String(g.id) ? 'bg-[var(--color-primary)] text-white ring-2 ring-[var(--color-primary)] ring-offset-2 ring-offset-[var(--color-bg)]' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
             >{g.name}</button>
           ))}
         </div>
-
-        <span className="shrink-0 text-xs text-[var(--color-muted)]">
-          {filtered.length} {filtered.length === 1 ? 'channel' : 'channels'}
-        </span>
       </div>
 
       {/* Content */}
