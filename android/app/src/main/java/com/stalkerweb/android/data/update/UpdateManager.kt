@@ -38,7 +38,7 @@ class UpdateManager(private val context: Context) {
             val tagName = json.getString("tag_name")
             val version = tagName.trimStart('v')
             if (!isNewer(version, BuildConfig.VERSION_NAME)) {
-                Log.d("UpdateManager", "Current version ($BuildConfig.VERSION_NAME) is up to date with $version")
+                Log.d("UpdateManager", "Current version (${BuildConfig.VERSION_NAME}) is up to date with $version")
                 return@withContext null
             }
             val assets  = json.getJSONArray("assets")
