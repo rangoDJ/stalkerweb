@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -15,20 +16,24 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.stalkerweb.android.data.prefs.AppPrefs
 import com.stalkerweb.android.data.repository.ChannelRepository
+import com.stalkerweb.android.data.update.UpdateManager
 import com.stalkerweb.android.ui.channels.ChannelViewModel
 import com.stalkerweb.android.ui.player.PlayerViewModel
 import com.stalkerweb.android.ui.setup.SetupScreen
 import com.stalkerweb.android.ui.channels.ChannelScreen
 import com.stalkerweb.android.ui.player.PlayerScreen
 import com.stalkerweb.android.ui.theme.StalkerTheme
+import com.stalkerweb.android.ui.update.UpdateDialog
+import com.stalkerweb.android.ui.update.UpdateViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        val prefs      = AppPrefs(this)
-        val repository = ChannelRepository(prefs).also { it.initFromPrefs() }
+        val prefs         = AppPrefs(this)
+        val repository    = ChannelRepository(prefs).also { it.initFromPrefs() }
+        val updateManager = UpdateManager(this)
 
         setContent {
             StalkerTheme {
@@ -50,9 +55,20 @@ class MainActivity : ComponentActivity() {
                             PlayerViewModel(repository) as T
                     }
                 }
+                val updateVmFactory = remember {
+                    object : ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                            UpdateViewModel(updateManager) as T
+                    }
+                }
 
                 val channelViewModel: ChannelViewModel = viewModel(factory = channelVmFactory)
                 val playerViewModel:  PlayerViewModel  = viewModel(factory = playerVmFactory)
+                val updateViewModel:  UpdateViewModel  = viewModel(factory = updateVmFactory)
+
+                LaunchedEffect(Unit) { updateViewModel.check() }
+                UpdateDialog(updateViewModel)
 
                 NavHost(navController = navController, startDestination = startDest) {
 
