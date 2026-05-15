@@ -43,3 +43,14 @@ data class StatusResponse(
 data class AddFavoriteRequest(
     val uniqueId: String,
 )
+
+@JsonClass(generateAdapter = false)
+data class Group(
+    val id: String,
+    val name: String,
+)
+
+@JsonClass(generateAdapter = false)
+data class GroupsResponse(
+    val groups: List<Group>,
+)

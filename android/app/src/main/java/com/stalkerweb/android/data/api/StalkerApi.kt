@@ -20,6 +20,9 @@ interface StalkerApi {
     @GET("api/logos/map")
     suspend fun getLogoMap(): Map<String, String>
 
+    @GET("api/channels/groups/all")
+    suspend fun getGroups(): GroupsResponse
+
     @GET("api/favorites")
     suspend fun getFavorites(): FavoritesResponse
 
