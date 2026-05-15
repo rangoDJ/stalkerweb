@@ -30,7 +30,7 @@ private val DarkColors = darkColorScheme(
 )
 
 @Composable
-fun StalkerWebTheme(content: @Composable () -> Unit) {
+fun StalkerTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColors,
         content = content,
