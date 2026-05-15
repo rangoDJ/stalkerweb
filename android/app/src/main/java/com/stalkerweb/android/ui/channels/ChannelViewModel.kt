@@ -3,6 +3,7 @@ package com.stalkerweb.android.ui.channels
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stalkerweb.android.data.api.Channel
+import com.stalkerweb.android.data.api.Group
 import com.stalkerweb.android.data.repository.ChannelRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
