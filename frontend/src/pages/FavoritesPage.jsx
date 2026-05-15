@@ -310,6 +310,7 @@ function SectionHeader({ icon: Icon, title, count, action }) {
 // ── Page ──────────────────────────────────────────────────────────────────
 export default function FavoritesPage() {
   const navigate = useNavigate()
+  const { showAdult } = useApp()
 
   const [channels, setChannels] = useState([])    // favorited channels (enriched), order matters
   const [groups, setGroups] = useState([])         // favorite groups (enriched), order matters
@@ -323,8 +324,21 @@ export default function FavoritesPage() {
   useEffect(() => {
     Promise.all([getFavorites(), getLogoMap()])
       .then(([fav, lm]) => {
-        setChannels(fav.channels || [])
-        setGroups(fav.groups || [])
+        let chList = fav.channels || []
+        let gList  = fav.groups   || []
+
+        // Parental Filter
+        if (!showAdult) {
+          const isAdult = (name) => {
+            const lower = name?.toLowerCase() || ''
+            return lower.includes('adult') || lower.includes('for adults')
+          }
+          chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+          gList  = gList.filter(g => !isAdult(g.name))
+        }
+
+        setChannels(chList)
+        setGroups(gList)
         setLogoMap(lm || {})
       })
       .catch(() => {})
@@ -336,7 +350,15 @@ export default function FavoritesPage() {
     if (allChannels.length > 0) return
     try {
       const r = await getChannels()
-      setAllChannels(r.channels ?? [])
+      let list = r.channels ?? []
+      if (!showAdult) {
+        const isAdult = (name) => {
+          const lower = name?.toLowerCase() || ''
+          return lower.includes('adult') || lower.includes('for adults')
+        }
+        list = list.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+      }
+      setAllChannels(list)
     } catch {}
   }
 

@@ -137,6 +137,7 @@ function AppInner() {
   const [connected, setConnected] = useState(false)
   const [statusLoaded, setStatusLoaded] = useState(false)
   const [epgEnabled, setEpgEnabled] = useState(true)
+  const [showAdult, setShowAdult]   = useState(false)
   const [lastPingAt, setLastPingAt] = useState(null)
   const [idleInfo, setIdleInfo] = useState(null) // { lastActivityAt, idleTimeoutMs }
 
@@ -146,6 +147,7 @@ function AppInner() {
         const [status, settings] = await Promise.all([getStatus(), getSettings()])
         setConnected(status.connected)
         setEpgEnabled(settings.epg_enabled !== false)
+        setShowAdult(!!settings.show_adult)
         if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)
         if (status.lastActivityAt) setIdleInfo({ lastActivityAt: status.lastActivityAt, idleTimeoutMs: status.idleTimeoutMs })
       } catch {
@@ -179,7 +181,7 @@ function AppInner() {
   }
 
   return (
-    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, setLastPingAt, setIdleInfo }}>
+    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, setLastPingAt, setIdleInfo }}>
       <TooltipProvider delayDuration={300}>
         <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} idleInfo={idleInfo} />
         <main className="pt-14 min-h-full">

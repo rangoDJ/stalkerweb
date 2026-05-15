@@ -12,6 +12,7 @@ const STB_FIRMWARES = ['0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic'];
 
 const DEFAULTS = {
   epg_enabled: true,
+  show_adult: false,
   stbemu_profile_name: '',
   stbemu_stb_model: 'MAG250',
   stbemu_custom_firmware: '',
@@ -26,6 +27,7 @@ module.exports = function settingsModule(config) {
     const saved = cache.load() || {};
     res.json({
       epg_enabled:             saved.epg_enabled !== undefined ? saved.epg_enabled : DEFAULTS.epg_enabled,
+      show_adult:              saved.show_adult !== undefined  ? saved.show_adult  : DEFAULTS.show_adult,
       stbemu_profile_name:     saved.stbemu_profile_name     ?? DEFAULTS.stbemu_profile_name,
       stbemu_stb_model:        saved.stbemu_stb_model        ?? DEFAULTS.stbemu_stb_model,
       stbemu_custom_firmware:  saved.stbemu_custom_firmware  ?? DEFAULTS.stbemu_custom_firmware,
@@ -35,8 +37,9 @@ module.exports = function settingsModule(config) {
 
   router.post('/', (req, res) => {
     const existing = cache.load() || {};
-    const { epg_enabled, stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware, stbemu_firmware } = req.body;
+    const { epg_enabled, show_adult, stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware, stbemu_firmware } = req.body;
     if (epg_enabled !== undefined)            existing.epg_enabled            = !!epg_enabled;
+    if (show_adult !== undefined)             existing.show_adult             = !!show_adult;
     if (stbemu_profile_name !== undefined)    existing.stbemu_profile_name    = String(stbemu_profile_name).trim();
     if (stbemu_stb_model !== undefined && STB_MODELS.includes(stbemu_stb_model))
                                               existing.stbemu_stb_model       = stbemu_stb_model;
