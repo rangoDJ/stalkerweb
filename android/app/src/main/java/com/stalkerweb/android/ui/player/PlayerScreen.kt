@@ -316,13 +316,8 @@ private fun PortraitPlayer(
 
             PlaybackOverlay(isBuffering = isBuffering, playerError = playerError, onRetry = onRetry)
 
-            // Controls overlay
-            AnimatedVisibility(
-                visible  = showControls,
-                enter    = fadeIn(),
-                exit     = fadeOut(),
-                modifier = Modifier.fillMaxSize(),
-            ) {
+            // Controls overlay — plain if to avoid ColumnScope/BoxScope ambiguity
+            if (showControls) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
                     IconButton(
                         onClick  = onBack,
@@ -404,22 +399,26 @@ private fun ExoPlayerSurface(exoPlayer: ExoPlayer, modifier: Modifier) {
 }
 
 @Composable
-private fun BoxScope.PlaybackOverlay(isBuffering: Boolean, playerError: String?, onRetry: () -> Unit) {
+private fun PlaybackOverlay(isBuffering: Boolean, playerError: String?, onRetry: () -> Unit) {
     if (isBuffering && playerError == null) {
-        CircularProgressIndicator(
-            modifier = Modifier.align(Alignment.Center),
-            color    = Color.White,
-        )
+        Box(Modifier.fillMaxSize()) {
+            CircularProgressIndicator(
+                modifier = Modifier.align(Alignment.Center),
+                color    = Color.White,
+            )
+        }
     }
     if (playerError != null) {
-        Column(
-            modifier            = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(Icons.Default.ErrorOutline, null, tint = Color.Red, modifier = Modifier.size(36.dp))
-            Text(playerError, color = Color.White, style = MaterialTheme.typography.bodySmall)
-            Button(onClick = onRetry) { Text("Retry") }
+        Box(Modifier.fillMaxSize()) {
+            Column(
+                modifier            = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(Icons.Default.ErrorOutline, null, tint = Color.Red, modifier = Modifier.size(36.dp))
+                Text(playerError, color = Color.White, style = MaterialTheme.typography.bodySmall)
+                Button(onClick = onRetry) { Text("Retry") }
+            }
         }
     }
 }
