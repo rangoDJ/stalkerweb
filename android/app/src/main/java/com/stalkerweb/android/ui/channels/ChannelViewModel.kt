@@ -37,7 +37,9 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
     private val _state = MutableStateFlow(ChannelUiState())
     val state: StateFlow<ChannelUiState> = _state.asStateFlow()
 
-    init { load() }
+    init {
+        if (repository.getServerUrl() != null) load()
+    }
 
     fun load() {
         viewModelScope.launch {
