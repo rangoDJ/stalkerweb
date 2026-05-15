@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { getChannels, getGroups, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
+import { useApp } from '../App'
 
 const RECENTLY_WATCHED_KEY = 'sw_recently_watched'
 const RECENTLY_WATCHED_MAX = 15

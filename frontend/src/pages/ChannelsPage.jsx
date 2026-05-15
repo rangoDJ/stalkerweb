@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress } from '../stalkerApi'
 import { getRecentlyWatched } from './PlayerPage'
+import { useApp } from '../App'
 
 // ── Channel card ──────────────────────────────────────────────────────────
 function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact }) {

@@ -11,6 +11,7 @@ import {
   addChannelToGroup, removeChannelFromGroup,
   reorderFavoriteChannels, reorderFavoriteGroups,
 } from '../stalkerApi'
+import { useApp } from '../App'
 
 // ── Drag-and-drop helpers ─────────────────────────────────────────────────
 function useDragReorder(items, setItems, onReorder) {
