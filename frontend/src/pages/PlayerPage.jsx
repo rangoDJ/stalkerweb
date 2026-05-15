@@ -73,14 +73,7 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
   const [favsOnly, setFavsOnly]   = useState(false)
   const pillsRef                  = useRef(null)
 
-  // Horizontal scroll on genre pills via mouse-wheel
-  useEffect(() => {
-    const el = pillsRef.current
-    if (!el) return
-    const onWheel = e => { e.preventDefault(); el.scrollLeft += e.deltaY }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
-  }, [])
+
 
   const filtered = channels.filter(ch => {
     if (favsOnly && !favoriteIds.has(String(ch.uniqueId))) return false
@@ -131,10 +124,7 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
 
         {/* ── Genre pills ── */}
         {groups.length > 0 && (
-          <div
-            ref={pillsRef}
-            className="flex items-center gap-1 overflow-x-auto scrollbar-none pb-0.5"
-          >
+          <div className="flex flex-wrap items-center gap-1.5 pb-2">
             <button
               onClick={() => selectGroup('')}
               className={cn(
