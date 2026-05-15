@@ -2,6 +2,7 @@ package com.stalkerweb.android.ui.player
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -20,6 +21,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -45,30 +47,16 @@ fun PlayerScreen(
     viewModel: PlayerViewModel,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val state by viewModel.state.collectAsStateWithLifecycle()
+    val context       = LocalContext.current
+    val activity      = context as? Activity
+    val configuration = LocalConfiguration.current
+    val isLandscape   = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val state         by viewModel.state.collectAsStateWithLifecycle()
 
     var showControls by remember { mutableStateOf(true) }
     var isPlaying    by remember { mutableStateOf(false) }
     var isBuffering  by remember { mutableStateOf(true) }
     var playerError  by remember { mutableStateOf<String?>(null) }
-
-    DisposableEffect(Unit) {
-        val activity = context as? Activity
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        viewModel.init(channelId)
-        onDispose {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-    }
-
-    // Auto-hide controls after 3 s when playing
-    LaunchedEffect(showControls, isPlaying) {
-        if (showControls && isPlaying) {
-            delay(3_000)
-            showControls = false
-        }
-    }
 
     val activeId = state.activeChannelId.ifBlank { channelId }
 
@@ -92,31 +80,53 @@ fun PlayerScreen(
         }
     }
 
-    // Load stream whenever the active channel changes
+    DisposableEffect(Unit) {
+        viewModel.init(channelId)
+        onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            exoPlayer.release()
+        }
+    }
+
     LaunchedEffect(activeId) {
         playerError = null
         isBuffering = true
         val url = viewModel.streamUrl(activeId)
-        val mediaItem = MediaItem.Builder()
+        val item = MediaItem.Builder()
             .setUri(url)
             .setMimeType(MimeTypes.APPLICATION_M3U8)
             .build()
-        exoPlayer.setMediaItem(mediaItem)
+        exoPlayer.setMediaItem(item)
         exoPlayer.prepare()
     }
 
-    DisposableEffect(Unit) { onDispose { exoPlayer.release() } }
+    // Auto-hide controls after 3 s when playing (landscape only)
+    LaunchedEffect(showControls, isPlaying, isLandscape) {
+        if (showControls && isPlaying && isLandscape) {
+            delay(3_000)
+            showControls = false
+        }
+    }
 
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(Color.Black)
-            .clickable(
-                indication = null,
-                interactionSource = remember { MutableInteractionSource() },
-            ) { showControls = !showControls }
-    ) {
-        // ── Video surface ─────────────────────────────────────────────────────
+    fun goFullscreen() {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    }
+
+    fun exitFullscreen() {
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+    }
+
+    fun loadStream(id: String) {
+        playerError = null
+        isBuffering = true
+        val url  = viewModel.streamUrl(id)
+        val item = MediaItem.Builder().setUri(url).setMimeType(MimeTypes.APPLICATION_M3U8).build()
+        exoPlayer.setMediaItem(item)
+        exoPlayer.prepare()
+    }
+
+    // ── Shared video surface ──────────────────────────────────────────────────
+    val videoView = @Composable { modifier: Modifier ->
         AndroidView(
             factory = { ctx ->
                 PlayerView(ctx).apply {
@@ -125,119 +135,216 @@ fun PlayerScreen(
                     resizeMode    = AspectRatioFrameLayout.RESIZE_MODE_FIT
                 }
             },
-            modifier = Modifier.fillMaxSize(),
+            modifier = modifier,
         )
+    }
 
-        // ── Buffering spinner ─────────────────────────────────────────────────
+    // ── Shared overlay content (spinner + error) ──────────────────────────────
+    val overlayContent = @Composable { BoxScope: BoxScope ->
         if (isBuffering && playerError == null) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
                 color    = Color.White,
             )
         }
-
-        // ── Error overlay ─────────────────────────────────────────────────────
         if (playerError != null) {
             Column(
                 modifier            = Modifier.align(Alignment.Center),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Icon(Icons.Default.ErrorOutline, null, tint = Color.Red, modifier = Modifier.size(40.dp))
-                Text(playerError ?: "", color = Color.White, style = MaterialTheme.typography.bodyMedium)
-                Button(onClick = {
-                    playerError = null
-                    isBuffering = true
-                    val url = viewModel.streamUrl(activeId)
-                    val item = MediaItem.Builder()
-                        .setUri(url)
-                        .setMimeType(MimeTypes.APPLICATION_M3U8)
-                        .build()
-                    exoPlayer.setMediaItem(item)
-                    exoPlayer.prepare()
-                }) { Text("Retry") }
+                Icon(Icons.Default.ErrorOutline, null, tint = Color.Red, modifier = Modifier.size(36.dp))
+                Text(playerError ?: "", color = Color.White, style = MaterialTheme.typography.bodySmall)
+                Button(onClick = { loadStream(activeId) }) { Text("Retry") }
+            }
+        }
+    }
+
+    if (isLandscape) {
+        // ── LANDSCAPE — fullscreen layout ─────────────────────────────────────
+        val displayName = state.channels.find { it.uniqueId == activeId }?.name ?: channelName
+
+        Box(
+            Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .clickable(
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) { showControls = !showControls }
+        ) {
+            videoView(Modifier.fillMaxSize())
+            overlayContent(this)
+
+            // Top bar
+            AnimatedVisibility(
+                visible  = showControls,
+                enter    = fadeIn() + slideInVertically { -it },
+                exit     = fadeOut() + slideOutVertically { -it },
+                modifier = Modifier.align(Alignment.TopStart),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .statusBarsPadding()
+                        .padding(horizontal = 4.dp, vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                    }
+                    Text(
+                        text     = displayName,
+                        style    = MaterialTheme.typography.titleMedium,
+                        color    = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Surface(color = MaterialTheme.colorScheme.error, shape = MaterialTheme.shapes.extraSmall) {
+                        Text("LIVE", style = MaterialTheme.typography.labelSmall, color = Color.White,
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    IconButton(onClick = viewModel::toggleChannelList) {
+                        Icon(Icons.AutoMirrored.Filled.List, "Channel list", tint = Color.White)
+                    }
+                }
+            }
+
+            // Bottom bar
+            AnimatedVisibility(
+                visible  = showControls,
+                enter    = fadeIn() + slideInVertically { it },
+                exit     = fadeOut() + slideOutVertically { it },
+                modifier = Modifier.align(Alignment.BottomStart),
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.55f))
+                        .navigationBarsPadding()
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    IconButton(onClick = {
+                        if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                    }) {
+                        Icon(
+                            if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            "Play/Pause", tint = Color.White,
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    IconButton(onClick = { exitFullscreen() }) {
+                        Icon(Icons.Default.FullscreenExit, "Exit fullscreen", tint = Color.White)
+                    }
+                }
+            }
+
+            // Channel list panel
+            AnimatedVisibility(
+                visible  = state.showChannelList,
+                enter    = slideInHorizontally { it },
+                exit     = slideOutHorizontally { it },
+                modifier = Modifier.align(Alignment.CenterEnd),
+            ) {
+                ChannelListPanel(
+                    channels         = state.channels,
+                    activeId         = activeId,
+                    logoMap          = state.logoMap,
+                    favoriteIds      = state.favoriteIds,
+                    onSelect         = { viewModel.selectChannel(it.uniqueId) },
+                    onToggleFavorite = { viewModel.toggleFavorite(it) },
+                )
             }
         }
 
-        // ── Top bar (back + title + channel list toggle) ──────────────────────
-        AnimatedVisibility(
-            visible  = showControls,
-            enter    = fadeIn() + slideInVertically { -it },
-            exit     = fadeOut() + slideOutVertically { -it },
-            modifier = Modifier.align(Alignment.TopStart),
-        ) {
+    } else {
+        // ── PORTRAIT — YouTube-style layout ──────────────────────────────────
+        val displayName = state.channels.find { it.uniqueId == activeId }?.name ?: channelName
+
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+
+            // Video section — 16:9 aspect ratio, full width
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .background(Color.Black)
+                    .clickable(
+                        indication = null,
+                        interactionSource = remember { MutableInteractionSource() },
+                    ) { showControls = !showControls }
+            ) {
+                videoView(Modifier.fillMaxSize())
+                overlayContent(this)
+
+                // Portrait controls overlay
+                AnimatedVisibility(
+                    visible  = showControls,
+                    enter    = fadeIn(),
+                    exit     = fadeOut(),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
+                        // Back button — top left
+                        IconButton(
+                            onClick  = onBack,
+                            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
+                        }
+                        // Fullscreen button — top right
+                        IconButton(
+                            onClick  = { goFullscreen() },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                        ) {
+                            Icon(Icons.Default.Fullscreen, "Fullscreen", tint = Color.White)
+                        }
+                        // Play/Pause — centre
+                        IconButton(
+                            onClick  = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                            modifier = Modifier.align(Alignment.Center).size(52.dp),
+                        ) {
+                            Icon(
+                                if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                "Play/Pause",
+                                tint     = Color.White,
+                                modifier = Modifier.size(40.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Channel info strip
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .statusBarsPadding()
-                    .padding(horizontal = 4.dp, vertical = 4.dp),
+                    .background(MaterialTheme.colorScheme.surface)
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
-                }
-                val displayName = state.channels.find { it.uniqueId == activeId }?.name ?: channelName
                 Text(
                     text     = displayName,
-                    style    = MaterialTheme.typography.titleMedium,
-                    color    = Color.White,
+                    style    = MaterialTheme.typography.titleSmall,
+                    color    = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
-                Surface(
-                    color = MaterialTheme.colorScheme.error,
-                    shape = MaterialTheme.shapes.extraSmall,
-                ) {
-                    Text(
-                        "LIVE",
-                        style    = MaterialTheme.typography.labelSmall,
-                        color    = Color.White,
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-                    )
-                }
                 Spacer(Modifier.width(8.dp))
-                IconButton(onClick = viewModel::toggleChannelList) {
-                    Icon(Icons.AutoMirrored.Filled.List, "Channel list", tint = Color.White)
+                Surface(color = MaterialTheme.colorScheme.error, shape = MaterialTheme.shapes.extraSmall) {
+                    Text("LIVE", style = MaterialTheme.typography.labelSmall, color = Color.White,
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
                 }
             }
-        }
 
-        // ── Bottom controls ───────────────────────────────────────────────────
-        AnimatedVisibility(
-            visible  = showControls,
-            enter    = fadeIn() + slideInVertically { it },
-            exit     = fadeOut() + slideOutVertically { it },
-            modifier = Modifier.align(Alignment.BottomStart),
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.55f))
-                    .navigationBarsPadding()
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                IconButton(onClick = {
-                    if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
-                }) {
-                    Icon(
-                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        "Play/Pause",
-                        tint = Color.White,
-                    )
-                }
-            }
-        }
+            HorizontalDivider()
 
-        // ── Channel list panel (slides in from the right) ─────────────────────
-        AnimatedVisibility(
-            visible  = state.showChannelList,
-            enter    = slideInHorizontally { it },
-            exit     = slideOutHorizontally { it },
-            modifier = Modifier.align(Alignment.CenterEnd),
-        ) {
+            // Channel list fills the remaining space
             ChannelListPanel(
                 channels         = state.channels,
                 activeId         = activeId,
@@ -245,6 +352,7 @@ fun PlayerScreen(
                 favoriteIds      = state.favoriteIds,
                 onSelect         = { viewModel.selectChannel(it.uniqueId) },
                 onToggleFavorite = { viewModel.toggleFavorite(it) },
+                darkBackground   = false,
             )
         }
     }
@@ -258,10 +366,17 @@ private fun ChannelListPanel(
     favoriteIds: Set<String>,
     onSelect: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
+    darkBackground: Boolean = true,
 ) {
+    val bg      = if (darkBackground) Color.Black.copy(alpha = 0.88f) else Color.Transparent
+    val textCol = if (darkBackground) Color.White.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurface
+    val mutedCol = if (darkBackground) Color.White.copy(alpha = 0.25f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f)
+    val divCol  = if (darkBackground) Color.White.copy(alpha = 0.05f) else MaterialTheme.colorScheme.outlineVariant
+
     Surface(
-        modifier = Modifier.fillMaxHeight().width(230.dp),
-        color    = Color.Black.copy(alpha = 0.88f),
+        modifier = if (darkBackground) Modifier.fillMaxHeight().width(230.dp)
+                   else Modifier.fillMaxSize(),
+        color = bg,
     ) {
         LazyColumn {
             items(channels, key = { it.uniqueId }) { ch ->
@@ -271,11 +386,11 @@ private fun ChannelListPanel(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
-                            if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)
+                            if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
                             else Color.Transparent
                         )
                         .clickable { onSelect(ch) }
-                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val logoUrl = logoMap[ch.uniqueId]
@@ -287,16 +402,12 @@ private fun ChannelListPanel(
                             modifier           = Modifier.size(24.dp),
                         )
                     } else {
-                        Icon(
-                            Icons.Default.Tv, null, Modifier.size(24.dp),
-                            tint = Color.White.copy(alpha = 0.25f),
-                        )
+                        Icon(Icons.Default.Tv, null, Modifier.size(24.dp), tint = mutedCol)
                     }
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(10.dp))
                     Text(
                         text     = ch.name,
-                        color    = if (isActive) MaterialTheme.colorScheme.primary
-                                   else Color.White.copy(alpha = 0.85f),
+                        color    = if (isActive) MaterialTheme.colorScheme.primary else textCol,
                         style    = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -304,16 +415,14 @@ private fun ChannelListPanel(
                     )
                     IconButton(onClick = { onToggleFavorite(ch) }, modifier = Modifier.size(28.dp)) {
                         Icon(
-                            imageVector        = if (isFav) Icons.Default.Favorite
-                                                else Icons.Default.FavoriteBorder,
+                            imageVector        = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                             contentDescription = null,
-                            tint               = if (isFav) MaterialTheme.colorScheme.error
-                                                else Color.White.copy(alpha = 0.25f),
+                            tint               = if (isFav) MaterialTheme.colorScheme.error else mutedCol,
                             modifier           = Modifier.size(14.dp),
                         )
                     }
                 }
-                HorizontalDivider(thickness = 0.5.dp, color = Color.White.copy(alpha = 0.05f))
+                HorizontalDivider(thickness = 0.5.dp, color = divCol)
             }
         }
     }
