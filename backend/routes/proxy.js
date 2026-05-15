@@ -95,33 +95,6 @@ module.exports = function proxyModule(appState) {
     return true;
   }
 
-  // ── GET /proxy/vod/:type/:itemId — VOD/series stream proxy ───────────────
-  // The /api/vod/:id/stream route resolves the URL and caches it on the item.
-  // This endpoint serves it through the authenticated HTTP client so the portal
-  // receives its required cookies and headers with every request.
-  router.get('/vod/:type/:itemId', async (req, res) => {
-    if (!requireSession(res)) return;
-
-    const { vodManager } = appState;
-    if (!vodManager) return res.status(503).send('VOD not available');
-
-    const item = vodManager.findItem(req.params.itemId);
-    if (!item) return res.status(404).send('VOD item not found — browse the catalog first');
-
-    const streamUrl = item._cachedStreamUrl;
-    if (!streamUrl) return res.status(502).send('No cached stream URL — call /api/vod/:id/stream first');
-
-    // MP4 and other direct-file formats: redirect to the resolved URL.
-    // The portal-issued token in the URL provides auth for direct downloads.
-    const isDirectFile = /\.(mp4|mkv|avi|mov|webm)(\?|$)/i.test(streamUrl);
-    if (isDirectFile) {
-      return res.redirect(302, streamUrl);
-    }
-
-    console.log(`[proxy] VOD ${req.params.type}/${req.params.itemId}: ${streamUrl}`);
-    return servePlaylist(req, res, streamUrl);
-  });
-
   async function resolveStreamUrl(channel) {
     const { client, channelManager } = appState;
     if (channel.cmd.includes('matrix')) {

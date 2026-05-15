@@ -455,58 +455,6 @@ class StalkerClient {
     return this._stalkerCall({ type: 'itv', action: 'get_epg_info', period: String(period) });
   }
 
-  // ── VOD: get_categories ───────────────────────────────────────────────────
-  async vodGetCategories() {
-    return this._stalkerCall({ type: 'vod', action: 'get_categories' });
-  }
-
-  // ── VOD: get_ordered_list (page is 0-indexed) ─────────────────────────────
-  async vodGetOrderedList(category = '*', page = 0, sortby = 'added', search = '') {
-    const params = { type: 'vod', action: 'get_ordered_list', category, sortby, fav: '0', p: String(page) };
-    if (search) params.search = search;
-    return this._stalkerCall(params);
-  }
-
-  // ── VOD: get_media_files — returns file list for items with has_files > 0 ──
-  async vodGetMediaFiles(mediaId) {
-    return this._stalkerCall({ type: 'vod', action: 'get_media_files', media_id: String(mediaId) });
-  }
-
-  // ── VOD: create_link ──────────────────────────────────────────────────────
-  async vodCreateLink(cmd, series = '0') {
-    return this._stalkerCall({ type: 'vod', action: 'create_link', cmd, series, forced_storage: '', disable_ad: '0' });
-  }
-
-  // ── VOD: favorites ────────────────────────────────────────────────────────
-  async vodSetFav(videoId) { return this._stalkerCall({ type: 'vod', action: 'set_fav', video_id: String(videoId) }); }
-  async vodDelFav(videoId) { return this._stalkerCall({ type: 'vod', action: 'del_fav', video_id: String(videoId) }); }
-
-  // ── Series: get_categories ────────────────────────────────────────────────
-  async seriesGetCategories() {
-    return this._stalkerCall({ type: 'series', action: 'get_categories' });
-  }
-
-  // ── Series: get_ordered_list (page is 0-indexed) ──────────────────────────
-  async seriesGetOrderedList(category = '*', page = 0, search = '') {
-    const params = { type: 'series', action: 'get_ordered_list', category, sortby: 'added', fav: '0', p: String(page) };
-    if (search) params.search = search;
-    return this._stalkerCall(params);
-  }
-
-  // ── Series: get seasons for a series (pass movie_id) ─────────────────────
-  async seriesGetSeasons(movieId, page = 0) {
-    return this._stalkerCall({ type: 'series', action: 'get_ordered_list', movie_id: String(movieId), p: String(page) });
-  }
-
-  // ── Series: create_link (series = episode number as string) ───────────────
-  async seriesCreateLink(cmd, episodeNumber) {
-    return this._stalkerCall({ type: 'series', action: 'create_link', cmd, series: String(episodeNumber), forced_storage: '', disable_ad: '0' });
-  }
-
-  // ── Series: favorites ─────────────────────────────────────────────────────
-  async seriesSetFav(videoId) { return this._stalkerCall({ type: 'series', action: 'set_fav', video_id: String(videoId) }); }
-  async seriesDelFav(videoId) { return this._stalkerCall({ type: 'series', action: 'del_fav', video_id: String(videoId) }); }
-
   // ── Watchdog: get_events ──────────────────────────────────────────────────
   async watchdogGetEvents(curPlayType = 1, eventActiveId = 0) {
     return this._stalkerCall({

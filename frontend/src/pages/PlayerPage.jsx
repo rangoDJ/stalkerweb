@@ -9,7 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
-import { getChannels, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getVodStreamUrl, getVodEpisodeStream, getSeriesEpisodeStream } from '../stalkerApi'
+import { getChannels, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel } from '../stalkerApi'
 
 const RECENTLY_WATCHED_KEY = 'sw_recently_watched'
 const RECENTLY_WATCHED_MAX = 15
@@ -25,7 +25,7 @@ function pushRecentlyWatched(channel, logoUrl) {
 }
 
 // ── Controls bar ──────────────────────────────────────────────────────────
-function Controls({ playing, muted, volume, isFullscreen, channelName, isVod, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
+function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent">
       <div className="flex items-center gap-2">
@@ -40,10 +40,7 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, isVod, on
             <Slider min={0} max={100} step={1} value={[muted ? 0 : volume]} onValueChange={([v]) => onVolume(v)} className="w-20" />
           </div>
         </div>
-        {isVod
-          ? <Badge variant="outline" className="ml-1 border-[var(--color-primary)]/60 text-[var(--color-primary-light)]">VOD</Badge>
-          : <Badge variant="live" className="ml-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-white animate-pulse" />LIVE</Badge>
-        }
+        <Badge variant="live" className="ml-1"><span className="inline-block h-1.5 w-1.5 rounded-full bg-white animate-pulse" />LIVE</Badge>
       </div>
       <div className="flex-1 text-center">
         <span className="text-sm font-medium text-white/90 truncate">{channelName}</span>
@@ -52,11 +49,9 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, isVod, on
         Space·F·M·↑↓
       </div>
       <div className="flex items-center gap-1">
-        {!isVod && (
-          <button onClick={onToggleList} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label="Toggle channel list">
-            <List size={18} />
-          </button>
-        )}
+        <button onClick={onToggleList} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label="Toggle channel list">
+          <List size={18} />
+        </button>
         <button onClick={onFullscreen} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}>
           {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
         </button>
@@ -121,10 +116,6 @@ export default function PlayerPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const initChannelId   = searchParams.get('channel')
   const initChannelName = searchParams.get('name') ? decodeURIComponent(searchParams.get('name')) : ''
-  const isVod      = searchParams.get('mode') === 'vod'
-  const vodId      = searchParams.get('vodId') || null
-  const vodType    = searchParams.get('vodType') || 'vod'   // 'vod' | 'series'
-  const vodEpisode = searchParams.get('episode') || null
 
   const videoRef     = useRef(null)
   const hlsRef       = useRef(null)
@@ -149,28 +140,9 @@ export default function PlayerPage() {
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   useEffect(() => {
-    if (isVod) return
     getChannels().then(r => setChannels(r.channels ?? [])).catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
     getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
-  }, [isVod])
-
-  // VOD: resolve stream URL via API on mount
-  useEffect(() => {
-    if (!isVod || !vodId) return
-    setStatus('loading')
-    setErrorMsg('')
-    let call
-    if (vodEpisode) {
-      call = vodType === 'series'
-        ? getSeriesEpisodeStream(vodId, vodEpisode)
-        : getVodEpisodeStream(vodId, vodEpisode)
-    } else {
-      call = getVodStreamUrl(vodId)
-    }
-    call
-      .then(({ streamUrl: url }) => setStreamUrl(url))
-      .catch((e) => { setStatus('error'); setErrorMsg(e.message) })
   }, [])
 
   async function toggleFavorite(channel) {
@@ -417,7 +389,6 @@ export default function PlayerPage() {
           <Controls
             playing={playing} muted={muted} volume={volume} isFullscreen={isFullscreen}
             channelName={activeChannel?.name || initChannelName || 'No channel selected'}
-            isVod={isVod}
             onPlayPause={togglePlayPause}
             onMute={() => setMuted(m => !m)}
             onVolume={(v) => { setVolume(v); setMuted(false) }}
@@ -427,17 +398,15 @@ export default function PlayerPage() {
         </div>
       </div>
 
-      {!isVod && (
-        <div className={cn('transition-all duration-300 overflow-hidden shrink-0', showList ? 'w-56' : 'w-0')}>
-          {channels.length > 0 && (
-            <ChannelList
-              channels={channels} activeId={activeChannel?.uniqueId}
-              logoMap={logoMap} favoriteIds={favoriteIds}
-              onSelect={selectChannel} onToggleFavorite={toggleFavorite}
-            />
-          )}
-        </div>
-      )}
+      <div className={cn('transition-all duration-300 overflow-hidden shrink-0', showList ? 'w-56' : 'w-0')}>
+        {channels.length > 0 && (
+          <ChannelList
+            channels={channels} activeId={activeChannel?.uniqueId}
+            logoMap={logoMap} favoriteIds={favoriteIds}
+            onSelect={selectChannel} onToggleFavorite={toggleFavorite}
+          />
+        )}
+      </div>
     </div>
   )
 }
