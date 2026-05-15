@@ -123,10 +123,28 @@ class VodManager {
       } catch (_) {}
     }
 
+    // Step 3: file-based cmd — for portals that store content via has_files/video_series_files.
+    // Portal PHP pattern 2: /media/file_<file_id>.mpg routes through video_series_files table.
+    if (item.hasFiles > 0 && type !== 'series') {
+      try {
+        const filesRes = await this.client.vodGetMediaFiles(item.id);
+        const filesJs  = filesRes?.js;
+        console.log(`[vod] get_media_files(${item.id}): ${JSON.stringify(filesJs)}`);
+        const fileList = Array.isArray(filesJs) ? filesJs
+                       : (filesJs?.data ? Object.values(filesJs.data) : []);
+        const firstFile = fileList[0];
+        if (firstFile?.id) {
+          const fileCmd = `/media/file_${firstFile.id}.mpg`;
+          const url = await resolveViaApi(fileCmd);
+          if (url) return url;
+        }
+      } catch (_) {}
+    }
+
     // Portal explicitly rejected the item — surface the error rather than 404-ing
     if (portalError) throw new Error(`Portal: ${portalError}`);
 
-    // Step 3: cmd field is already a full URL (some portals embed the URL directly)
+    // Step 4: cmd field is already a full URL (some portals embed the URL directly)
     const cmdUrl = extractUrl(item.cmd);
     if (isHttpUrl(cmdUrl)) return cmdUrl;
 
@@ -169,7 +187,10 @@ function _parseItems(basePath, raw) {
       screenshotUri: _resolveUri(basePath, item.screenshot_uri || ''),
       cmd:           item.cmd || '',
       fav:           !!parseInt(item.fav, 10),
-      isSeries:      Array.isArray(item.series) && item.series.length > 0,
+      hasFiles:      parseInt(item.has_files, 10) || 0,
+      // is_series='1' with series:[] means portal stores episodes as files, not in series array
+      isSeries:      (Array.isArray(item.series) && item.series.length > 0)
+                     || item.is_series === '1' || item.is_series === 1,
       episodes:      Array.isArray(item.series) ? item.series : [],
     }));
 }

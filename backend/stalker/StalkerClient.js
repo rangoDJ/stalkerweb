@@ -467,6 +467,11 @@ class StalkerClient {
     return this._stalkerCall(params);
   }
 
+  // ── VOD: get_media_files — returns file list for items with has_files > 0 ──
+  async vodGetMediaFiles(mediaId) {
+    return this._stalkerCall({ type: 'vod', action: 'get_media_files', media_id: String(mediaId) });
+  }
+
   // ── VOD: create_link ──────────────────────────────────────────────────────
   async vodCreateLink(cmd, series = '0') {
     return this._stalkerCall({ type: 'vod', action: 'create_link', cmd, series, forced_storage: '', disable_ad: '0' });
