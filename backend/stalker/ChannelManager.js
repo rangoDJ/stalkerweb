@@ -78,7 +78,12 @@ class ChannelManager {
     });
 
     this._progress = { loading: false, page: this._progress.totalPages, totalPages: this._progress.totalPages, channelCount: this._channels.length };
-    console.log(`[ChannelManager] loaded ${this._channels.length} channels`);
+    const withGenre = this._channels.filter((c) => c.genre).length;
+    console.log(`[ChannelManager] loaded ${this._channels.length} channels, ${withGenre} with genre, ${this._groups.length} groups in map`);
+    if (this._channels.length > 0) {
+      const s = this._channels[0];
+      console.log(`[ChannelManager] sample channel: name=${s.name} genreId=${JSON.stringify(s.genreId)} genre=${JSON.stringify(s.genre)}`);
+    }
     return this._channels;
   }
 
@@ -129,6 +134,9 @@ class ChannelManager {
     }
 
     console.log(`[ChannelManager] loaded ${this._groups.length} groups`);
+    if (this._groups.length > 0) {
+      console.log(`[ChannelManager] sample groups: ${JSON.stringify(this._groups.slice(0, 3))}`);
+    }
     return this._groups;
   }
 
