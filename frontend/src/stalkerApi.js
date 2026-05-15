@@ -121,32 +121,3 @@ export const reorderFavoriteGroups   = (order) => _put('/favorites/groups/order'
 // ── Stream ────────────────────────────────────────────────────────────────
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)
 
-// ── VOD ───────────────────────────────────────────────────────────────────
-export const getVodCategories = (refresh = false) =>
-  _get(`/vod/categories${refresh ? '?refresh=1' : ''}`)
-
-export const getVodList = (category = '*', page = 0, q = '') => {
-  const params = new URLSearchParams({ category, page: String(page) })
-  if (q) params.set('q', q)
-  return _get(`/vod?${params}`)
-}
-
-export const getVodStreamUrl = (id) => _get(`/vod/${id}/stream`)
-
-export const getVodEpisodeStream = (id, episode) =>
-  _get(`/vod/${id}/stream?episode=${episode}`)
-
-// ── Series ────────────────────────────────────────────────────────────────
-export const getSeriesCategories = (refresh = false) =>
-  _get(`/series/categories${refresh ? '?refresh=1' : ''}`)
-
-export const getSeriesList = (category = '*', page = 0, q = '') => {
-  const params = new URLSearchParams({ category, page: String(page) })
-  if (q) params.set('q', q)
-  return _get(`/series?${params}`)
-}
-
-export const getSeriesSeasons = (id) => _get(`/series/${id}/seasons`)
-
-export const getSeriesEpisodeStream = (id, episode) =>
-  _get(`/series/${id}/stream?episode=${episode}`)
