@@ -23,6 +23,10 @@ class ChannelManager {
     this._channels = [];
     this._progress = { loading: true, page: 0, totalPages: 0, channelCount: 0 };
 
+    // Load groups first so genre names can be resolved during channel parsing
+    if (this._groups.length === 0) await this.loadGroups();
+    this._genreMap = new Map(this._groups.map((g) => [String(g.id), g.name]));
+
     // Step 1: get_all_channels (seeds the basic list)
     const allData = await this.client.itvGetAllChannels();
     if (allData?.js?.data) {
@@ -88,13 +92,15 @@ class ChannelManager {
     for (const item of items) {
       if (!item?.name) continue;
 
+      const rawGenreId = item.tv_genre_id || '';
       const channel = {
-        uniqueId: _channelId(item.name, item.number),
+        uniqueId: String(_channelId(item.name, item.number)),
         number: parseInt(item.number, 10) || 0,
         name: item.name,
         channelId: parseInt(item.id, 10) || 0,
         cmd: item.cmd || '',
-        tvGenreId: item.tv_genre_id || '',
+        genreId: rawGenreId,
+        genre: (this._genreMap?.get(rawGenreId) || null),
         iconPath: _determineLogoUri(this.client.getBasePath(), item.logo || ''),
         useHttpTmpLink: !!parseInt(item.use_http_tmp_link, 10),
         useLoadBalancing: !!parseInt(item.use_load_balancing, 10),

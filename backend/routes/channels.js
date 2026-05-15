@@ -24,7 +24,7 @@ module.exports = function channelRoutes(appState) {
     let channels = channelManager.getChannels();
 
     if (group && group !== '*') {
-      channels = channels.filter((c) => c.tvGenreId === group);
+      channels = channels.filter((c) => c.genreId === group);
     }
 
     res.json({ total: channels.length, channels });
