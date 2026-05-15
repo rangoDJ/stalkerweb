@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base activity theme — Compose overrides everything; this just sets the window background
+         so the splash screen doesn't flash white before Compose renders. -->
+    <style name="Theme.StalkerWeb" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#0F0F13</item>
+        <item name="android:statusBarColor">#0F0F13</item>
+        <item name="android:navigationBarColor">#0F0F13</item>
+    </style>
+</resources>
