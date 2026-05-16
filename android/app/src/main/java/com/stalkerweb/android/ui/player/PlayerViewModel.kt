@@ -86,5 +86,19 @@ class PlayerViewModel(private val repository: ChannelRepository) : ViewModel() {
         }
     }
 
+    fun previousChannel(): Boolean {
+        val channels = _state.value.displayedChannels
+        val idx = channels.indexOfFirst { it.uniqueId == _state.value.activeChannelId }
+        if (idx > 0) { selectChannel(channels[idx - 1].uniqueId); return true }
+        return false
+    }
+
+    fun nextChannel(): Boolean {
+        val channels = _state.value.displayedChannels
+        val idx = channels.indexOfFirst { it.uniqueId == _state.value.activeChannelId }
+        if (idx >= 0 && idx < channels.size - 1) { selectChannel(channels[idx + 1].uniqueId); return true }
+        return false
+    }
+
     fun streamUrl(channelId: String): String = repository.streamUrl(channelId)
 }

@@ -1,6 +1,7 @@
 package com.stalkerweb.android.ui.channels
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +16,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -22,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
+import com.stalkerweb.android.ui.utils.rememberIsTV
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +36,15 @@ fun ChannelScreen(
     onSelectChannel: (Channel) -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isTV  = rememberIsTV()
+    val firstItemFocusRequester = remember { FocusRequester() }
+
+    // On TV, push initial focus into the channel list so the remote is immediately useful
+    LaunchedEffect(state.loading, isTV) {
+        if (isTV && !state.loading && state.displayed.isNotEmpty()) {
+            try { firstItemFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -160,12 +175,15 @@ fun ChannelScreen(
                 else -> {
                     LazyColumn {
                         items(state.displayed, key = { it.uniqueId }) { channel ->
+                            val isFirst = channel == state.displayed.first()
                             ChannelRow(
-                                channel         = channel,
-                                logoUrl         = state.logoMap[channel.uniqueId],
-                                isFavorite      = channel.uniqueId in state.favoriteIds,
-                                onClick         = { onSelectChannel(channel) },
+                                channel          = channel,
+                                logoUrl          = state.logoMap[channel.uniqueId],
+                                isFavorite       = channel.uniqueId in state.favoriteIds,
+                                onClick          = { onSelectChannel(channel) },
                                 onToggleFavorite = { viewModel.toggleFavorite(channel) },
+                                isTV             = isTV,
+                                focusRequester   = if (isFirst) firstItemFocusRequester else null,
                             )
                             HorizontalDivider(
                                 thickness = 0.5.dp,
@@ -186,26 +204,48 @@ private fun ChannelRow(
     isFavorite: Boolean,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
+    isTV: Boolean = false,
+    focusRequester: FocusRequester? = null,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
+    var focused by remember { mutableStateOf(false) }
+    val primary = MaterialTheme.colorScheme.primary
+
+    val vertPad  = if (isTV) 14.dp else 10.dp
+    val logoSize = if (isTV) 46.dp else 38.dp
+    val numWidth = if (isTV) 36.dp else 28.dp
+
+    val modifier = Modifier
+        .fillMaxWidth()
+        .onFocusChanged { focused = it.isFocused }
+        .then(
+            if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier
+        )
+        // Visible D-pad focus border — TV users have no other focus cue
+        .border(
+            width = if (focused) 2.dp else 0.dp,
+            color = if (focused) primary else Color.Transparent,
+            shape = RoundedCornerShape(4.dp),
+        )
+        .background(
+            if (focused) primary.copy(alpha = 0.10f) else Color.Transparent,
+            shape = RoundedCornerShape(4.dp),
+        )
+        .clickable(onClick = onClick)
+        .padding(horizontal = 12.dp, vertical = vertPad)
+
+    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         // Channel number
         Text(
             text  = channel.number.toString(),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-            modifier = Modifier.width(28.dp),
+            modifier = Modifier.width(numWidth),
         )
 
         // Logo box
         Box(
             modifier = Modifier
-                .size(38.dp)
+                .size(logoSize)
                 .clip(RoundedCornerShape(4.dp))
                 .background(MaterialTheme.colorScheme.surfaceVariant),
             contentAlignment = Alignment.Center,
@@ -219,7 +259,7 @@ private fun ChannelRow(
                 )
             } else {
                 Icon(
-                    Icons.Default.Tv, null, Modifier.size(18.dp),
+                    Icons.Default.Tv, null, Modifier.size(if (isTV) 22.dp else 18.dp),
                     tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
                 )
             }
@@ -230,20 +270,20 @@ private fun ChannelRow(
         // Name
         Text(
             text     = channel.name,
-            style    = MaterialTheme.typography.bodyMedium,
+            style    = if (isTV) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
 
         // Favorite toggle
-        IconButton(onClick = onToggleFavorite, modifier = Modifier.size(36.dp)) {
+        IconButton(onClick = onToggleFavorite, modifier = Modifier.size(if (isTV) 44.dp else 36.dp)) {
             Icon(
                 imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                 contentDescription = if (isFavorite) "Remove favourite" else "Add favourite",
                 tint = if (isFavorite) MaterialTheme.colorScheme.error
                        else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.25f),
-                modifier = Modifier.size(18.dp),
+                modifier = Modifier.size(if (isTV) 22.dp else 18.dp),
             )
         }
     }

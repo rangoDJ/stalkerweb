@@ -1,0 +1,50 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+
+    <!-- dark background -->
+    <path
+        android:pathData="M0,0 H320 V180 H0 Z"
+        android:fillColor="#0F0F13" />
+
+    <!-- indigo accent bar on left edge -->
+    <path
+        android:pathData="M0,0 H6 V180 H0 Z"
+        android:fillColor="#6366F1" />
+
+    <!-- TV screen outline (monitor shape) -->
+    <path
+        android:pathData="M118,54 L202,54 Q208,54 208,60 L208,116 Q208,122 202,122 L118,122 Q112,122 112,116 L112,60 Q112,54 118,54 Z"
+        android:fillColor="#00000000"
+        android:strokeColor="#6366F1"
+        android:strokeWidth="3" />
+
+    <!-- TV screen inner fill -->
+    <path
+        android:pathData="M118,54 L202,54 Q208,54 208,60 L208,116 Q208,122 202,122 L118,122 Q112,122 112,116 L112,60 Q112,54 118,54 Z"
+        android:fillColor="#6366F120" />
+
+    <!-- TV stand -->
+    <path
+        android:pathData="M152,122 L160,136 M168,122 L160,136 M148,136 H172"
+        android:fillColor="#00000000"
+        android:strokeColor="#6366F1"
+        android:strokeWidth="3"
+        android:strokeLineCap="round" />
+
+    <!-- play triangle inside screen -->
+    <path
+        android:pathData="M152,76 L152,104 L174,90 Z"
+        android:fillColor="#6366F1" />
+
+    <!-- "stalkerweb" text rendered as a series of rectangles approximating letters -->
+    <!-- Using simple bold underline to indicate branding position — replace with PNG for production -->
+    <path
+        android:pathData="M40,148 H280"
+        android:fillColor="#00000000"
+        android:strokeColor="#6366F130"
+        android:strokeWidth="1" />
+
+</vector>

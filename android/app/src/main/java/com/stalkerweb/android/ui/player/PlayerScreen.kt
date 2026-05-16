@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -21,7 +23,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusable
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -39,6 +50,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.Channel
+import com.stalkerweb.android.ui.utils.rememberIsTV
 import kotlinx.coroutines.delay
 
 @OptIn(UnstableApi::class)
@@ -53,6 +65,7 @@ fun PlayerScreen(
     val activity      = context as? Activity
     val configuration = LocalConfiguration.current
     val isLandscape   = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isTV          = rememberIsTV()
     val state         by viewModel.state.collectAsStateWithLifecycle()
 
     var showControls by remember { mutableStateOf(true) }
@@ -103,9 +116,9 @@ fun PlayerScreen(
 
     LaunchedEffect(activeId) { loadStream(activeId) }
 
-    // Auto-hide controls after 3 s when playing in landscape
-    LaunchedEffect(showControls, isPlaying, isLandscape) {
-        if (showControls && isPlaying && isLandscape) {
+    // Auto-hide controls after 3 s when playing in landscape or on TV
+    LaunchedEffect(showControls, isPlaying, isLandscape, isTV) {
+        if (showControls && isPlaying && (isLandscape || isTV)) {
             delay(3_000)
             showControls = false
         }
@@ -113,7 +126,8 @@ fun PlayerScreen(
 
     val displayName = state.channels.find { it.uniqueId == activeId }?.name ?: channelName
 
-    if (isLandscape) {
+    // TV always uses the fullscreen landscape layout regardless of physical orientation
+    if (isLandscape || isTV) {
         LandscapePlayer(
             exoPlayer        = exoPlayer,
             displayName      = displayName,
@@ -126,14 +140,19 @@ fun PlayerScreen(
             activeId         = activeId,
             logoMap          = state.logoMap,
             favoriteIds      = state.favoriteIds,
+            isTV             = isTV,
             onToggleControls = { showControls = !showControls },
+            onShowControls   = { showControls = true },
             onBack           = onBack,
             onExitFullscreen = {
-                activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                if (!isTV) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             },
             onToggleChannelList  = viewModel::toggleChannelList,
             onSelectChannel      = { viewModel.selectChannel(it.uniqueId) },
             onToggleFavorite     = { viewModel.toggleFavorite(it) },
+            onPreviousChannel    = { viewModel.previousChannel() },
+            onNextChannel        = { viewModel.nextChannel() },
+            onTogglePlayPause    = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
             onRetry              = { loadStream(activeId) },
         )
     } else {
@@ -179,18 +198,46 @@ private fun LandscapePlayer(
     activeId: String,
     logoMap: Map<String, String>,
     favoriteIds: Set<String>,
+    isTV: Boolean = false,
     onToggleControls: () -> Unit,
+    onShowControls: () -> Unit,
     onBack: () -> Unit,
     onExitFullscreen: () -> Unit,
     onToggleChannelList: () -> Unit,
     onSelectChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
+    onPreviousChannel: () -> Unit = {},
+    onNextChannel: () -> Unit = {},
+    onTogglePlayPause: () -> Unit = {},
     onRetry: () -> Unit,
 ) {
+    val playerFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        try { playerFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
     Box(
         Modifier
             .fillMaxSize()
             .background(Color.Black)
+            .focusRequester(playerFocusRequester)
+            .focusable()
+            // D-pad / remote key handling for TV
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                onShowControls() // any key press shows controls and resets hide timer
+                when (event.key) {
+                    Key.DirectionCenter, Key.Enter -> { onTogglePlayPause(); true }
+                    Key.MediaPlayPause             -> { onTogglePlayPause(); true }
+                    Key.MediaPlay                  -> { exoPlayer.play(); true }
+                    Key.MediaPause                 -> { exoPlayer.pause(); true }
+                    Key.DirectionUp                -> { if (!showChannelList) { onPreviousChannel(); true } else false }
+                    Key.DirectionDown              -> { if (!showChannelList) { onNextChannel(); true } else false }
+                    Key.DirectionRight             -> { onToggleChannelList(); true }
+                    Key.DirectionLeft              -> { if (showChannelList) { onToggleChannelList(); true } else false }
+                    else                           -> false
+                }
+            }
             .clickable(
                 indication        = null,
                 interactionSource = remember { MutableInteractionSource() },
@@ -256,8 +303,11 @@ private fun LandscapePlayer(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                IconButton(onClick = onExitFullscreen) {
-                    Icon(Icons.Default.FullscreenExit, "Exit fullscreen", tint = Color.White)
+                // Exit fullscreen not applicable on TV — Back button handles navigation
+                if (!isTV) {
+                    IconButton(onClick = onExitFullscreen) {
+                        Icon(Icons.Default.FullscreenExit, "Exit fullscreen", tint = Color.White)
+                    }
                 }
             }
         }
@@ -496,11 +546,19 @@ private fun ChannelListPanel(
             items(channels, key = { it.uniqueId }) { ch ->
                 val isActive = ch.uniqueId == activeId
                 val isFav    = ch.uniqueId in favoriteIds
+                var focused  by remember { mutableStateOf(false) }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .onFocusChanged { focused = it.isFocused }
+                        .border(
+                            width = if (focused) 2.dp else 0.dp,
+                            color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                            shape = RoundedCornerShape(4.dp),
+                        )
                         .background(
                             if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f)
+                            else if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                             else Color.Transparent
                         )
                         .clickable { onSelect(ch) }
