@@ -1,8 +1,5 @@
 package com.stalkerweb.android
 
-import android.app.UiModeManager
-import android.content.Context
-import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -43,9 +40,7 @@ class MainActivity : ComponentActivity() {
         val repository    = ChannelRepository(prefs).also { it.initFromPrefs() }
         val updateManager = UpdateManager(this)
 
-        val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
-        val isTV = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
-                   packageManager.hasSystemFeature("amazon.hardware.fire_tv")
+        val isTV = BuildConfig.IS_TV
 
         setContent {
             StalkerTheme {

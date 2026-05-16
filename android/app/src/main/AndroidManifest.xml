@@ -4,37 +4,21 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- TV: marks app as TV-compatible without excluding phones -->
-    <uses-feature android:name="android.software.leanback" android:required="false" />
-    <!-- TV: without this the app is filtered out of TV storefronts -->
-    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
-
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
-        android:banner="@drawable/tv_banner"
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.StalkerWeb"
         android:usesCleartextTraffic="true">
 
+        <!-- Intent filters are in flavor manifests: mobile/AndroidManifest.xml and tv/AndroidManifest.xml -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|smallestScreenSize|uiMode"
-            android:supportsPictureInPicture="true">
-            <!-- Phone / tablet launcher -->
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <!-- FireTV / Android TV / Google TV launcher -->
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
-            </intent-filter>
-        </activity>
+            android:supportsPictureInPicture="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
