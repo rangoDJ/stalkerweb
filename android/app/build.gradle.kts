@@ -25,6 +25,20 @@ android {
         buildConfigField("String", "GITHUB_REPO", "\"rangoDJ/stalkerweb\"")
     }
 
+    flavorDimensions += "form"
+
+    productFlavors {
+        create("mobile") {
+            dimension = "form"
+            buildConfigField("Boolean", "IS_TV", "false")
+        }
+        create("tv") {
+            dimension = "form"
+            applicationIdSuffix = ".tv"
+            buildConfigField("Boolean", "IS_TV", "true")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
