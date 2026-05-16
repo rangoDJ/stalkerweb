@@ -1,11 +1,18 @@
 package com.stalkerweb.android
 
+import android.app.UiModeManager
+import android.content.Context
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -35,8 +42,14 @@ class MainActivity : ComponentActivity() {
         val repository    = ChannelRepository(prefs).also { it.initFromPrefs() }
         val updateManager = UpdateManager(this)
 
+        val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as UiModeManager
+        val isTV = uiModeManager.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION ||
+                   packageManager.hasSystemFeature("amazon.hardware.fire_tv")
+
         setContent {
             StalkerTheme {
+                // Apply overscan safe-zone on TV so content stays away from screen edges
+                Box(Modifier.fillMaxSize().padding(if (isTV) 48.dp else 0.dp)) {
                 val navController = rememberNavController()
                 val startDest     = if (repository.getServerUrl() != null) Screen.Channels.route
                                     else Screen.Setup.route
@@ -110,6 +123,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
                 }
+                } // end overscan Box
             }
         }
     }

@@ -10,6 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -41,6 +43,12 @@ fun SetupScreen(
     var error   by remember { mutableStateOf<String?>(null) }
     val scope   = rememberCoroutineScope()
     val focus   = LocalFocusManager.current
+    val hostFocusRequester = remember { FocusRequester() }
+
+    // Auto-focus the host field on load — essential on TV where there's no tap to focus
+    LaunchedEffect(Unit) {
+        try { hostFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
 
     fun tryConnect() {
         val h = host.trim().trimEnd('/')
@@ -106,7 +114,7 @@ fun SetupScreen(
                     imeAction = ImeAction.Next,
                 ),
                 keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().focusRequester(hostFocusRequester),
             )
 
             Spacer(Modifier.height(12.dp))
