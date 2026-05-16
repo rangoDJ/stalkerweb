@@ -13,7 +13,7 @@ env:
 
 jobs:
 
-  # ── Build Android debug APK ──────────────────────────────────────────────
+  # ── Build Android debug APKs (mobile + tv) ──────────────────────────────────
   build-apk:
     runs-on: ubuntu-latest
     steps:
@@ -33,15 +33,22 @@ jobs:
           mkdir -p ~/.android
           echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > ~/.android/debug.keystore
 
-      - name: Build debug APK
+      - name: Build debug APKs (mobile + tv)
         working-directory: android
-        run: gradle :app:assembleDebug
+        run: gradle :app:assembleMobileDebug :app:assembleTvDebug
 
-      - name: Upload APK artifact
+      - name: Upload mobile APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stalkerweb-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: stalkerweb-mobile-debug
+          path: android/app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
+          retention-days: 7
+
+      - name: Upload tv APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stalkerweb-tv-debug
+          path: android/app/build/outputs/apk/tv/debug/app-tv-debug.apk
           retention-days: 7
 
   # ── Build & push Docker image ────────────────────────────────────────────
