@@ -1,11 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock } from 'lucide-react'
+import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
-import { getRecentlyWatched } from './PlayerPage'
+import { getRecentlyWatched, removeRecentlyWatched } from './PlayerPage'
 import { useApp } from '../App'
 
 // ── Channel card ──────────────────────────────────────────────────────────
@@ -190,6 +190,11 @@ export default function ChannelsPage() {
     }
   }
 
+  function removeRecentChannel(uniqueId) {
+    removeRecentlyWatched(uniqueId)
+    setRecentlyWatched(prev => prev.filter(c => String(c.uniqueId) !== String(uniqueId)))
+  }
+
   const filtered = useMemo(() => {
     if (!query.trim()) return channels
     const q = query.toLowerCase()
@@ -259,15 +264,23 @@ export default function ChannelsPage() {
             </div>
             <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
               {recentChannels.map(r => (
-                <ChannelCard
-                  key={r.uniqueId}
-                  channel={{ uniqueId: r.uniqueId, name: r.name, number: r.number }}
-                  logoUrl={r.logoUrl}
-                  isFavorite={favoriteIds.has(String(r.uniqueId))}
-                  onToggleFavorite={ch => toggleFavorite(ch)}
-                  onClick={openChannel}
-                  compact
-                />
+                <div key={r.uniqueId} className="relative group/recent shrink-0">
+                  <ChannelCard
+                    channel={{ uniqueId: r.uniqueId, name: r.name, number: r.number }}
+                    logoUrl={r.logoUrl}
+                    isFavorite={favoriteIds.has(String(r.uniqueId))}
+                    onToggleFavorite={ch => toggleFavorite(ch)}
+                    onClick={openChannel}
+                    compact
+                  />
+                  <button
+                    onClick={() => removeRecentChannel(r.uniqueId)}
+                    className="absolute -top-1.5 -right-1.5 z-10 flex items-center justify-center w-4 h-4 rounded-full bg-[var(--color-surface-3)] border border-[var(--color-border)] text-[var(--color-muted)] opacity-0 group-hover/recent:opacity-100 hover:!opacity-100 hover:text-[var(--color-text)] transition-opacity"
+                    aria-label="Remove from recently watched"
+                  >
+                    <X size={9} />
+                  </button>
+                </div>
               ))}
             </div>
           </section>
