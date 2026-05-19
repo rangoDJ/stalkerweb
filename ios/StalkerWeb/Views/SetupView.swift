@@ -3,8 +3,6 @@ import SwiftUI
 struct SetupView: View {
     @StateObject private var viewModel: SetupViewModel
 
-    @EnvironmentObject private var prefs: AppPrefs
-
     init(repository: ChannelRepository) {
         _viewModel = StateObject(wrappedValue: SetupViewModel(repository: repository))
     }
