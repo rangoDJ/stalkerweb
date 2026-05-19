@@ -43,7 +43,7 @@ struct PlayerView: View {
             }
         }
         .ignoresSafeArea()
-        .statusBarHidden(true)
+        .statusBar(hidden: true)
         .onTapGesture { toggleControls() }
     }
 
