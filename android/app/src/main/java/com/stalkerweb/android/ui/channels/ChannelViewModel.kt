@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
+import com.stalkerweb.android.data.api.NowNextEntry
 import com.stalkerweb.android.data.repository.ChannelRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,15 +15,16 @@ import kotlinx.coroutines.launch
 enum class ChannelTab { ALL, FAVORITES }
 
 data class ChannelUiState(
-    val channels: List<Channel>    = emptyList(),
+    val channels: List<Channel>      = emptyList(),
     val logoMap: Map<String, String> = emptyMap(),
-    val favoriteIds: Set<String>   = emptySet(),
-    val groups: List<Group>        = emptyList(),
-    val selectedGroupId: String?   = null,
-    val query: String              = "",
-    val tab: ChannelTab            = ChannelTab.ALL,
-    val loading: Boolean           = true,
-    val error: String?             = null,
+    val favoriteIds: Set<String>     = emptySet(),
+    val groups: List<Group>          = emptyList(),
+    val nowNext: Map<String, NowNextEntry> = emptyMap(),
+    val selectedGroupId: String?     = null,
+    val query: String                = "",
+    val tab: ChannelTab              = ChannelTab.ALL,
+    val loading: Boolean             = true,
+    val error: String?               = null,
 ) {
     val displayed: List<Channel>
         get() {
@@ -72,6 +74,11 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
             }.onFailure { e ->
                 _state.value = _state.value.copy(loading = false, error = e.message)
             }
+        }
+        // EPG fetch is best-effort — don't block or fail the channel list
+        viewModelScope.launch {
+            val nowNext = repository.getNowNext()
+            if (nowNext.isNotEmpty()) _state.value = _state.value.copy(nowNext = nowNext)
         }
     }
 

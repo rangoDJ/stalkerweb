@@ -32,6 +32,9 @@ interface StalkerApi {
     @DELETE("api/favorites/channels/{id}")
     suspend fun removeFavorite(@Path("id") id: String)
 
+    @GET("api/epg/now")
+    suspend fun getNowNext(): Map<String, NowNextEntry>
+
     companion object {
         fun create(baseUrl: String): StalkerApi {
             val moshi = Moshi.Builder()

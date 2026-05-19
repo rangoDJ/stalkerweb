@@ -3,6 +3,7 @@ package com.stalkerweb.android.data.repository
 import com.stalkerweb.android.data.api.AddFavoriteRequest
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
+import com.stalkerweb.android.data.api.NowNextEntry
 import com.stalkerweb.android.data.api.StalkerApi
 import com.stalkerweb.android.data.api.StatusResponse
 import com.stalkerweb.android.data.prefs.AppPrefs
@@ -50,6 +51,9 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     suspend fun removeFavorite(uniqueId: String) =
         requireApi().removeFavorite(uniqueId)
+
+    suspend fun getNowNext(): Map<String, NowNextEntry> =
+        runCatching { requireApi().getNowNext() }.getOrDefault(emptyMap())
 
     private fun requireApi(): StalkerApi =
         api ?: throw IllegalStateException("No server URL configured")
