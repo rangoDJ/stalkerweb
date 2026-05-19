@@ -1,9 +1,22 @@
 package com.stalkerweb.android.ui.player
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import android.content.ComponentName
+import androidx.annotation.OptIn
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.repository.ChannelRepository
+import com.stalkerweb.android.service.PlaybackService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,7 +29,7 @@ data class PlayerUiState(
     val favoriteIds: Set<String>     = emptySet(),
     val activeChannelId: String      = "",
     val showChannelList: Boolean     = false,
-    val selectedGenre: String?       = null,   // null = All
+    val selectedGenre: String?       = null,
 ) {
     val genres: List<String>
         get() = channels.mapNotNull { it.genre }.filter { it.isNotBlank() }.distinct().sorted()
@@ -26,13 +39,32 @@ data class PlayerUiState(
                 else channels.filter { it.genre == selectedGenre }
 }
 
-class PlayerViewModel(private val repository: ChannelRepository) : ViewModel() {
+@OptIn(UnstableApi::class)
+class PlayerViewModel(
+    application: Application,
+    private val repository: ChannelRepository,
+) : AndroidViewModel(application) {
 
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state.asStateFlow()
 
+    private val _player = MutableStateFlow<Player?>(null)
+    val player: StateFlow<Player?> = _player.asStateFlow()
+
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+
     fun init(channelId: String) {
         _state.value = _state.value.copy(activeChannelId = channelId)
+
+        // Connect to PlaybackService — starts it if not already running
+        val token = SessionToken(getApplication(), ComponentName(getApplication(), PlaybackService::class.java))
+        val future = MediaController.Builder(getApplication(), token).buildAsync()
+        controllerFuture = future
+        future.addListener({
+            _player.value = future.get()
+            loadStream(channelId)
+        }, MoreExecutors.directExecutor())
+
         viewModelScope.launch {
             runCatching {
                 val channels = async { repository.getChannels() }
@@ -52,11 +84,25 @@ class PlayerViewModel(private val repository: ChannelRepository) : ViewModel() {
         }
     }
 
+    fun loadStream(channelId: String) {
+        val p = _player.value ?: return
+        val channelName = _state.value.channels.find { it.uniqueId == channelId }?.name
+        val item = MediaItem.Builder()
+            .setUri(repository.streamUrl(channelId))
+            .setMimeType(MimeTypes.APPLICATION_M3U8)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(channelName).build())
+            .build()
+        p.setMediaItem(item)
+        p.prepare()
+        p.playWhenReady = true
+    }
+
     fun selectChannel(channelId: String) {
         _state.value = _state.value.copy(
             activeChannelId = channelId,
             showChannelList = false,
         )
+        loadStream(channelId)
     }
 
     fun toggleChannelList() {
@@ -100,5 +146,8 @@ class PlayerViewModel(private val repository: ChannelRepository) : ViewModel() {
         return false
     }
 
-    fun streamUrl(channelId: String): String = repository.streamUrl(channelId)
+    override fun onCleared() {
+        controllerFuture?.let { MediaController.releaseFuture(it) }
+        super.onCleared()
+    }
 }

@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
                     object : ViewModelProvider.Factory {
                         @Suppress("UNCHECKED_CAST")
                         override fun <T : ViewModel> create(modelClass: Class<T>): T =
-                            PlayerViewModel(repository) as T
+                            PlayerViewModel(application, repository) as T
                     }
                 }
                 val updateVmFactory = remember {
