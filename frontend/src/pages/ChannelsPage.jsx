@@ -4,14 +4,19 @@ import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress, getProxiedLogoUrl } from '../stalkerApi'
+import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
 import { getRecentlyWatched } from './PlayerPage'
 import { useApp } from '../App'
 
 // ── Channel card ──────────────────────────────────────────────────────────
-function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact }) {
+function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact, nowNext }) {
   const [imgError, setImgError] = useState(false)
   const logo = logoUrl || getProxiedLogoUrl(channel.iconPath) || ''
+
+  const epgProgress = nowNext?.now
+    ? Math.min(100, Math.round(((Math.floor(Date.now() / 1000) - nowNext.now.startTime) /
+        (nowNext.now.endTime - nowNext.now.startTime)) * 100))
+    : 0
 
   if (compact) {
     return (
@@ -51,6 +56,17 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
         <p className="text-xs text-[var(--color-muted)] mb-0.5">Ch {channel.number}</p>
         <p className="text-sm font-medium text-[var(--color-text)] leading-tight break-words">{channel.name}</p>
       </div>
+      {nowNext?.now && (
+        <div className="w-full mt-0.5 pt-2 border-t border-[var(--color-border)]">
+          <p className="text-[10px] font-medium text-[var(--color-primary-light)] leading-tight truncate text-left">{nowNext.now.title}</p>
+          <div className="mt-1.5 h-[3px] w-full rounded-full bg-[var(--color-surface-3)] overflow-hidden">
+            <div className="h-full rounded-full bg-[var(--color-primary)] transition-none" style={{ width: `${epgProgress}%` }} />
+          </div>
+          {nowNext.next && (
+            <p className="mt-1 text-[9px] text-[var(--color-muted)] truncate text-left">Next: {nowNext.next.title}</p>
+          )}
+        </div>
+      )}
     </button>
   )
 }
@@ -80,6 +96,7 @@ export default function ChannelsPage() {
   const [error, setError]             = useState(null)
   const [progress, setProgress]       = useState(null) // { loading, page, totalPages, channelCount }
   const [recentlyWatched, setRecentlyWatched] = useState([])
+  const [nowNext, setNowNext] = useState({})
 
   // Channel number jump
   const [jumpDigits, setJumpDigits]   = useState('')
@@ -101,6 +118,7 @@ export default function ChannelsPage() {
     getLogoMap().then(setLogoMap).catch(() => {})
     getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
     setRecentlyWatched(getRecentlyWatched())
+    getNowNext().then(setNowNext).catch(() => {})
   }, [])
 
   // Poll progress while channels are loading
@@ -303,6 +321,7 @@ export default function ChannelsPage() {
                 isFavorite={favoriteIds.has(String(ch.uniqueId))}
                 onToggleFavorite={toggleFavorite}
                 onClick={openChannel}
+                nowNext={nowNext[String(ch.uniqueId)]}
               />
             ))}
           </div>
