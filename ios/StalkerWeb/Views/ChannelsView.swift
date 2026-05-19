@@ -17,16 +17,32 @@ struct ChannelsView: View {
                     ProgressView("Loading channels…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = channelVM.error {
-                    ContentUnavailableView {
-                        Label("Connection Error", systemImage: "wifi.slash")
-                    } description: {
+                    VStack(spacing: 16) {
+                        Image(systemName: "wifi.slash")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text("Connection Error").font(.headline)
                         Text(error)
-                    } actions: {
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
                         Button("Retry") { channelVM.load() }
                             .buttonStyle(.borderedProminent)
                     }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if channelVM.displayed.isEmpty {
-                    ContentUnavailableView.search(text: channelVM.query)
+                    VStack(spacing: 12) {
+                        Image(systemName: channelVM.query.isEmpty ? "tv" : "magnifyingglass")
+                            .font(.system(size: 48))
+                            .foregroundStyle(.secondary)
+                        Text(channelVM.query.isEmpty
+                             ? "No channels"
+                             : "No results for \"\(channelVM.query)\"")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     channelList
                 }
