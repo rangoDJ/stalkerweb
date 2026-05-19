@@ -56,6 +56,8 @@ fun PlayerScreen(
     channelId: String,
     channelName: String,
     viewModel: PlayerViewModel,
+    isInPipMode: Boolean = false,
+    onSetPipEnabled: (Boolean) -> Unit = {},
     onBack: () -> Unit,
 ) {
     val context       = LocalContext.current
@@ -93,7 +95,9 @@ fun PlayerScreen(
 
     DisposableEffect(Unit) {
         viewModel.init(channelId)
+        onSetPipEnabled(true)
         onDispose {
+            onSetPipEnabled(false)
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             // Player is owned by PlaybackService — do not release here
         }
@@ -111,6 +115,14 @@ fun PlayerScreen(
     }
 
     val displayName = state.channels.find { it.uniqueId == activeId }?.name ?: channelName
+
+    // In PiP the window is tiny — show only the video surface, no chrome
+    if (isInPipMode) {
+        Box(Modifier.fillMaxSize().background(Color.Black)) {
+            ExoPlayerSurface(player = player, modifier = Modifier.fillMaxSize())
+        }
+        return
+    }
 
     if (isLandscape || isTV) {
         LandscapePlayer(
