@@ -27,6 +27,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
+import com.stalkerweb.android.data.api.NowNextEntry
 import com.stalkerweb.android.ui.utils.rememberIsTV
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -180,6 +181,7 @@ fun ChannelScreen(
                                 channel          = channel,
                                 logoUrl          = state.logoMap[channel.uniqueId],
                                 isFavorite       = channel.uniqueId in state.favoriteIds,
+                                nowNext          = state.nowNext[channel.uniqueId],
                                 onClick          = { onSelectChannel(channel) },
                                 onToggleFavorite = { viewModel.toggleFavorite(channel) },
                                 isTV             = isTV,
@@ -202,6 +204,7 @@ private fun ChannelRow(
     channel: Channel,
     logoUrl: String?,
     isFavorite: Boolean,
+    nowNext: NowNextEntry? = null,
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
     isTV: Boolean = false,
@@ -267,14 +270,47 @@ private fun ChannelRow(
 
         Spacer(Modifier.width(12.dp))
 
-        // Name
-        Text(
-            text     = channel.name,
-            style    = if (isTV) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
+        // Name + Now & Next
+        Column(Modifier.weight(1f)) {
+            Text(
+                text     = channel.name,
+                style    = if (isTV) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (nowNext != null) {
+                val nowSecs  = remember { System.currentTimeMillis() / 1000L }
+                val duration = nowNext.now.endTime - nowNext.now.startTime
+                val progress = if (duration > 0)
+                    ((nowSecs - nowNext.now.startTime).toFloat() / duration).coerceIn(0f, 1f)
+                else 0f
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text     = nowNext.now.title,
+                    style    = MaterialTheme.typography.labelSmall,
+                    color    = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(3.dp))
+                LinearProgressIndicator(
+                    progress        = { progress },
+                    modifier        = Modifier.fillMaxWidth().height(2.dp),
+                    color           = MaterialTheme.colorScheme.primary,
+                    trackColor      = MaterialTheme.colorScheme.surfaceVariant,
+                )
+                if (nowNext.next != null) {
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text     = "Next: ${nowNext.next.title}",
+                        style    = MaterialTheme.typography.labelSmall,
+                        color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
 
         // Favorite toggle
         IconButton(onClick = onToggleFavorite, modifier = Modifier.size(if (isTV) 44.dp else 36.dp)) {

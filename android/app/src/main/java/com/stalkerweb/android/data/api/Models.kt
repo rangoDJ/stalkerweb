@@ -54,3 +54,22 @@ data class Group(
 data class GroupsResponse(
     val groups: List<Group>,
 )
+
+@JsonClass(generateAdapter = false)
+data class NowInfo(
+    val title: String,
+    val startTime: Long,
+    val endTime: Long,
+)
+
+@JsonClass(generateAdapter = false)
+data class NextInfo(
+    val title: String,
+    val startTime: Long,
+)
+
+@JsonClass(generateAdapter = false)
+data class NowNextEntry(
+    val now: NowInfo,
+    val next: NextInfo? = null,
+)
