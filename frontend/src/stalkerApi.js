@@ -75,6 +75,7 @@ export const getGroups = (refresh = false) =>
 export const getEpg = (period = 24) => _get(`/epg?period=${period}`)
 export const getChannelEpg = (channelId, period = 24) =>
   _get(`/epg/${channelId}?period=${period}`)
+export const getNowNext = () => _get('/epg/now')
 
 // ── Logos ─────────────────────────────────────────────────────────────────
 export const getLogos = () => _get('/logos')

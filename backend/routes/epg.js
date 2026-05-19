@@ -11,6 +11,31 @@ const sessionMiddleware = require('../middleware/session');
 module.exports = function epgRoutes(appState) {
   const guard = sessionMiddleware(appState);
 
+  // GET /api/epg/now — current + next programme for every channel (uses cached EPG)
+  router.get('/now', guard, async (req, res) => {
+    const { guideManager, channelManager } = appState;
+    try {
+      await guideManager.loadGuide(3); // 3 h covers now + next
+    } catch (_) {
+      return res.json({}); // EPG unavailable
+    }
+    const nowSecs = Math.floor(Date.now() / 1000);
+    const channels = channelManager.getChannels();
+    const result = {};
+    for (const ch of channels) {
+      const events = guideManager.getChannelEvents(ch.channelId);
+      const nowIdx = events.findIndex(e => e.startTime <= nowSecs && e.endTime > nowSecs);
+      if (nowIdx === -1) continue;
+      const cur  = events[nowIdx];
+      const next = events[nowIdx + 1] ?? null;
+      result[ch.uniqueId] = {
+        now: { title: cur.title, startTime: cur.startTime, endTime: cur.endTime },
+        ...(next ? { next: { title: next.title, startTime: next.startTime } } : {}),
+      };
+    }
+    res.json(result);
+  });
+
   // GET /api/epg?period=<hours>&refresh=1
   router.get('/', guard, async (req, res) => {
     const { guideManager, channelManager } = appState;
