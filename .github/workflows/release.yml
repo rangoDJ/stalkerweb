@@ -75,47 +75,6 @@ jobs:
           path: android/app/build/outputs/apk/tv/debug/app-tv-debug.apk
           retention-days: 30
 
-  # ── Build iOS app (simulator archive) ───────────────────────────────────
-  build-ios:
-    needs: tag
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: "16"
-
-      - name: Install XcodeGen
-        run: brew install xcodegen
-
-      - name: Generate Xcode project
-        working-directory: ios
-        run: xcodegen generate
-
-      - name: Build for iOS Simulator
-        run: |
-          xcodebuild \
-            -project ios/StalkerWeb.xcodeproj \
-            -scheme StalkerWeb \
-            -sdk iphonesimulator \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath ios/build \
-            -configuration Debug \
-            CODE_SIGNING_ALLOWED=NO \
-            build
-
-      - name: Zip simulator .app
-        run: |
-          cd ios/build/Build/Products/Debug-iphonesimulator
-          zip -r StalkerWeb-simulator.zip StalkerWeb.app
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: stalkerweb-ios-simulator
-          path: ios/build/Build/Products/Debug-iphonesimulator/StalkerWeb-simulator.zip
-          retention-days: 30
-
   # ── Build & push Docker image ────────────────────────────────────────────
   build-docker:
     needs: tag
@@ -160,7 +119,7 @@ jobs:
 
   # ── Create GitHub Release ────────────────────────────────────────────────
   release:
-    needs: [tag, build-apk, build-ios, build-docker]
+    needs: [tag, build-apk, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -176,16 +135,10 @@ jobs:
         with:
           name: stalkerweb-tv-apk
 
-      - name: Download iOS simulator build
-        uses: actions/download-artifact@v4
-        with:
-          name: stalkerweb-ios-simulator
-
       - name: Rename artifacts to include version
         run: |
-          mv app-mobile-debug.apk    stalkerweb-mobile-${{ needs.tag.outputs.new_tag }}.apk
-          mv app-tv-debug.apk        stalkerweb-tv-${{ needs.tag.outputs.new_tag }}.apk
-          mv StalkerWeb-simulator.zip stalkerweb-ios-simulator-${{ needs.tag.outputs.new_tag }}.zip
+          mv app-mobile-debug.apk stalkerweb-mobile-${{ needs.tag.outputs.new_tag }}.apk
+          mv app-tv-debug.apk     stalkerweb-tv-${{ needs.tag.outputs.new_tag }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
@@ -195,7 +148,6 @@ jobs:
           files: |
             stalkerweb-mobile-${{ needs.tag.outputs.new_tag }}.apk
             stalkerweb-tv-${{ needs.tag.outputs.new_tag }}.apk
-            stalkerweb-ios-simulator-${{ needs.tag.outputs.new_tag }}.zip
           body: |
             ## Docker image
 
@@ -211,11 +163,3 @@ jobs:
             | `stalkerweb-tv-${{ needs.tag.outputs.new_tag }}.apk` | FireTV / Android TV / Google TV |
 
             Enable **Install from unknown sources** before sideloading.
-
-            ## iOS
-
-            | File | Notes |
-            |------|-------|
-            | `stalkerweb-ios-simulator-${{ needs.tag.outputs.new_tag }}.zip` | Xcode Simulator build (unzip → drag into Simulator) |
-
-            Device installation requires a signed `.ipa` — set up `APPLE_CERTIFICATE`, `APPLE_PROVISIONING_PROFILE`, and `APPLE_TEAM_ID` repository secrets and update the `build-ios` workflow step to use `xcodebuild archive` + `exportArchive`.
