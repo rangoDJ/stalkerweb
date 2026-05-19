@@ -8,6 +8,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -23,7 +24,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.focusable
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -40,12 +40,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.media3.common.MediaItem
-import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
@@ -67,6 +64,7 @@ fun PlayerScreen(
     val isLandscape   = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
     val isTV          = rememberIsTV()
     val state         by viewModel.state.collectAsStateWithLifecycle()
+    val player        by viewModel.player.collectAsStateWithLifecycle()
 
     var showControls by remember { mutableStateOf(true) }
     var isPlaying    by remember { mutableStateOf(false) }
@@ -75,46 +73,34 @@ fun PlayerScreen(
 
     val activeId = state.activeChannelId.ifBlank { channelId }
 
-    val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            playWhenReady = true
-            addListener(object : Player.Listener {
-                override fun onIsPlayingChanged(playing: Boolean) {
-                    isPlaying = playing
-                }
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    isBuffering = playbackState == Player.STATE_BUFFERING ||
-                                  playbackState == Player.STATE_IDLE
-                    if (playbackState == Player.STATE_READY) playerError = null
-                }
-                override fun onPlayerError(error: PlaybackException) {
-                    isBuffering = false
-                    playerError = error.message ?: "Playback error"
-                }
-            })
+    // Track playback state from the MediaController
+    DisposableEffect(player) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == Player.STATE_BUFFERING ||
+                              playbackState == Player.STATE_IDLE
+                if (playbackState == Player.STATE_READY) playerError = null
+            }
+            override fun onPlayerError(error: PlaybackException) {
+                isBuffering = false
+                playerError = error.message ?: "Playback error"
+            }
         }
+        player?.addListener(listener)
+        onDispose { player?.removeListener(listener) }
     }
 
     DisposableEffect(Unit) {
         viewModel.init(channelId)
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            exoPlayer.release()
+            // Player is owned by PlaybackService — do not release here
         }
     }
 
-    fun loadStream(id: String) {
-        playerError = null
-        isBuffering = true
-        val item = MediaItem.Builder()
-            .setUri(viewModel.streamUrl(id))
-            .setMimeType(MimeTypes.APPLICATION_M3U8)
-            .build()
-        exoPlayer.setMediaItem(item)
-        exoPlayer.prepare()
-    }
-
-    LaunchedEffect(activeId) { loadStream(activeId) }
+    // Reset error state when channel changes
+    LaunchedEffect(activeId) { playerError = null }
 
     // Auto-hide controls after 3 s when playing in landscape or on TV
     LaunchedEffect(showControls, isPlaying, isLandscape, isTV) {
@@ -126,10 +112,9 @@ fun PlayerScreen(
 
     val displayName = state.channels.find { it.uniqueId == activeId }?.name ?: channelName
 
-    // TV always uses the fullscreen landscape layout regardless of physical orientation
     if (isLandscape || isTV) {
         LandscapePlayer(
-            exoPlayer        = exoPlayer,
+            player           = player,
             displayName      = displayName,
             isPlaying        = isPlaying,
             isBuffering      = isBuffering,
@@ -147,17 +132,17 @@ fun PlayerScreen(
             onExitFullscreen = {
                 if (!isTV) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             },
-            onToggleChannelList  = viewModel::toggleChannelList,
-            onSelectChannel      = { viewModel.selectChannel(it.uniqueId) },
-            onToggleFavorite     = { viewModel.toggleFavorite(it) },
-            onPreviousChannel    = { viewModel.previousChannel() },
-            onNextChannel        = { viewModel.nextChannel() },
-            onTogglePlayPause    = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
-            onRetry              = { loadStream(activeId) },
+            onToggleChannelList = viewModel::toggleChannelList,
+            onSelectChannel     = { viewModel.selectChannel(it.uniqueId) },
+            onToggleFavorite    = { viewModel.toggleFavorite(it) },
+            onPreviousChannel   = { viewModel.previousChannel() },
+            onNextChannel       = { viewModel.nextChannel() },
+            onTogglePlayPause   = { if (isPlaying) player?.pause() else player?.play() },
+            onRetry             = { viewModel.loadStream(activeId) },
         )
     } else {
         PortraitPlayer(
-            exoPlayer        = exoPlayer,
+            player           = player,
             displayName      = displayName,
             isPlaying        = isPlaying,
             isBuffering      = isBuffering,
@@ -177,7 +162,7 @@ fun PlayerScreen(
             onSelectChannel  = { viewModel.selectChannel(it.uniqueId) },
             onToggleFavorite = { viewModel.toggleFavorite(it) },
             onSelectGenre    = { viewModel.setGenre(it) },
-            onRetry          = { loadStream(activeId) },
+            onRetry          = { viewModel.loadStream(activeId) },
         )
     }
 }
@@ -187,7 +172,7 @@ fun PlayerScreen(
 @OptIn(UnstableApi::class)
 @Composable
 private fun LandscapePlayer(
-    exoPlayer: ExoPlayer,
+    player: Player?,
     displayName: String,
     isPlaying: Boolean,
     isBuffering: Boolean,
@@ -222,15 +207,14 @@ private fun LandscapePlayer(
             .background(Color.Black)
             .focusRequester(playerFocusRequester)
             .focusable()
-            // D-pad / remote key handling for TV
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
-                onShowControls() // any key press shows controls and resets hide timer
+                onShowControls()
                 when (event.key) {
                     Key.DirectionCenter, Key.Enter -> { onTogglePlayPause(); true }
                     Key.MediaPlayPause             -> { onTogglePlayPause(); true }
-                    Key.MediaPlay                  -> { exoPlayer.play(); true }
-                    Key.MediaPause                 -> { exoPlayer.pause(); true }
+                    Key.MediaPlay                  -> { player?.play(); true }
+                    Key.MediaPause                 -> { player?.pause(); true }
                     Key.DirectionUp                -> { if (!showChannelList) { onPreviousChannel(); true } else false }
                     Key.DirectionDown              -> { if (!showChannelList) { onNextChannel(); true } else false }
                     Key.DirectionRight             -> { onToggleChannelList(); true }
@@ -243,7 +227,7 @@ private fun LandscapePlayer(
                 interactionSource = remember { MutableInteractionSource() },
             ) { onToggleControls() }
     ) {
-        ExoPlayerSurface(exoPlayer = exoPlayer, modifier = Modifier.fillMaxSize())
+        ExoPlayerSurface(player = player, modifier = Modifier.fillMaxSize())
 
         PlaybackOverlay(isBuffering = isBuffering, playerError = playerError, onRetry = onRetry)
 
@@ -296,14 +280,13 @@ private fun LandscapePlayer(
                     .padding(horizontal = 8.dp, vertical = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() }) {
+                IconButton(onClick = onTogglePlayPause) {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         "Play/Pause", tint = Color.White,
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                // Exit fullscreen not applicable on TV — Back button handles navigation
                 if (!isTV) {
                     IconButton(onClick = onExitFullscreen) {
                         Icon(Icons.Default.FullscreenExit, "Exit fullscreen", tint = Color.White)
@@ -337,7 +320,7 @@ private fun LandscapePlayer(
 @OptIn(UnstableApi::class)
 @Composable
 private fun PortraitPlayer(
-    exoPlayer: ExoPlayer,
+    player: Player?,
     displayName: String,
     isPlaying: Boolean,
     isBuffering: Boolean,
@@ -363,7 +346,6 @@ private fun PortraitPlayer(
             .statusBarsPadding()
             .background(MaterialTheme.colorScheme.background)
     ) {
-
         // 16:9 video box
         Box(
             Modifier
@@ -375,11 +357,10 @@ private fun PortraitPlayer(
                     interactionSource = remember { MutableInteractionSource() },
                 ) { onToggleControls() }
         ) {
-            ExoPlayerSurface(exoPlayer = exoPlayer, modifier = Modifier.fillMaxSize())
+            ExoPlayerSurface(player = player, modifier = Modifier.fillMaxSize())
 
             PlaybackOverlay(isBuffering = isBuffering, playerError = playerError, onRetry = onRetry)
 
-            // Controls overlay — plain if to avoid ColumnScope/BoxScope ambiguity
             if (showControls) {
                 Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f))) {
                     IconButton(
@@ -395,7 +376,7 @@ private fun PortraitPlayer(
                         Icon(Icons.Default.Fullscreen, "Fullscreen", tint = Color.White)
                     }
                     IconButton(
-                        onClick  = { if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play() },
+                        onClick  = { if (isPlaying) player?.pause() else player?.play() },
                         modifier = Modifier.align(Alignment.Center).size(52.dp),
                     ) {
                         Icon(
@@ -473,15 +454,16 @@ private fun PortraitPlayer(
 
 @OptIn(UnstableApi::class)
 @Composable
-private fun ExoPlayerSurface(exoPlayer: ExoPlayer, modifier: Modifier) {
+private fun ExoPlayerSurface(player: Player?, modifier: Modifier) {
     AndroidView(
         factory = { ctx ->
             PlayerView(ctx).apply {
-                player        = exoPlayer
+                this.player = player
                 useController = false
                 resizeMode    = AspectRatioFrameLayout.RESIZE_MODE_FIT
             }
         },
+        update  = { view -> view.player = player },
         modifier = modifier,
     )
 }
@@ -490,10 +472,7 @@ private fun ExoPlayerSurface(exoPlayer: ExoPlayer, modifier: Modifier) {
 private fun PlaybackOverlay(isBuffering: Boolean, playerError: String?, onRetry: () -> Unit) {
     if (isBuffering && playerError == null) {
         Box(Modifier.fillMaxSize()) {
-            CircularProgressIndicator(
-                modifier = Modifier.align(Alignment.Center),
-                color    = Color.White,
-            )
+            CircularProgressIndicator(Modifier.align(Alignment.Center), color = Color.White)
         }
     }
     if (playerError != null) {
