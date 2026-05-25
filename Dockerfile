@@ -10,9 +10,6 @@ RUN npm run build
 # ── Stage 2: Production image ─────────────────────────────────────────────────
 FROM node:20-alpine
 
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup && \
-    apk add --no-cache su-exec
-
 WORKDIR /app
 
 # Backend dependencies
@@ -26,10 +23,7 @@ COPY backend/ ./backend/
 COPY --from=frontend-builder /build/frontend/dist ./frontend/dist
 
 # Data directory (will be volume-mounted)
-RUN mkdir -p /app/data/cache && chown -R appuser:appgroup /app
-
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+RUN mkdir -p /app/data/cache
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://localhost:8983/api/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"
@@ -40,5 +34,4 @@ ENV NODE_ENV=production \
 
 EXPOSE 8983
 
-ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "backend/server.js"]
