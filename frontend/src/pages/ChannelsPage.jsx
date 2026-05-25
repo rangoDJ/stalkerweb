@@ -87,7 +87,7 @@ function NumberJumpOverlay({ digits }) {
 
 export default function ChannelsPage() {
   const navigate = useNavigate()
-  const { showAdult } = useApp()
+  const { showAdult, disabledGenres } = useApp()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [channels, setChannels]       = useState([])
@@ -137,6 +137,11 @@ export default function ChannelsPage() {
           gList  = gList.filter(g => !isAdult(g.name))
         }
 
+        if (disabledGenres.size > 0) {
+          chList = chList.filter(c => !c.genre || !disabledGenres.has(c.genre))
+          gList  = gList.filter(g => !disabledGenres.has(g.name))
+        }
+
         setChannels(chList)
         setGroups(gList)
         setLoading(false)
@@ -151,7 +156,7 @@ export default function ChannelsPage() {
     }
     poll()
     return () => clearTimeout(id)
-  }, [activeGroup, showAdult])
+  }, [activeGroup, showAdult, disabledGenres])
 
   const openChannel = useCallback((channel) => {
     navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
