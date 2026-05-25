@@ -5,3 +5,4 @@ data/cache/
 data/config.json
 *.log
 .eslintcache
+*(conflicted copy*
