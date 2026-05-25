@@ -32,20 +32,7 @@ class CacheManager {
 
   load() {
     try {
-      const raw = fs.readFileSync(this.configFile, 'utf8');
-      const data = JSON.parse(raw);
-
-      // Log all stored stalker tokens
-      const keys = Object.keys(data).filter((k) => k.startsWith('stalker_'));
-      if (keys.length) {
-        log.info(TAG, `stored tokens (${keys.length}):`);
-        for (const k of keys) {
-          const t = data[k]?.token || '?';
-          log.info(TAG, `  ${k} → ${t}`);
-        }
-      }
-
-      return data;
+      return JSON.parse(fs.readFileSync(this.configFile, 'utf8'));
     } catch (_) {
       return null;
     }
