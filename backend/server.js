@@ -136,7 +136,7 @@ if (fs.existsSync(frontendDist)) {
 
 // ── Global error handler ───────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
-  console.error('[server] unhandled error:', err.message);
+  log.error('server', `unhandled error: ${err.message}`);
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
@@ -156,34 +156,34 @@ async function tryAutoConnect() {
         timezone: config.preseeded.timezone || 'Europe/London',
       };
     } else {
-      console.log('[server] no saved portal config — waiting for POST /api/auth/connect');
+      log.info('server', 'no saved portal config — waiting for POST /api/auth/connect');
       return;
     }
   }
 
   // Log all stored stalker tokens so they're visible at startup
   const tokenKeys = Object.keys(saved).filter((k) => k.startsWith('stalker_'));
-  if (tokenKeys.length) {
-    console.log(`[server] stored stalker tokens (${tokenKeys.length}):`);
-    for (const k of tokenKeys) {
-      console.log(`  ${k} → ${saved[k]?.token || saved[k]}`);
+    if (tokenKeys.length) {
+      log.info('server', `stored stalker tokens (${tokenKeys.length}):`);
+      for (const k of tokenKeys) {
+        log.info('server', `  ${k} → ${saved[k]?.token || saved[k]}`);
+      }
     }
-  }
 
-  console.log(`[server] auto-connecting to ${saved.portal} (${saved.mac})`);
+  log.info('server', `auto-connecting to ${saved.portal} (${saved.mac})`);
   try {
     await connectPortal(saved);
-    console.log('[server] auto-connect: session established ✓');
+    log.info('server', 'auto-connect: session established ✓');
     appState.touchActivity();
   } catch (e) {
-    console.error('[server] auto-connect failed:', e.message);
+    log.error('server', `auto-connect failed: ${e.message}`);
   }
 }
 
 // ── Start server ───────────────────────────────────────────────────────────
 app.listen(config.port, () => {
-  console.log(`[server] stalkerweb running on http://0.0.0.0:${config.port}`);
-  console.log(`[server] dataDir: ${config.dataDir}`);
+  log.info('server', `stalkerweb running on http://0.0.0.0:${config.port}`);
+  log.info('server', `dataDir: ${config.dataDir}`);
   tryAutoConnect();
 });
 

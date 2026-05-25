@@ -12,6 +12,8 @@
 'use strict';
 
 const WatchdogService = require('./WatchdogService');
+const log = require('../logger');
+const TAG = 'SessionManager';
 
 const AUTH_CHECK_INTERVAL_MS = 30000;
 
@@ -48,7 +50,7 @@ class SessionManager {
     if (sig && typeof sig === 'string' && sig.trim()) {
       const clean = sig.trim();
       if (clean !== this.identity.portal_signature) {
-        console.log(`[SessionManager] portal_signature received: ${clean}`);
+        log.info(TAG, `portal_signature received: ${clean}`);
         this.identity.portal_signature = clean;
         this.client.setIdentity(this.identity);
       }
@@ -66,7 +68,7 @@ class SessionManager {
   // ── Handshake ──────────────────────────────────────────────────────────────
   // Mirrors SessionManager::DoHandshake()
   async _doHandshake() {
-    console.log('[SessionManager] → handshake');
+    log.info(TAG, '→ handshake');
     const data = await this.client.stbHandshake();
 
     if (!data || !data.js) throw new Error('Handshake: empty response');
@@ -83,13 +85,13 @@ class SessionManager {
     }
 
     this._applyPortalSignature(data.js);
-    console.log(`[SessionManager] handshake ok  prev=${prev}  new=${this.identity.token || '(none)'}  valid=${this.identity.valid_token}`);
+    log.info(TAG, `handshake ok  prev=${prev}  new=${this.identity.token || '(none)'}  valid=${this.identity.valid_token}`);
   }
 
   // ── DoAuth ─────────────────────────────────────────────────────────────────
   // Mirrors SessionManager::DoAuth()
   async _doAuth() {
-    console.log('[SessionManager] → do_auth');
+    log.info(TAG, '→ do_auth');
     const data = await this.client.stbDoAuth();
 
     if (data && data.js === false) {
@@ -98,7 +100,7 @@ class SessionManager {
     
     if (data && data.js && typeof data.js === 'object') {
       if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        console.log(`[SessionManager] token rotated during do_auth: ${data.js.token}`);
+        log.info(TAG, `token rotated during do_auth: ${data.js.token}`);
         this.identity.token = data.js.token;
         this.client.setIdentity(this.identity);
         this.client.updateTokenCookie(data.js.token);
@@ -110,14 +112,14 @@ class SessionManager {
   // ── GetProfile ─────────────────────────────────────────────────────────────
   // Mirrors SessionManager::GetProfile() — recursive on status=2
   async _getProfile(authSecondStep = false) {
-    console.log(`[SessionManager] → get_profile${authSecondStep ? ' (auth_second_step)' : ''}`);
+    log.info(TAG, `→ get_profile${authSecondStep ? ' (auth_second_step)' : ''}`);
     const data = await this.client.stbGetProfile(authSecondStep);
 
     if (!data || !data.js) throw new Error('get_profile: empty response');
 
     if (data && data.js && typeof data.js === 'object') {
       if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        console.log(`[SessionManager] token rotated during get_profile: ${data.js.token}`);
+        log.info(TAG, `token rotated during get_profile: ${data.js.token}`);
         this.identity.token = data.js.token;
         this.client.setIdentity(this.identity);
         this.client.updateTokenCookie(data.js.token);
@@ -135,7 +137,7 @@ class SessionManager {
       timeslot: js.timeslot !== undefined ? Number(js.timeslot) : 90,
     };
 
-    console.log(`[SessionManager] profile status=${this.profile.status} timeslot=${this.profile.timeslot}`);
+    log.info(TAG, `profile status=${this.profile.status} timeslot=${this.profile.timeslot}`);
 
     switch (this.profile.status) {
       case 0:
@@ -173,7 +175,7 @@ class SessionManager {
       await this._doHandshake();
       await this._getProfile();
       this.authenticated = true;
-      console.log('[SessionManager] authenticated ✓');
+      log.info(TAG, 'authenticated ✓');
     } catch (err) {
       this.lastError = err.message;
       this.isAuthenticating = false;
@@ -193,7 +195,7 @@ class SessionManager {
     const timeslot = this.profile?.timeslot || 90;
     this._watchdog = new WatchdogService(timeslot, this.client, (err) => {
       if (err === 'AUTHORIZATION') {
-        console.warn('[SessionManager] watchdog signalled session lost — re-authenticating');
+        log.warn(TAG, 'watchdog signalled session lost — re-authenticating');
         this.authenticated = false;
       }
     });
@@ -213,11 +215,11 @@ class SessionManager {
     if (this._authTimer) return;
     this._authTimer = setInterval(async () => {
       if (!this.authenticated && !this.isAuthenticating) {
-        console.log('[SessionManager] auth checker triggering re-auth');
+        log.info(TAG, 'auth checker triggering re-auth');
         try {
           await this.authenticate();
         } catch (e) {
-          console.error('[SessionManager] re-auth failed:', e.message);
+          log.error(TAG, `re-auth failed: ${e.message}`);
         }
       }
     }, AUTH_CHECK_INTERVAL_MS);

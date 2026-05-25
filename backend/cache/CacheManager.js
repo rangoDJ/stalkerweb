@@ -4,6 +4,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const log = require('../logger');
+const TAG = 'CacheManager';
 
 // Java String.hashCode() — matches STBEmu's stalker_HASH key naming convention.
 // Portal URL is normalised (strip trailing /c/) so "http://host/c/" and
@@ -36,10 +38,10 @@ class CacheManager {
       // Log all stored stalker tokens
       const keys = Object.keys(data).filter((k) => k.startsWith('stalker_'));
       if (keys.length) {
-        console.log(`[CacheManager] stored tokens (${keys.length}):`);
+        log.info(TAG, `stored tokens (${keys.length}):`);
         for (const k of keys) {
           const t = data[k]?.token || '?';
-          console.log(`  ${k} → ${t}`);
+          log.info(TAG, `  ${k} → ${t}`);
         }
       }
 
@@ -51,11 +53,13 @@ class CacheManager {
 
   save(data) {
     try {
-      fs.writeFileSync(this.configFile, JSON.stringify(data, null, 2), 'utf8');
-      console.log(`[CacheManager] config saved → ${this.configFile}`);
+      const tmp = this.configFile + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+      fs.renameSync(tmp, this.configFile);
+      log.info(TAG, `config saved → ${this.configFile}`);
       return true;
     } catch (e) {
-      console.error('[CacheManager] save failed:', e.message);
+      log.error(TAG, `save failed: ${e.message}`);
       return false;
     }
   }
@@ -68,7 +72,7 @@ class CacheManager {
     const existing = this.load() || {};
     existing[key] = { token };
     existing.token = token;
-    console.log(`[CacheManager] token saved: ${key} → ${token}`);
+    log.info(TAG, `token saved: ${key} → ${token}`);
     return this.save(existing);
   }
 
@@ -79,11 +83,11 @@ class CacheManager {
     if (!data) return null;
     const key = tokenKey(portalUrl);
     if (data[key]?.token) {
-      console.log(`[CacheManager] token loaded: ${key} → ${data[key].token}`);
+      log.info(TAG, `token loaded: ${key} → ${data[key].token}`);
       return data[key].token;
     }
     if (data.token) {
-      console.log(`[CacheManager] token loaded (legacy field): ${data.token}`);
+      log.info(TAG, `token loaded (legacy field): ${data.token}`);
       return data.token;
     }
     return null;
@@ -94,7 +98,7 @@ class CacheManager {
     if (!sig) return false;
     const existing = this.load() || {};
     existing.portal_signature = sig;
-    console.log(`[CacheManager] portal_signature saved: ${sig}`);
+    log.info(TAG, `portal_signature saved: ${sig}`);
     return this.save(existing);
   }
 

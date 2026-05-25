@@ -4,3 +4,4 @@ dist/
 data/cache/
 data/config.json
 *.log
+.eslintcache

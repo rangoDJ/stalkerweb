@@ -4,6 +4,7 @@ import { Heart, Tv2, Layers, Pencil, Trash2, Plus, Check, X, Search, ChevronDown
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { isAdult } from '@/lib/adultFilter'
 import {
   getFavorites, getChannels, getLogoMap,
   addFavoriteChannel, removeFavoriteChannel,
@@ -329,12 +330,7 @@ export default function FavoritesPage() {
         let chList = fav.channels || []
         let gList  = fav.groups   || []
 
-        // Parental Filter
         if (!showAdult) {
-          const isAdult = (name) => {
-            const lower = name?.toLowerCase() || ''
-            return lower.includes('adult') || lower.includes('for adults')
-          }
           chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
           gList  = gList.filter(g => !isAdult(g.name))
         }
@@ -354,14 +350,10 @@ export default function FavoritesPage() {
       const r = await getChannels()
       let list = r.channels ?? []
       if (!showAdult) {
-        const isAdult = (name) => {
-          const lower = name?.toLowerCase() || ''
-          return lower.includes('adult') || lower.includes('for adults')
-        }
         list = list.filter(c => !isAdult(c.genre) && !isAdult(c.name))
       }
       setAllChannels(list)
-    } catch {}
+    } catch { /* ignore fetch errors */ }
   }
 
   function openGroupEditor(groupId) {

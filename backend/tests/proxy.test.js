@@ -1,0 +1,91 @@
+import { describe, it, expect } from 'vitest'
+import { helpers } from '../routes/proxy.js'
+
+const { encodeProxyUrl, decodeProxyUrl, rewriteM3u8, isPlaylistUrl, resolveUrl, isM3u8Body } = helpers
+
+describe('encodeProxyUrl / decodeProxyUrl', () => {
+  it('round-trips a URL', () => {
+    const url = 'https://example.com/stream/path/file.ts?token=abc'
+    expect(decodeProxyUrl(encodeProxyUrl(url))).toBe(url)
+  })
+
+  it('handles special characters', () => {
+    const url = 'https://ex.com/a?q=foo bar&baz=1+2'
+    expect(decodeProxyUrl(encodeProxyUrl(url))).toBe(url)
+  })
+})
+
+describe('isPlaylistUrl', () => {
+  it('detects .m3u8 URLs', () => {
+    expect(isPlaylistUrl('https://example.com/playlist.m3u8')).toBe(true)
+    expect(isPlaylistUrl('https://example.com/stream.m3u')).toBe(true)
+    expect(isPlaylistUrl('https://example.com/playlist.m3u8?token=abc')).toBe(true)
+    expect(isPlaylistUrl('https://example.com/segment.ts')).toBe(false)
+    expect(isPlaylistUrl('https://example.com/segment.ts?token=abc')).toBe(false)
+    expect(isPlaylistUrl('https://example.com/file.aac')).toBe(false)
+  })
+})
+
+describe('resolveUrl', () => {
+  it('returns absolute URLs as-is', () => {
+    expect(resolveUrl('https://example.com/file.ts', 'https://base.com/play.m3u8'))
+      .toBe('https://example.com/file.ts')
+  })
+
+  it('resolves relative URLs', () => {
+    expect(resolveUrl('segment.ts', 'https://base.com/hls/play.m3u8'))
+      .toBe('https://base.com/hls/segment.ts')
+  })
+
+  it('resolves dot-relative URLs', () => {
+    expect(resolveUrl('../segment.ts', 'https://base.com/hls/a/play.m3u8'))
+      .toBe('https://base.com/hls/segment.ts')
+  })
+})
+
+describe('isM3u8Body', () => {
+  it('detects m3u8 content', () => {
+    expect(isM3u8Body('#EXTM3U\n#EXT-X-VERSION:3\nsegment.ts')).toBe(true)
+    expect(isM3u8Body('#EXT-X-TARGETDURATION:10')).toBe(true)
+    expect(isM3u8Body('not a playlist')).toBe(false)
+    expect(isM3u8Body('')).toBe(false)
+  })
+})
+
+describe('rewriteM3u8', () => {
+  const ORIGIN = 'http://proxy:8983'
+  const PLAYLIST_URL = 'https://portal.test/hls/playlist.m3u8'
+
+  it('rewrites segment URLs with .ts suffix', () => {
+    const input = '#EXTM3U\n#EXTINF:10,\nsegment1.ts\nsegment2.ts\n'
+    const result = rewriteM3u8(input, PLAYLIST_URL, ORIGIN)
+    const lines = result.split('\n')
+    expect(lines[0]).toBe('#EXTM3U')
+    expect(lines[1]).toBe('#EXTINF:10,')
+    expect(lines[2]).toMatch(/^http:\/\/proxy:8983\/proxy\/hls\/seg\/.+\.ts$/)
+    expect(lines[3]).toMatch(/^http:\/\/proxy:8983\/proxy\/hls\/seg\/.+\.ts$/)
+  })
+
+  it('rewrites playlist URLs with query-string format', () => {
+    const input = '#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=128000\nsub.m3u8\n'
+    const result = rewriteM3u8(input, PLAYLIST_URL, ORIGIN)
+    const lines = result.split('\n')
+    expect(lines[2]).toMatch(/^http:\/\/proxy:8983\/proxy\/hls\?url=.+$/)
+    expect(lines[2]).not.toContain('.ts')
+  })
+
+  it('rewrites URI="" attributes in tags', () => {
+    const input = '#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI="https://portal.test/key.bin"\nseg.ts\n'
+    const result = rewriteM3u8(input, PLAYLIST_URL, ORIGIN)
+    expect(result).toContain('URI="http://proxy:8983/proxy/hls?url=')
+    expect(result).toContain('/proxy/hls/seg/')
+    expect(result).not.toContain('https://portal.test')  // all URLs rewritten
+  })
+
+  it('preserves non-URL lines', () => {
+    const input = '#EXTM3U\n#EXT-X-VERSION:3\n# comment line\nseg.ts\n'
+    const result = rewriteM3u8(input, PLAYLIST_URL, ORIGIN)
+    expect(result).toContain('#EXT-X-VERSION:3')
+    expect(result).toContain('# comment line')
+  })
+})

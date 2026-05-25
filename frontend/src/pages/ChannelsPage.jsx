@@ -4,6 +4,8 @@ import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X } from 'lucide-rea
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { isAdult } from '@/lib/adultFilter'
+import { SkeletonGrid } from '@/components/ui/skeleton'
 import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
 import { getRecentlyWatched, removeRecentlyWatched } from './PlayerPage'
 import { useApp } from '../App'
@@ -130,12 +132,7 @@ export default function ChannelsPage() {
         let chList = chRes.channels ?? []
         let gList  = (grpRes.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')
 
-        // Parental Filter
         if (!showAdult) {
-          const isAdult = (name) => {
-            const lower = name?.toLowerCase() || ''
-            return lower.includes('adult') || lower.includes('for adults')
-          }
           chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
           gList  = gList.filter(g => !isAdult(g.name))
         }
@@ -303,9 +300,7 @@ export default function ChannelsPage() {
         )}
 
         {loading && (!progress?.loading || !progress?.totalPages) && (
-          <div className="flex h-48 items-center justify-center">
-            <div className="h-6 w-6 rounded-full border-2 border-[var(--color-primary)] border-t-transparent animate-spin" />
-          </div>
+          <SkeletonGrid count={12} />
         )}
 
         {!loading && error && (

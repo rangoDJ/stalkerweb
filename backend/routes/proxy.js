@@ -13,6 +13,9 @@
 'use strict';
 
 const express = require('express');
+const log = require('../logger');
+const { channelIdRules, hlsUrlRules } = require('../middleware/validate');
+const TAG = 'proxy';
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 
@@ -84,6 +87,9 @@ async function fetchFromPortal(http, headers, url, timeoutMs = 15_000) {
 
 // ── Route factory ─────────────────────────────────────────────────────────────
 
+// Exported for unit tests
+module.exports.helpers = { encodeProxyUrl, decodeProxyUrl, rewriteM3u8, isPlaylistUrl, resolveUrl, isM3u8Body, fetchFromPortal }
+
 module.exports = function proxyModule(appState) {
   const router = express.Router();
 
@@ -105,21 +111,37 @@ module.exports = function proxyModule(appState) {
     return channelManager.getStreamUrl(channel);
   }
 
+  function isAllowedUrl(url, allowedOrigin) {
+    if (!allowedOrigin) return true
+    try {
+      const u = new URL(url)
+      const a = new URL(allowedOrigin)
+      return u.hostname === a.hostname || u.hostname.endsWith('.' + a.hostname)
+    } catch {
+      return false
+    }
+  }
+
   async function servePlaylist(req, res, realUrl) {
     const { client } = appState;
     const http = client.getHttpClient();
     const headers = client.getStreamHeaders();
 
+    if (!isAllowedUrl(realUrl, appState.client?.getBasePath())) {
+      log.warn(TAG, `blocked SSRF attempt to ${realUrl}`);
+      return res.status(403).send('Forbidden');
+    }
+
     let response;
     try {
       response = await fetchFromPortal(http, headers, realUrl);
     } catch (e) {
-      console.error('[proxy] playlist fetch failed:', e.message);
+      log.error(TAG, `playlist fetch failed: ${e.message}`);
       return res.status(502).send(`Fetch failed: ${e.message}`);
     }
 
     if (response.status === 403 || response.status === 404) {
-      console.warn(`[proxy] portal returned ${response.status} on playlist — URL may have expired`);
+      log.warn(TAG, `portal returned ${response.status} on playlist — URL may have expired`);
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
     if (response.status >= 400) {
@@ -137,7 +159,7 @@ module.exports = function proxyModule(appState) {
   }
 
   // ── GET /proxy/stream/:channelId ──────────────────────────────────────────
-  router.get('/stream/:channelId', async (req, res) => {
+  router.get('/stream/:channelId', channelIdRules, async (req, res) => {
     if (!requireSession(res)) return;
 
     const { channelManager } = appState;
@@ -150,18 +172,18 @@ module.exports = function proxyModule(appState) {
     try {
       streamUrl = await resolveStreamUrl(channel);
     } catch (e) {
-      console.error('[proxy] stream resolution failed:', e.message);
+      log.error(TAG, `stream resolution failed: ${e.message}`);
       return res.status(502).send(`Stream resolution failed: ${e.message}`);
     }
 
     if (!streamUrl) return res.status(502).send('Could not resolve stream URL');
 
-    console.log(`[proxy] master playlist for ch ${channel.number}: ${streamUrl}`);
+    log.info(TAG, `master playlist for ch ${channel.number}: ${streamUrl}`);
     return servePlaylist(req, res, streamUrl);
   });
 
   // ── GET /proxy/hls?url=<encoded> — sub-playlist proxy ────────────────────
-  router.get('/hls', async (req, res) => {
+  router.get('/hls', hlsUrlRules, async (req, res) => {
     if (!requireSession(res)) return;
     appState.touchActivity?.();
 
@@ -196,6 +218,11 @@ module.exports = function proxyModule(appState) {
       return res.status(400).send('Invalid url encoding');
     }
 
+    if (!isAllowedUrl(realUrl, appState.client?.getBasePath())) {
+      log.warn(TAG, `blocked SSRF attempt to ${realUrl}`);
+      return res.status(403).send('Forbidden');
+    }
+
     const { client } = appState;
     const http = client.getHttpClient();
     const headers = client.getStreamHeaders();
@@ -204,12 +231,12 @@ module.exports = function proxyModule(appState) {
     try {
       response = await fetchFromPortal(http, headers, realUrl);
     } catch (e) {
-      console.error('[proxy] segment fetch failed:', e.message);
+      log.error(TAG, `segment fetch failed: ${e.message}`);
       return res.status(502).send(`Fetch failed: ${e.message}`);
     }
 
     if (response.status === 403 || response.status === 404) {
-      console.warn(`[proxy] portal returned ${response.status} on segment — stream may have expired`);
+      log.warn(TAG, `portal returned ${response.status} on segment — stream may have expired`);
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
     if (response.status >= 400) {
