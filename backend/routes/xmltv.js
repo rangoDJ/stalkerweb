@@ -16,6 +16,8 @@
 'use strict';
 
 const express = require('express');
+const log = require('../logger');
+const TAG = 'xmltv';
 
 const BLOCK_HOURS = 1;        // programme block length in hours
 const DAYS_AHEAD  = 7;        // how many days of guide data to generate
@@ -108,7 +110,7 @@ module.exports = function xmltvModule(appState) {
 
     lines.push('</tv>');
 
-    console.log(`[xmltv] serving guide: ${channels.length} channels × ${totalBlocks} blocks`);
+    log.info(TAG, `serving guide: ${channels.length} channels × ${totalBlocks} blocks`);
 
     res.set('Content-Type', 'application/xml; charset=utf-8');
     res.set('Cache-Control', 'public, max-age=3600');

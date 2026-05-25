@@ -12,6 +12,8 @@
 'use strict';
 
 const express = require('express');
+const log = require('../logger');
+const TAG = 'm3u';
 
 module.exports = function m3uModule(appState, logoManager) {
   const router = express.Router();
@@ -49,7 +51,7 @@ module.exports = function m3uModule(appState, logoManager) {
       );
     }
 
-    console.log(`[m3u] serving playlist: ${channels.length} channels`);
+    log.info(TAG, `serving playlist: ${channels.length} channels`);
 
     res.set('Content-Type', 'application/x-mpegurl; charset=utf-8');
     res.set('Content-Disposition', 'attachment; filename="stalkerweb.m3u"');

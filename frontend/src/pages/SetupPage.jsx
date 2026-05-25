@@ -365,7 +365,7 @@ export default function SetupPage() {
         <div className="flex items-center justify-between pt-4 border-t border-[var(--color-border)]">
           <div>
             <p className="text-sm font-medium text-[var(--color-text)]">Show Adult Content</p>
-            <p className="text-xs text-[var(--color-muted)] mt-0.5">Parental lock for categories like "FOR ADULTS".</p>
+            <p className="text-xs text-[var(--color-muted)] mt-0.5">Parental lock for categories like &quot;FOR ADULTS&quot;.</p>
           </div>
           <Switch checked={showAdult} onCheckedChange={handleAdultToggle} />
         </div>

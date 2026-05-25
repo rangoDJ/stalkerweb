@@ -10,6 +10,8 @@ const axios = require('axios');
 const { wrapper } = require('axios-cookiejar-support');
 const { CookieJar, Cookie } = require('tough-cookie');
 const { STB_VERSION_STRING } = require('./identity');
+const log = require('../logger');
+const TAG = 'StalkerClient';
 
 // The STB user-agent is critical — portals detect it to decide whether
 // to return their browser HTML UI or the JSON API responses.
@@ -49,7 +51,7 @@ class StalkerClient {
       const cookie = new Cookie({ key: 'token', value: token });
       this.jar.setCookieSync(cookie, domainUrl, { ignoreError: true });
     } catch (e) {
-      console.warn('[StalkerClient] Failed to set token cookie', e.message);
+      log.warn(TAG, `Failed to set token cookie: ${e.message}`);
     }
   }
 
@@ -57,7 +59,7 @@ class StalkerClient {
     let server = url.trim();
     if (!server.includes('://')) server = 'http://' + server;
 
-    console.log(`[StalkerClient] Discovering portal redirects for: ${server}`);
+    log.info(TAG, `Discovering portal redirects for: ${server}`);
 
     // Fresh jar + client for each auth attempt (mirrors C# creating a new HttpClient)
     this.jar = new CookieJar();
@@ -95,7 +97,7 @@ class StalkerClient {
       // Get the effective URL after any redirects
       const effectiveUrl = resp.request && resp.request.res ? resp.request.res.responseUrl : server;
       if (effectiveUrl && effectiveUrl !== server) {
-        console.log(`[StalkerClient] Redirect discovered. Effective URL: ${effectiveUrl}`);
+        log.info(TAG, `Redirect discovered. Effective URL: ${effectiveUrl}`);
         server = effectiveUrl;
         
         // Copy cookies to new domain
@@ -110,7 +112,7 @@ class StalkerClient {
         if (initialSig) setRawCookie('sig', initialSig, newDomainUrl);
       }
     } catch (e) {
-      console.warn('[StalkerClient] Could not discover redirects (non-fatal)', e.message);
+      log.warn(TAG, `Could not discover redirects (non-fatal): ${e.message}`);
     }
 
     // Set endpoints based on effective server URL
@@ -118,7 +120,7 @@ class StalkerClient {
 
     // Load portal page to establish PHPSESSID
     const portalPageUrl = `${this.basePath}c/`;
-    console.log(`[StalkerClient] Loading portal page to establish session: ${portalPageUrl}`);
+    log.info(TAG, `Loading portal page to establish session: ${portalPageUrl}`);
     try {
       await this.http.get(portalPageUrl, {
         headers: { 'User-Agent': STB_USER_AGENT, 'X-User-Agent': 'Model: MAG250; Link: WiFi' },
@@ -126,7 +128,7 @@ class StalkerClient {
         validateStatus: () => true
       });
     } catch (e) {
-      console.warn('[StalkerClient] Could not load portal page (non-fatal)', e.message);
+      log.warn(TAG, `Could not load portal page (non-fatal): ${e.message}`);
     }
   }
 
@@ -194,9 +196,7 @@ class StalkerClient {
       this.referer  = this.basePath;
     }
 
-    console.log(`[StalkerClient] basePath=${this.basePath}`);
-    console.log(`[StalkerClient] endpoint=${this.endpoint}`);
-    console.log(`[StalkerClient] referer=${this.referer}`);
+    log.info(TAG, `basePath=${this.basePath}  endpoint=${this.endpoint}  referer=${this.referer}`);
   }
 
   getBasePath() {
@@ -278,7 +278,7 @@ class StalkerClient {
 
       let lastError = null;
       for (const tryUrl of urlsToTry) {
-        console.log(`[StalkerClient] GET ${tryUrl}`);
+        log.info(TAG, `GET ${tryUrl}`);
         try {
           const response = await this.http.get(tryUrl, {
             headers,
@@ -290,7 +290,7 @@ class StalkerClient {
             throw new StalkerError('RATE_LIMITED', 'Portal rate-limited handshake (HTTP 429).');
           }
           if (response.status === 404) {
-            console.log(`[StalkerClient] 404 Not Found at ${tryUrl}, trying fallback...`);
+            log.warn(TAG, `404 Not Found at ${tryUrl}, trying fallback...`);
             continue; // try next
           }
           if (response.status >= 400) {
@@ -312,7 +312,7 @@ class StalkerClient {
           } else {
             this.setEndpoint(landedPath);
           }
-          console.log(`[StalkerClient] Handshake landed at ${landedPath} → basePath=${this.basePath}`);
+          log.info(TAG, `Handshake landed at ${landedPath} → basePath=${this.basePath}`);
 
           return this._parseResponse(response.data);
         } catch (e) {
@@ -322,7 +322,7 @@ class StalkerClient {
       throw new StalkerError('API', `Handshake failed on all paths. Last error: ${lastError ? lastError.message : '404 Not Found'}`);
     } else {
       const bulkAction = queryParams.action === 'get_ordered_list' || queryParams.action === 'get_epg_info';
-      if (!bulkAction) console.log(`[StalkerClient] GET ${url}`);
+      if (!bulkAction) log.info(TAG, `GET ${url}`);
       let response;
       try {
         response = await this.http.get(url, {

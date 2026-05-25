@@ -8,6 +8,8 @@
 
 const fs = require('fs');
 const path = require('path');
+const log = require('../logger');
+const TAG = 'GuideManager';
 
 class GuideManager {
   constructor(client, cacheDir) {
@@ -32,7 +34,7 @@ class GuideManager {
 
     // Return cached data if valid
     if (this._useCache && this._epgData && now < this._cacheExpiry) {
-      console.log('[GuideManager] using cached EPG');
+      log.info(TAG, 'using cached EPG');
       return this._epgData;
     }
 
@@ -47,7 +49,7 @@ class GuideManager {
           if (parsed?.js?.data) {
             this._epgData = parsed.js.data;
             this._cacheExpiry = stat.mtimeMs + this._cacheHours * 3600 * 1000;
-            console.log('[GuideManager] loaded EPG from disk cache');
+            log.info(TAG, 'loaded EPG from disk cache');
             return this._epgData;
           }
         }
@@ -56,7 +58,7 @@ class GuideManager {
       }
     }
 
-    console.log(`[GuideManager] fetching EPG (period=${periodHours}h)`);
+    log.info(TAG, `fetching EPG (period=${periodHours}h)`);
     const data = await this.client.itvGetEPGInfo(periodHours);
 
     if (!data?.js?.data) {
@@ -72,7 +74,7 @@ class GuideManager {
         fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
         fs.writeFileSync(cacheFile, JSON.stringify(data), 'utf8');
       } catch (e) {
-        console.warn('[GuideManager] failed to write EPG cache:', e.message);
+        log.warn(TAG, `failed to write EPG cache: ${e.message}`);
       }
     }
 

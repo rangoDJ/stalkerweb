@@ -6,6 +6,9 @@
 
 'use strict';
 
+const log = require('../logger');
+const TAG = 'ChannelManager';
+
 class ChannelManager {
   constructor(client) {
     this.client = client;
@@ -47,7 +50,7 @@ class ChannelManager {
       const maxPages     = totalItems > 0 && maxPageItems > 0
         ? Math.ceil(totalItems / maxPageItems)
         : 1;
-      console.log(`[ChannelManager] totalItems=${totalItems} maxPages=${maxPages}`);
+      log.info(TAG, `totalItems=${totalItems} maxPages=${maxPages}`);
       this._progress.totalPages = maxPages;
       this._progress.page = 1;
       this._parseChannels(page1);
@@ -62,7 +65,7 @@ class ChannelManager {
             const data = await this.client.itvGetOrderedList(GENRE, p);
             if (data?.js) this._parseChannels(data);
           } catch (e) {
-            console.warn(`[ChannelManager] page ${p} failed: ${e.message}`);
+            log.warn(TAG, `page ${p} failed: ${e.message}`);
           } finally {
             this._progress.page = Math.max(this._progress.page, p);
             this._progress.channelCount = this._channels.length;
@@ -82,10 +85,10 @@ class ChannelManager {
 
     this._progress = { loading: false, page: this._progress.totalPages, totalPages: this._progress.totalPages, channelCount: this._channels.length };
     const withGenre = this._channels.filter((c) => c.genre).length;
-    console.log(`[ChannelManager] loaded ${this._channels.length} channels, ${withGenre} with genre, ${this._groups.length} groups in map`);
+    log.info(TAG, `loaded ${this._channels.length} channels, ${withGenre} with genre, ${this._groups.length} groups in map`);
     if (this._channels.length > 0) {
       const s = this._channels[0];
-      console.log(`[ChannelManager] sample channel: name=${s.name} genreId=${JSON.stringify(s.genreId)} genre=${JSON.stringify(s.genre)}`);
+      log.info(TAG, `sample channel: name=${s.name} genreId=${JSON.stringify(s.genreId)} genre=${JSON.stringify(s.genre)}`);
     }
     return this._channels;
   }
@@ -146,9 +149,9 @@ class ChannelManager {
       });
     }
 
-    console.log(`[ChannelManager] loaded ${this._groups.length} groups`);
+    log.info(TAG, `loaded ${this._groups.length} groups`);
     if (this._groups.length > 0) {
-      console.log(`[ChannelManager] sample groups: ${JSON.stringify(this._groups.slice(0, 3))}`);
+      log.info(TAG, `sample groups: ${JSON.stringify(this._groups.slice(0, 3))}`);
     }
     return this._groups;
   }
@@ -166,7 +169,7 @@ class ChannelManager {
     let cmd = '';
 
     if (channel.useHttpTmpLink || channel.useLoadBalancing) {
-      console.log(`[ChannelManager] getting temp stream url for ch ${channel.number}`);
+      log.info(TAG, `getting temp stream url for ch ${channel.number}`);
       const linkData = await this.client.itvCreateLink(channel.cmd);
       cmd = linkData?.js?.cmd || '';
     } else {

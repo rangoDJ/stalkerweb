@@ -15,6 +15,27 @@ const GuideManager = require('../stalker/GuideManager');
 const { createIdentity } = require('../stalker/identity');
 const { DEVICE_PROFILE } = require('../stalker/deviceProfile');
 const CacheManager = require('../cache/CacheManager');
+const log = require('../logger');
+const rateLimit = require('express-rate-limit');
+const { connectRules } = require('../middleware/validate');
+const TAG = 'auth';
+
+// Rate limiters
+const connectLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 5,
+  message: { error: 'Too many connect attempts. Try again in 1 minute.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const reconnectLimiter = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  message: { error: 'Too many reconnect attempts. Try again in 1 minute.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // Ensure portal URL always ends with /c/
 function normalizePortal(url) {
@@ -47,11 +68,11 @@ module.exports = function authModule(appState, config) {
     if (!mac)    throw new Error('MAC address is required');
 
     const portalUrl = normalizePortal(portal);
-    console.log(`[auth] connectPortal: portal=${portalUrl} mac=${mac} timezone=${timezone || 'Europe/London'}`);
+    log.info(TAG, `connectPortal: portal=${portalUrl} mac=${mac} timezone=${timezone || 'Europe/London'}`);
 
     // Tear down existing session
     if (appState.sessionManager) {
-      console.log('[auth] tearing down existing session');
+      log.info(TAG, 'tearing down existing session');
       appState.sessionManager.destroy();
       appState.sessionManager = null;
       appState.client = null;
@@ -64,14 +85,14 @@ module.exports = function authModule(appState, config) {
     // any token passed in the request body — the saved one is the most recent.
     const savedToken = cache.getToken(portalUrl);
     const resolvedToken = savedToken || token || '';
-    console.log(`[auth] token resolution: passed=${token || '(none)'}  saved=${savedToken || '(none)'}  using=${resolvedToken || '(none)'}`);
+    log.info(TAG, `token resolution: passed=${token || '(none)'}  saved=${savedToken || '(none)'}  using=${resolvedToken || '(none)'}`);
 
     // Resolve portal_signature: user-entered value wins, then saved config value.
     const existing = cache.load() || {};
     const savedPortalSig = existing.portal_signature || '';
     const resolvedPortalSig = (portal_signature || '').trim() || savedPortalSig;
     if (resolvedPortalSig) {
-      console.log(`[auth] portal_signature: entered=${portal_signature || '(none)'}  saved=${savedPortalSig || '(none)'}  using=${resolvedPortalSig}`);
+      log.info(TAG, `portal_signature: entered=${portal_signature || '(none)'}  saved=${savedPortalSig || '(none)'}  using=${resolvedPortalSig}`);
     }
 
     const identity = createIdentity({
@@ -92,13 +113,13 @@ module.exports = function authModule(appState, config) {
     client.setIdentity(identity);
     client.setTimeout(connection_timeout || 10);
 
-    console.log(`[auth] initialising client for ${portalUrl}`);
+    log.info(TAG, `initialising client for ${portalUrl}`);
     await client.initialize(portalUrl);
 
     const sessionManager = new SessionManager(client);
     sessionManager.setIdentity(identity, !!resolvedToken);
     sessionManager.setStatusCallback((status) => {
-      console.log(`[auth] session status → ${status}`);
+      log.info(TAG, `session status → ${status}`);
     });
 
     const channelManager = new ChannelManager(client);
@@ -121,9 +142,9 @@ module.exports = function authModule(appState, config) {
     };
     cache.save(configToSave);
 
-    console.log('[auth] authenticating…');
+    log.info(TAG, 'authenticating…');
     await sessionManager.authenticate();
-    console.log(`[auth] authenticated ✓  token=${identity.token}`);
+    log.info(TAG, `authenticated ✓  token=${identity.token}`);
 
     // Persist token under stalker_HASH (STBEmu-compatible) and legacy field.
     if (identity.token) {
@@ -141,14 +162,14 @@ module.exports = function authModule(appState, config) {
     appState.guideManager = guideManager;
     appState.identity = identity;
 
-    console.log('[auth] starting background channel/group pre-load');
+    log.info(TAG, 'starting background channel/group pre-load');
     Promise.all([
       channelManager.loadChannels(),
       channelManager.loadGroups(),
     ]).then(() => {
-      console.log('[auth] background channel/group load complete');
+      log.info(TAG, 'background channel/group load complete');
     }).catch((e) => {
-      console.error('[auth] background channel/group load failed:', e.message);
+      log.error(TAG, `background channel/group load failed: ${e.message}`);
     });
 
     return {
@@ -158,13 +179,13 @@ module.exports = function authModule(appState, config) {
   }
 
   // ── POST /api/auth/connect ─────────────────────────────────────────────────
-  router.post('/connect', async (req, res) => {
+  router.post('/connect', connectLimiter, connectRules, async (req, res) => {
     try {
       const result = await connectPortal(req.body);
       appState.touchActivity?.();
       res.json({ success: true, ...result });
     } catch (err) {
-      console.error('[auth] connect failed:', err.message);
+      log.error(TAG, `connect failed: ${err.message}`);
       res.status(401).json({ error: err.message });
     }
   });
@@ -230,7 +251,7 @@ module.exports = function authModule(appState, config) {
   // ── DELETE /api/auth/disconnect ────────────────────────────────────────────
   router.delete('/disconnect', (req, res) => {
     if (appState.sessionManager) {
-      console.log('[auth] disconnecting session');
+      log.info(TAG, 'disconnecting session');
       appState.sessionManager.destroy();
       appState.sessionManager = null;
       appState.client = null;
@@ -245,7 +266,7 @@ module.exports = function authModule(appState, config) {
   });
 
   // ── POST /api/auth/reconnect ───────────────────────────────────────────────
-  router.post('/reconnect', async (req, res) => {
+  router.post('/reconnect', reconnectLimiter, async (req, res) => {
     const saved = cache.load();
     if (!saved?.portal || !saved?.mac) {
       return res.status(400).json({ error: 'No saved portal config found' });
@@ -254,7 +275,7 @@ module.exports = function authModule(appState, config) {
       const result = await connectPortal(saved);
       res.json({ success: true, ...result });
     } catch (err) {
-      console.error('[auth] reconnect failed:', err.message);
+      log.error(TAG, `reconnect failed: ${err.message}`);
       res.status(401).json({ error: err.message });
     }
   });

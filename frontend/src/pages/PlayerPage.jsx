@@ -9,6 +9,7 @@ import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
+import { isAdult } from '@/lib/adultFilter'
 import { getChannels, getGroups, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getProxiedLogoUrl } from '../stalkerApi'
 import { useApp } from '../App'
 
@@ -236,12 +237,7 @@ export default function PlayerPage() {
         let chList = chRes.channels ?? []
         let gList  = (grpRes.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')
 
-        // Parental Filter
         if (!showAdult) {
-          const isAdult = (name) => {
-            const lower = name?.toLowerCase() || ''
-            return lower.includes('adult') || lower.includes('for adults')
-          }
           chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
           gList  = gList.filter(g => !isAdult(g.name))
         }

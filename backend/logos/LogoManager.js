@@ -13,6 +13,8 @@ const path  = require('path');
 const axios = require('axios');
 const crypto = require('crypto');
 const CacheManager = require('../cache/CacheManager');
+const log = require('../logger');
+const TAG = 'logos';
 
 const CHANNELS_URL = 'https://raw.githubusercontent.com/iptv-org/database/master/data/channels.csv';
 const LOGOS_URL    = 'https://raw.githubusercontent.com/iptv-org/database/master/data/logos.csv';
@@ -106,7 +108,7 @@ class LogoManager {
   ensureLoadedBackground() {
     if (!this._logoMap && !this._refreshing) {
       this._loadOrDownload(false).catch(e =>
-        console.warn('[logos] background load failed:', e.message)
+        log.warn(TAG, `background load failed: ${e.message}`)
       );
     }
   }
@@ -166,7 +168,7 @@ class LogoManager {
       fs.writeFileSync(filePath, resp.data);
       return filePath;
     } catch (err) {
-      console.warn(`[logos] failed to download ${url}: ${err.message}`);
+      log.warn(TAG, `failed to download ${url}: ${err.message}`);
       return null;
     }
   }
@@ -209,15 +211,15 @@ class LogoManager {
       const data = JSON.parse(fs.readFileSync(this._mapCacheFile, 'utf8'));
       this._logoMap  = new Map(Object.entries(data.map));
       this._cachedAt = data.cachedAt || fs.statSync(this._mapCacheFile).mtimeMs;
-      console.log(`[logos] loaded from disk: ${this._logoMap.size} logo entries`);
+      log.info(TAG, `loaded from disk: ${this._logoMap.size} logo entries`);
     } catch (e) {
-      console.warn('[logos] disk cache read failed:', e.message);
+      log.warn(TAG, `disk cache read failed: ${e.message}`);
       this._logoMap = new Map();
     }
   }
 
   async _download() {
-    console.log('[logos] downloading iptv-org channels.csv + logos.csv...');
+    log.info(TAG, 'downloading iptv-org channels.csv + logos.csv...');
     try {
       const [chResp, lgResp] = await Promise.all([
         axios.get(CHANNELS_URL, { responseType: 'text', timeout: 45_000 }),
@@ -237,9 +239,9 @@ class LogoManager {
         map: Object.fromEntries(this._logoMap),
       }), 'utf8');
 
-      console.log(`[logos] downloaded: ${channels.length} channels, ${logos.length} logo rows → ${this._logoMap.size} name entries`);
+      log.info(TAG, `downloaded: ${channels.length} channels, ${logos.length} logo rows → ${this._logoMap.size} name entries`);
     } catch (e) {
-      console.warn('[logos] download failed:', e.message);
+      log.warn(TAG, `download failed: ${e.message}`);
       if (fs.existsSync(this._mapCacheFile)) {
         this._loadFromDisk();
       } else {
