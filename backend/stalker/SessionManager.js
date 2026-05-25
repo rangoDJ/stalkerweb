@@ -68,7 +68,7 @@ class SessionManager {
   // ── Handshake ──────────────────────────────────────────────────────────────
   // Mirrors SessionManager::DoHandshake()
   async _doHandshake() {
-    log.info(TAG, '→ handshake');
+    log.info(TAG, 'starting handshake…');
     const data = await this.client.stbHandshake();
 
     if (!data || !data.js) throw new Error('Handshake: empty response');
@@ -85,13 +85,15 @@ class SessionManager {
     }
 
     this._applyPortalSignature(data.js);
-    log.info(TAG, `handshake ok  prev=${prev}  new=${this.identity.token || '(none)'}  valid=${this.identity.valid_token}`);
+    const changed = this.identity.token !== prev;
+    log.info(TAG, `handshake ok${changed ? ' (token updated)' : ''}`);
+    if (changed) log.debug(TAG, `  token: ${prev} → ${this.identity.token || '(none)'}`);
   }
 
   // ── DoAuth ─────────────────────────────────────────────────────────────────
   // Mirrors SessionManager::DoAuth()
   async _doAuth() {
-    log.info(TAG, '→ do_auth');
+    log.info(TAG, 'sending credentials…');
     const data = await this.client.stbDoAuth();
 
     if (data && data.js === false) {
@@ -100,7 +102,7 @@ class SessionManager {
     
     if (data && data.js && typeof data.js === 'object') {
       if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        log.info(TAG, `token rotated during do_auth: ${data.js.token}`);
+        log.debug(TAG, `token rotated during do_auth: ${data.js.token}`);
         this.identity.token = data.js.token;
         this.client.setIdentity(this.identity);
         this.client.updateTokenCookie(data.js.token);
@@ -112,14 +114,14 @@ class SessionManager {
   // ── GetProfile ─────────────────────────────────────────────────────────────
   // Mirrors SessionManager::GetProfile() — recursive on status=2
   async _getProfile(authSecondStep = false) {
-    log.info(TAG, `→ get_profile${authSecondStep ? ' (auth_second_step)' : ''}`);
+    log.info(TAG, authSecondStep ? 'verifying credentials…' : 'fetching profile…');
     const data = await this.client.stbGetProfile(authSecondStep);
 
     if (!data || !data.js) throw new Error('get_profile: empty response');
 
     if (data && data.js && typeof data.js === 'object') {
       if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        log.info(TAG, `token rotated during get_profile: ${data.js.token}`);
+        log.debug(TAG, `token rotated during get_profile: ${data.js.token}`);
         this.identity.token = data.js.token;
         this.client.setIdentity(this.identity);
         this.client.updateTokenCookie(data.js.token);
@@ -137,7 +139,7 @@ class SessionManager {
       timeslot: js.timeslot !== undefined ? Number(js.timeslot) : 90,
     };
 
-    log.info(TAG, `profile status=${this.profile.status} timeslot=${this.profile.timeslot}`);
+    log.debug(TAG, `profile: status=${this.profile.status}, timeslot=${this.profile.timeslot}s`);
 
     switch (this.profile.status) {
       case 0:
@@ -195,7 +197,7 @@ class SessionManager {
     const timeslot = this.profile?.timeslot || 90;
     this._watchdog = new WatchdogService(timeslot, this.client, (err) => {
       if (err === 'AUTHORIZATION') {
-        log.warn(TAG, 'watchdog signalled session lost — re-authenticating');
+        log.warn(TAG, 'session expired — will re-authenticate');
         this.authenticated = false;
       }
     });
@@ -215,7 +217,7 @@ class SessionManager {
     if (this._authTimer) return;
     this._authTimer = setInterval(async () => {
       if (!this.authenticated && !this.isAuthenticating) {
-        log.info(TAG, 'auth checker triggering re-auth');
+        log.info(TAG, 're-authenticating with portal…');
         try {
           await this.authenticate();
         } catch (e) {

@@ -50,7 +50,7 @@ class ChannelManager {
       const maxPages     = totalItems > 0 && maxPageItems > 0
         ? Math.ceil(totalItems / maxPageItems)
         : 1;
-      log.info(TAG, `totalItems=${totalItems} maxPages=${maxPages}`);
+      log.info(TAG, `fetching ${totalItems} channels across ${maxPages} page${maxPages !== 1 ? 's' : ''}…`);
       this._progress.totalPages = maxPages;
       this._progress.page = 1;
       this._parseChannels(page1);
@@ -85,10 +85,10 @@ class ChannelManager {
 
     this._progress = { loading: false, page: this._progress.totalPages, totalPages: this._progress.totalPages, channelCount: this._channels.length };
     const withGenre = this._channels.filter((c) => c.genre).length;
-    log.info(TAG, `loaded ${this._channels.length} channels, ${withGenre} with genre, ${this._groups.length} groups in map`);
+    log.info(TAG, `loaded ${this._channels.length} channels (${withGenre} with genre, ${this._groups.length} groups)`);
     if (this._channels.length > 0) {
       const s = this._channels[0];
-      log.info(TAG, `sample channel: name=${s.name} genreId=${JSON.stringify(s.genreId)} genre=${JSON.stringify(s.genre)}`);
+      log.debug(TAG, `sample channel: name=${s.name} genreId=${JSON.stringify(s.genreId)} genre=${JSON.stringify(s.genre)}`);
     }
     return this._channels;
   }
@@ -151,7 +151,7 @@ class ChannelManager {
 
     log.info(TAG, `loaded ${this._groups.length} groups`);
     if (this._groups.length > 0) {
-      log.info(TAG, `sample groups: ${JSON.stringify(this._groups.slice(0, 3))}`);
+      log.debug(TAG, `sample groups: ${JSON.stringify(this._groups.slice(0, 3))}`);
     }
     return this._groups;
   }
