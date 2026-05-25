@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { pushRecentlyWatched } from '@/lib/recentlyWatched'
-import { getChannels, getGroups, getStreamUrl, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getProxiedLogoUrl } from '../stalkerApi'
+import { getChannels, getGroups, getStreamUrl, streamKeepalive, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getProxiedLogoUrl } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
 
 // ── Controls bar ──────────────────────────────────────────────────────────
@@ -367,6 +367,14 @@ export default function PlayerPage() {
     document.addEventListener('fullscreenchange', handler)
     return () => document.removeEventListener('fullscreenchange', handler)
   }, [])
+
+  // Keepalive — ping backend every 10 minutes while playing to prevent idle disconnect.
+  // The idle timer is 30 minutes; 10-minute pings keep it from ever firing mid-stream.
+  useEffect(() => {
+    if (status !== 'playing') return
+    const id = setInterval(() => { streamKeepalive().catch(() => {}) }, 10 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [status])
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
