@@ -28,7 +28,7 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
       >
         <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
           {logo && !imgError
-            ? <img src={logo} alt={channel.name} onError={() => setImgError(true)} className="h-full w-full object-contain p-0.5" />
+            ? <img src={logo} alt={channel.name} loading="lazy" onError={() => setImgError(true)} className="h-full w-full object-contain p-0.5" />
             : <Tv2 size={18} className="text-[var(--color-muted)]" />}
         </div>
         <p className="text-[10px] font-medium text-[var(--color-text)] leading-tight text-center break-words line-clamp-2 w-full">{channel.name}</p>
@@ -51,7 +51,7 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
       </button>
       <div className="flex h-16 w-16 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
         {logo && !imgError
-          ? <img src={logo} alt={channel.name} onError={() => setImgError(true)} className="h-full w-full object-contain p-1" />
+          ? <img src={logo} alt={channel.name} loading="lazy" onError={() => setImgError(true)} className="h-full w-full object-contain p-1" />
           : <Tv2 size={28} className="text-[var(--color-muted)]" />}
       </div>
       <div className="w-full text-center">

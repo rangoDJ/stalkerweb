@@ -5,6 +5,10 @@
  * Create a default identity object.
  * All fields mirror the sc_identity_t struct from libstalkerclient.
  */
+function randomSerial() {
+  return 'STB' + Math.random().toString(36).slice(2, 10).toUpperCase();
+}
+
 function createIdentity(overrides = {}) {
   return {
     mac: '00:1A:79:00:00:00',
@@ -14,7 +18,7 @@ function createIdentity(overrides = {}) {
     valid_token: false,
     login: '',
     password: '',
-    serial_number: '0000000000000',
+    serial_number: randomSerial(),
     device_id: '',
     device_id2: '',
     signature: '',        // user-configured device signature (sent on first auth)

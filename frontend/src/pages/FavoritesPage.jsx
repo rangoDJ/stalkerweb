@@ -57,7 +57,7 @@ function ChannelLogo({ src, name, size = 'md' }) {
   return (
     <div className={cn('flex items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden shrink-0', dim)}>
       {src && !err
-        ? <img src={src} alt={name} onError={() => setErr(true)} className="h-full w-full object-contain p-1" />
+        ? <img src={src} alt={name} loading="lazy" onError={() => setErr(true)} className="h-full w-full object-contain p-1" />
         : <Tv2 size={iconSize} className="text-[var(--color-muted)]" />}
     </div>
   )

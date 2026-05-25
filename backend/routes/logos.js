@@ -39,12 +39,12 @@ module.exports = function logosModule(logoManager, appState) {
 
     try {
       const headers = {};
-      const portalUrl = appState?.client?.portalUrl;
+      const basePath = appState?.client?.getBasePath?.() || '';
       
-      // If the logo is from the portal, inject session headers
-      if (portalUrl && url.startsWith(new URL(portalUrl).origin)) {
-        if (appState.client.userAgent) headers['User-Agent'] = appState.client.userAgent;
-        if (appState.client.cookie)    headers['Cookie']     = appState.client.cookie;
+      if (basePath && url.startsWith(new URL(basePath).origin)) {
+        const streamHeaders = appState.client.getStreamHeaders?.() || {};
+        if (streamHeaders['User-Agent']) headers['User-Agent'] = streamHeaders['User-Agent'];
+        if (streamHeaders['Cookie'])     headers['Cookie']     = streamHeaders['Cookie'];
       }
 
       const filePath = await logoManager.getLogoPath(url, headers);

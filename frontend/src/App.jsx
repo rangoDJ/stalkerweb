@@ -1,14 +1,16 @@
-import { useEffect, useState, createContext, useContext } from 'react'
+import { useEffect, useState, createContext, useContext, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2 } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { getStatus, getSettings } from './stalkerApi'
-import SetupPage from './pages/SetupPage'
-import ChannelsPage from './pages/ChannelsPage'
-import PlayerPage from './pages/PlayerPage'
-import GuidePage from './pages/GuidePage'
-import FavoritesPage from './pages/FavoritesPage'
+import ErrorBoundary from '@/components/ErrorBoundary'
+
+const SetupPage     = lazy(() => import('./pages/SetupPage'))
+const ChannelsPage  = lazy(() => import('./pages/ChannelsPage'))
+const PlayerPage    = lazy(() => import('./pages/PlayerPage'))
+const GuidePage     = lazy(() => import('./pages/GuidePage'))
+const FavoritesPage = lazy(() => import('./pages/FavoritesPage'))
 
 // ── App-wide context ──────────────────────────────────────────────────────
 export const AppContext = createContext({})
@@ -185,6 +187,7 @@ function AppInner() {
       <TooltipProvider delayDuration={300}>
         <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} idleInfo={idleInfo} />
         <main className="pt-14 min-h-full">
+          <Suspense fallback={<div className="flex h-48 items-center justify-center"><Loader2 size={24} className="animate-spin text-[var(--color-primary-light)]" /></div>}>
           <Routes>
             <Route path="/settings" element={<SetupPage />} />
             <Route
@@ -224,6 +227,7 @@ function AppInner() {
               element={<Navigate to={connected ? '/channels' : '/settings'} replace />}
             />
           </Routes>
+          </Suspense>
         </main>
       </TooltipProvider>
     </AppContext.Provider>
@@ -233,7 +237,9 @@ function AppInner() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AppInner />
+      <ErrorBoundary>
+        <AppInner />
+      </ErrorBoundary>
     </BrowserRouter>
   )
 }

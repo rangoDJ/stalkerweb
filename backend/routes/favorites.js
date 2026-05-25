@@ -11,6 +11,7 @@
 'use strict';
 
 const express = require('express');
+const sessionMiddleware = require('../middleware/session');
 
 // Enrich a list of uniqueId strings with channel objects from channelManager.
 function enrichChannels(ids, channelManager) {
@@ -22,9 +23,10 @@ function enrichChannels(ids, channelManager) {
 
 module.exports = function favoritesModule(favoritesManager, appState) {
   const router = express.Router();
+  const guard = sessionMiddleware(appState);
 
   // GET /api/favorites
-  router.get('/', (_req, res) => {
+  router.get('/', guard, (_req, res) => {
     const raw = favoritesManager.getRaw();
     const cm  = appState?.channelManager;
     res.json({
