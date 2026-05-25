@@ -10,7 +10,6 @@ require('express-async-errors');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const config = require('./config');
@@ -23,7 +22,6 @@ const app = express();
 
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: false }));
-app.use(morgan('dev'));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -61,6 +59,22 @@ const { authRoutes, connectPortal } = require('./routes/auth')(appState, config)
 // ── Idle auto-disconnect ───────────────────────────────────────────────────
 // Tear down the session after IDLE_TIMEOUT_MS of no stream/proxy activity.
 const log = require('./logger');
+
+// ── HTTP request logger ────────────────────────────────────────────────────
+// Replaces morgan('dev') with a format consistent with our structured logger.
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const ms     = Date.now() - start;
+    const status = res.statusCode;
+    const msg    = `${req.method.padEnd(6)} ${req.url}  ${status}  ${ms}ms`;
+    if (status >= 500)      log.error('http', msg);
+    else if (status >= 400) log.warn('http', msg);
+    else                    log.debug('http', msg);
+  });
+  next();
+});
+
 const IDLE_TIMEOUT_MS = parseInt(process.env.IDLE_TIMEOUT_MINUTES || '30', 10) * 60 * 1000;
 
 function destroySession() {
