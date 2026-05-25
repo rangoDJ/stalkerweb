@@ -41,6 +41,13 @@ module.exports = function streamRoutes(appState, config) {
     await appState._reconnecting;
   }
 
+  // GET /api/stream/keepalive — touch activity to prevent idle disconnect
+  // Called periodically by the player frontend while a stream is playing.
+  router.get('/keepalive', (req, res) => {
+    appState.touchActivity?.();
+    res.json({ ok: true });
+  });
+
   // GET /api/stream/:channelId
   router.get('/:channelId', async (req, res) => {
     try {

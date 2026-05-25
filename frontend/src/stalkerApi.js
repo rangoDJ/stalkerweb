@@ -116,4 +116,5 @@ export const reorderFavoriteGroups   = (order) => _put('/favorites/groups/order'
 
 // ── Stream ────────────────────────────────────────────────────────────────
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)
+export const streamKeepalive = () => _get('/stream/keepalive')
 
