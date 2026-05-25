@@ -43,14 +43,14 @@ export default function GuidePage() {
   }, [])
 
   useEffect(() => {
-    if (!activeChannel?.id) return
+    if (!activeChannel?.uniqueId) return
     setLoadingEpg(true)
     setEpg([])
     getChannelEpg(activeChannel.uniqueId, period)
       .then(data => setEpg(Array.isArray(data) ? data : data?.epg || []))
       .catch(() => setEpg([]))
       .finally(() => setLoadingEpg(false))
-  }, [activeChannel?.id, period])
+  }, [activeChannel?.uniqueId, period])
 
   return (
     <div className="flex h-[calc(100vh-3.5rem)]">

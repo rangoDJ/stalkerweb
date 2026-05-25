@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import {
   getFavorites, getChannels, getLogoMap,
-  addFavoriteChannel, removeFavoriteChannel,
+  removeFavoriteChannel,
   createFavoriteGroup, renameFavoriteGroup, deleteFavoriteGroup,
   addChannelToGroup, removeChannelFromGroup,
   reorderFavoriteChannels, reorderFavoriteGroups,
@@ -229,7 +229,7 @@ function GroupEditor({ group, logoMap, allChannels, onSave, onCancel }) {
 }
 
 // ── Group card ────────────────────────────────────────────────────────────
-function GroupCard({ group, logoMap, allChannels, onEdit, onDelete, onNavigate, dragHandlers, isDragging }) {
+function GroupCard({ group, logoMap, onEdit, onDelete, onNavigate, dragHandlers, isDragging }) {
   const [expanded, setExpanded] = useState(false)
 
   return (
@@ -341,7 +341,7 @@ export default function FavoritesPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }, [showAdult])
 
   // Load all channels lazily when a group editor is opened
   async function ensureAllChannels() {
