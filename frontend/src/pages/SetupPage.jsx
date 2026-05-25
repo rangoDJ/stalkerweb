@@ -12,7 +12,7 @@ async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
   return r.ok ? r.json() : null
 }
-import { useApp } from '../App'
+import { useApp } from '@/lib/appContext'
 
 function Field({ label, id, hint, children }) {
   return (

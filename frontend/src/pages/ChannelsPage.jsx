@@ -7,8 +7,8 @@ import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { SkeletonGrid } from '@/components/ui/skeleton'
 import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
-import { getRecentlyWatched, removeRecentlyWatched } from './PlayerPage'
-import { useApp } from '../App'
+import { getRecentlyWatched, removeRecentlyWatched } from '@/lib/recentlyWatched'
+import { useApp } from '@/lib/appContext'
 
 // ── Channel card ──────────────────────────────────────────────────────────
 function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact, nowNext }) {

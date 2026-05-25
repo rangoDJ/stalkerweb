@@ -1,8 +1,9 @@
-import { useEffect, useState, createContext, useContext, lazy, Suspense } from 'react'
+import { useEffect, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2 } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { AppContext } from '@/lib/appContext'
 import { getStatus, getSettings } from './stalkerApi'
 import ErrorBoundary from '@/components/ErrorBoundary'
 
@@ -11,10 +12,6 @@ const ChannelsPage  = lazy(() => import('./pages/ChannelsPage'))
 const PlayerPage    = lazy(() => import('./pages/PlayerPage'))
 const GuidePage     = lazy(() => import('./pages/GuidePage'))
 const FavoritesPage = lazy(() => import('./pages/FavoritesPage'))
-
-// ── App-wide context ──────────────────────────────────────────────────────
-export const AppContext = createContext({})
-export const useApp = () => useContext(AppContext)
 
 // ── Nav link style ────────────────────────────────────────────────────────
 function NavItem({ to, icon: Icon, label }) {
