@@ -191,7 +191,7 @@ export default function PlayerPage() {
   const [channels, setChannels]       = useState([])
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
-  const { showAdult }                 = useApp()
+  const { showAdult, disabledGenres }  = useApp()
   const [favoriteIds, setFavoriteIds] = useState(new Set())
   // Refs so keyboard handler always sees current values without re-registering
   const [muted, setMuted]           = useState(false)
@@ -226,13 +226,18 @@ export default function PlayerPage() {
           gList  = gList.filter(g => !isAdult(g.name))
         }
 
+        if (disabledGenres.size > 0) {
+          chList = chList.filter(c => !c.genre || !disabledGenres.has(c.genre))
+          gList  = gList.filter(g => !disabledGenres.has(g.name))
+        }
+
         setChannels(chList)
         setGroups(gList)
         setFavoriteIds(new Set(favRes.channels.map(c => String(c.uniqueId))))
       })
       .catch(() => {})
     getLogoMap().then(setLogoMap).catch(() => {})
-  }, [showAdult])
+  }, [showAdult, disabledGenres])
 
   async function toggleFavorite(channel) {
     const id = String(channel.uniqueId)

@@ -137,6 +137,7 @@ function AppInner() {
   const [statusLoaded, setStatusLoaded] = useState(false)
   const [epgEnabled, setEpgEnabled] = useState(true)
   const [showAdult, setShowAdult]   = useState(false)
+  const [disabledGenres, setDisabledGenres] = useState(new Set())
   const [lastPingAt, setLastPingAt] = useState(null)
   const [idleInfo, setIdleInfo] = useState(null) // { lastActivityAt, idleTimeoutMs }
 
@@ -147,6 +148,7 @@ function AppInner() {
         setConnected(status.connected)
         setEpgEnabled(settings.epg_enabled !== false)
         setShowAdult(!!settings.show_adult)
+        setDisabledGenres(new Set(settings.disabled_genres ?? []))
         if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)
         if (status.lastActivityAt) setIdleInfo({ lastActivityAt: status.lastActivityAt, idleTimeoutMs: status.idleTimeoutMs })
       } catch {
@@ -180,7 +182,7 @@ function AppInner() {
   }
 
   return (
-    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, setLastPingAt, setIdleInfo }}>
+    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, disabledGenres, setDisabledGenres, setLastPingAt, setIdleInfo }}>
       <TooltipProvider delayDuration={300}>
         <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} idleInfo={idleInfo} />
         <main className="pt-14 min-h-full">

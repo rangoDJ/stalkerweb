@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
-import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, saveConfig, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup, getChannels, getLogoMap, getProxiedLogoUrl } from '../stalkerApi'
+import { connect, disconnect, getConfig, getStatus, getSettings, saveSettings, saveConfig, getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb, downloadStbEmuBackup, getChannels, getLogoMap, getProxiedLogoUrl, getGroups } from '../stalkerApi'
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -38,7 +38,7 @@ function Card({ title, description, children, className }) {
 
 export default function SetupPage() {
   const navigate = useNavigate()
-  const { connected, setConnected, setEpgEnabled, showAdult, setShowAdult, setLastPingAt, setIdleInfo } = useApp()
+  const { connected, setConnected, setEpgEnabled, showAdult, setShowAdult, disabledGenres, setDisabledGenres, setLastPingAt, setIdleInfo } = useApp()
 
   const [form, setForm] = useState({
     portal: '', mac: '', timezone: 'Europe/London', lang: 'en',
@@ -63,6 +63,10 @@ export default function SetupPage() {
   const [testResult, setTestResult] = useState(null)
   const [deviceProfile, setDeviceProfile] = useState(null)
   const [unmatchedChannels, setUnmatchedChannels] = useState([])
+
+  // Genre filter state
+  const [allGenres, setAllGenres] = useState([])
+  const [genresLoading, setGenresLoading] = useState(false)
 
   // STBEmu export settings
   const STB_MODELS    = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
@@ -98,6 +102,15 @@ export default function SetupPage() {
       if (status.device) setDeviceProfile(status.device)
     }).finally(() => setInitLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!connected) return
+    setGenresLoading(true)
+    getGroups()
+      .then(r => setAllGenres((r.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')))
+      .catch(() => {})
+      .finally(() => setGenresLoading(false))
+  }, [connected])
 
   useEffect(() => {
     if (!connected) return
@@ -214,6 +227,25 @@ export default function SetupPage() {
     } catch {
       // non-critical
     }
+  }
+
+  async function handleToggleGenre(genreName) {
+    const next = new Set(disabledGenres)
+    if (next.has(genreName)) next.delete(genreName)
+    else next.add(genreName)
+    setDisabledGenres(next)
+    try { await saveSettings({ disabled_genres: [...next] }) } catch { /* non-critical */ }
+  }
+
+  async function handleEnableAllGenres() {
+    setDisabledGenres(new Set())
+    try { await saveSettings({ disabled_genres: [] }) } catch { /* non-critical */ }
+  }
+
+  async function handleDisableAllGenres() {
+    const all = new Set(allGenres.map(g => g.name))
+    setDisabledGenres(all)
+    try { await saveSettings({ disabled_genres: [...all] }) } catch { /* non-critical */ }
   }
 
   async function handleStbEmuSave(e) {
@@ -379,6 +411,61 @@ export default function SetupPage() {
           </div>
           <Switch checked={showAdult} onCheckedChange={handleAdultToggle} />
         </div>
+      </Card>
+
+      {/* Genre Filters card */}
+      <Card title="Genre Filters" description="Choose which genres appear in your channel browser. Disabled genres are hidden everywhere.">
+        {!connected ? (
+          <p className="text-sm text-[var(--color-muted)]">Connect to a portal to manage genre filters.</p>
+        ) : genresLoading ? (
+          <div className="flex items-center gap-2 text-sm text-[var(--color-muted)]">
+            <Loader2 size={14} className="animate-spin" /> Loading genres…
+          </div>
+        ) : allGenres.length === 0 ? (
+          <p className="text-sm text-[var(--color-muted)]">No genres found on this portal.</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={handleEnableAllGenres}
+                className="px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors"
+              >
+                Enable all
+              </button>
+              <button
+                type="button"
+                onClick={handleDisableAllGenres}
+                className="px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors"
+              >
+                Disable all
+              </button>
+              <span className="text-xs text-[var(--color-muted)] ml-1">
+                {allGenres.length - disabledGenres.size} of {allGenres.length} enabled
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {allGenres.map(g => {
+                const disabled = disabledGenres.has(g.name)
+                return (
+                  <button
+                    key={g.id}
+                    type="button"
+                    onClick={() => handleToggleGenre(g.name)}
+                    className={cn(
+                      'px-3 py-1.5 rounded-full text-xs font-semibold transition-all border',
+                      disabled
+                        ? 'bg-[var(--color-surface-2)] text-[var(--color-muted)] border-[var(--color-border)] opacity-50 line-through'
+                        : 'bg-[var(--color-primary)]/15 text-[var(--color-primary-light)] border-[var(--color-primary)]/30 hover:bg-[var(--color-primary)]/25'
+                    )}
+                  >
+                    {g.name}
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
       </Card>
 
       {/* STBEmu Export card */}
