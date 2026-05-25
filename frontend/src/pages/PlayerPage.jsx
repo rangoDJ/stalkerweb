@@ -194,6 +194,8 @@ export default function PlayerPage() {
   const { showAdult }                 = useApp()
   const [favoriteIds, setFavoriteIds] = useState(new Set())
   // Refs so keyboard handler always sees current values without re-registering
+  const [muted, setMuted]           = useState(false)
+  const [volume, setVolume]         = useState(80)
   const channelsRef      = useRef([])
   const activeChannelRef = useRef(null)
   const selectChannelRef = useRef(null)
@@ -208,8 +210,6 @@ export default function PlayerPage() {
   const [showControls, setShowControls] = useState(true)
   const [showList, setShowList]     = useState(false)
   const [playing, setPlaying]       = useState(false)
-  const [muted, setMuted]           = useState(false)
-  const [volume, setVolume]         = useState(80)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
   useEffect(() => { channelsRef.current = channels }, [channels])
