@@ -127,8 +127,11 @@ module.exports = function proxyModule(appState) {
     const http = client.getHttpClient();
     const headers = client.getStreamHeaders();
 
+    const setCors = () => res.set('Access-Control-Allow-Origin', '*');
+
     if (!isAllowedUrl(realUrl, appState.client?.getBasePath())) {
       log.warn(TAG, `blocked SSRF attempt to ${realUrl}`);
+      setCors();
       return res.status(403).send('Forbidden');
     }
 
@@ -137,14 +140,17 @@ module.exports = function proxyModule(appState) {
       response = await fetchFromPortal(http, headers, realUrl);
     } catch (e) {
       log.error(TAG, `playlist fetch failed: ${e.message}`);
+      setCors();
       return res.status(502).send(`Fetch failed: ${e.message}`);
     }
 
     if (response.status === 403 || response.status === 404) {
       log.warn(TAG, `portal returned ${response.status} on playlist — URL may have expired`);
+      setCors();
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
     if (response.status >= 400) {
+      setCors();
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
 

@@ -1,52 +1,48 @@
 const BASE = '/api'
+const TIMEOUT_MS = 30_000
 
-export const getProxiedLogoUrl = (url) => {
-  if (!url || !url.startsWith('http') || url.startsWith('/api/logos/render')) return url
-  return `/api/logos/render?url=${encodeURIComponent(url)}`
+async function _fetch(path, opts = {}) {
+  const controller = new AbortController()
+  const id = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  try {
+    const r = await fetch(BASE + path, { ...opts, signal: controller.signal })
+    if (!r.ok) {
+      const e = await r.json().catch(() => ({ error: r.statusText }))
+      throw new Error(e.error || r.statusText)
+    }
+    return r.json()
+  } finally {
+    clearTimeout(id)
+  }
 }
 
 async function _get(path) {
-  const r = await fetch(BASE + path)
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(e.error || r.statusText)
-  }
-  return r.json()
+  return _fetch(path)
 }
 
 async function _post(path, body) {
-  const r = await fetch(BASE + path, {
+  return _fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(e.error || r.statusText)
-  }
-  return r.json()
 }
 
 async function _put(path, body) {
-  const r = await fetch(BASE + path, {
+  return _fetch(path, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(e.error || r.statusText)
-  }
-  return r.json()
 }
 
 async function _delete(path) {
-  const r = await fetch(BASE + path, { method: 'DELETE' })
-  if (!r.ok) {
-    const e = await r.json().catch(() => ({ error: r.statusText }))
-    throw new Error(e.error || r.statusText)
-  }
-  return r.json()
+  return _fetch(path, { method: 'DELETE' })
+}
+
+export const getProxiedLogoUrl = (url) => {
+  if (!url || !url.startsWith('http') || url.startsWith('/api/logos/render')) return url
+  return `/api/logos/render?url=${encodeURIComponent(url)}`
 }
 
 // ── Auth ──────────────────────────────────────────────────────────────────
@@ -89,13 +85,7 @@ export const getFavorites = () => _get('/favorites')
 export const addFavoriteChannel = (uniqueId) => _post('/favorites/channels', { uniqueId })
 export const removeFavoriteChannel = (uniqueId) => _delete(`/favorites/channels/${uniqueId}`)
 export const createFavoriteGroup = (name) => _post('/favorites/groups', { name })
-export const renameFavoriteGroup = (id, name) => {
-  return fetch(`/api/favorites/groups/${id}`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
-  }).then(r => r.json())
-}
+export const renameFavoriteGroup = (id, name) => _put(`/favorites/groups/${id}`, { name })
 export const deleteFavoriteGroup = (id) => _delete(`/favorites/groups/${id}`)
 export const addChannelToGroup = (groupId, uniqueId) => _post(`/favorites/groups/${groupId}/channels`, { uniqueId })
 export const removeChannelFromGroup = (groupId, uniqueId) => _delete(`/favorites/groups/${groupId}/channels/${uniqueId}`)

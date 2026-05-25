@@ -9,6 +9,8 @@ if (process.stderr._handle?.setBlocking) process.stderr._handle.setBlocking(true
 require('express-async-errors');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const config = require('./config');
@@ -17,10 +19,14 @@ const config = require('./config');
 fs.mkdirSync(config.dataDir, { recursive: true });
 fs.mkdirSync(config.cacheDir, { recursive: true });
 
+const pkg = require('./package.json');
+
 const app = express();
 
 // ── Middleware ─────────────────────────────────────────────────────────────
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: false }));
 app.use(cors());
+app.use(morgan('short', { stream: { write: msg => log.info('http', msg.trim()) } }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
@@ -38,7 +44,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     connected: !!(appState.sessionManager?.isAuthenticated()),
-    version: '1.0.0',
+    version: pkg.version,
   });
 });
 
@@ -140,6 +146,47 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message || 'Internal server error' });
 });
 
+// ── Start server ───────────────────────────────────────────────────────────
+const httpServer = app.listen(config.port, () => {
+  log.info('server', `stalkerweb running on http://0.0.0.0:${config.port}`);
+  log.info('server', `dataDir: ${config.dataDir}`);
+  tryAutoConnect();
+});
+
+// ── Graceful shutdown ──────────────────────────────────────────────────────
+function shutdown(signal) {
+  log.info('server', `${signal} received — shutting down`);
+  if (appState.sessionManager) {
+    log.info('server', 'destroying portal session…');
+    appState.sessionManager.destroy();
+  }
+  httpServer.close(() => {
+    log.info('server', 'HTTP server closed');
+    process.exit(0);
+  });
+  setTimeout(() => { log.error('server', 'forced exit after timeout'); process.exit(1); }, 5000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
+// ── Graceful shutdown ──────────────────────────────────────────────────────
+function shutdown(signal) {
+  log.info('server', `${signal} received — shutting down`);
+  if (appState.sessionManager) {
+    log.info('server', 'destroying portal session…');
+    appState.sessionManager.destroy();
+  }
+  server.close(() => {
+    log.info('server', 'HTTP server closed');
+    process.exit(0);
+  });
+  setTimeout(() => { log.error('server', 'forced exit after timeout'); process.exit(1); }, 5000);
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT',  () => shutdown('SIGINT'));
+
 // ── Auto-reconnect from saved config on startup ────────────────────────────
 // Calls connectPortal() directly — no mock-request hack needed.
 async function tryAutoConnect() {
@@ -180,27 +227,10 @@ async function tryAutoConnect() {
 }
 
 // ── Start server ───────────────────────────────────────────────────────────
-const httpServer = app.listen(config.port, () => {
+app.listen(config.port, () => {
   log.info('server', `stalkerweb running on http://0.0.0.0:${config.port}`);
   log.info('server', `dataDir: ${config.dataDir}`);
   tryAutoConnect();
 });
-
-// ── Graceful shutdown ──────────────────────────────────────────────────────
-function shutdown(signal) {
-  log.info('server', `${signal} received — shutting down`);
-  if (appState.sessionManager) {
-    log.info('server', 'destroying portal session…');
-    appState.sessionManager.destroy();
-  }
-  httpServer.close(() => {
-    log.info('server', 'HTTP server closed');
-    process.exit(0);
-  });
-  setTimeout(() => { log.error('server', 'forced exit after timeout'); process.exit(1); }, 5000);
-}
-
-process.on('SIGTERM', () => shutdown('SIGTERM'));
-process.on('SIGINT',  () => shutdown('SIGINT'));
 
 module.exports = app;

@@ -49,6 +49,7 @@ export default function SetupPage() {
   const [epg, setEpg] = useState(true)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [initLoading, setInitLoading] = useState(true)
   const [notice, setNotice] = useState(null) // { type: 'success'|'error', msg }
 
   // Logos state
@@ -77,24 +78,25 @@ export default function SetupPage() {
   const [stbEmuNotice, setStbEmuNotice]     = useState(null)
 
   useEffect(() => {
-    getConfig().then(cfg => {
-      if (!cfg) return
-      setForm(f => ({ ...f, ...cfg }))
-    }).catch(() => {})
-    getSettings().then(s => {
-      setEpg(s.epg_enabled !== false)
-      setStbEmu({
-        stbemu_profile_name:    s.stbemu_profile_name    || '',
-        stbemu_stb_model:       s.stbemu_stb_model       || 'MAG250',
-        stbemu_custom_firmware: s.stbemu_custom_firmware || '',
-        stbemu_firmware:        s.stbemu_firmware        || '0.2.18-r14-pub-250',
-      })
-    }).catch(() => {})
-    getLogos().then(({ overrides, stats }) => {
-      setLogoOverrides(overrides || {})
-      setLogoStats(stats || null)
-    }).catch(() => {})
-    getStatus().then(s => { if (s.device) setDeviceProfile(s.device) }).catch(() => {})
+    Promise.all([
+      getConfig().catch(() => null),
+      getSettings().catch(() => null),
+      getLogos().catch(() => ({ overrides: {}, stats: null })),
+      getStatus().catch(() => ({})),
+    ]).then(([cfg, s, logos, status]) => {
+      if (cfg) setForm(f => ({ ...f, ...cfg }))
+      if (s) {
+        setEpg(s.epg_enabled !== false)
+        setStbEmu({
+          stbemu_profile_name:    s.stbemu_profile_name    || '',
+          stbemu_stb_model:       s.stbemu_stb_model       || 'MAG250',
+          stbemu_custom_firmware: s.stbemu_custom_firmware || '',
+          stbemu_firmware:        s.stbemu_firmware        || '0.2.18-r14-pub-250',
+        })
+      }
+      if (logos) { setLogoOverrides(logos.overrides || {}); setLogoStats(logos.stats || null) }
+      if (status.device) setDeviceProfile(status.device)
+    }).finally(() => setInitLoading(false))
   }, [])
 
   useEffect(() => {
@@ -238,6 +240,14 @@ export default function SetupPage() {
     } finally {
       setStbEmuExporting(false)
     }
+  }
+
+  if (initLoading) {
+    return (
+      <div className="flex h-48 items-center justify-center">
+        <div className="h-6 w-6 rounded-full border-2 border-[var(--color-primary)] border-t-transparent animate-spin" />
+      </div>
+    )
   }
 
   return (

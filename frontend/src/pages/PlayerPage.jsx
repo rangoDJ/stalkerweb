@@ -71,7 +71,7 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
 function ChannelLogo({ src, name }) {
   const [err, setErr] = useState(false)
   if (!src || err) return <Tv2 size={13} className="shrink-0 text-[var(--color-muted)]" />
-  return <img src={src} alt={name} onError={() => setErr(true)} className="w-5 h-5 object-contain shrink-0 rounded-sm" />
+  return <img src={src} alt={name} loading="lazy" onError={() => setErr(true)} className="w-5 h-5 object-contain shrink-0 rounded-sm" />
 }
 
 function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelect, onToggleFavorite }) {

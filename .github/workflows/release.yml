@@ -2,11 +2,8 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
-    paths-ignore:
-      - '**.md'
-      - '.github/workflows/ci.yml'
+    tags:
+      - 'v*'
 
 env:
   REGISTRY:   ghcr.io
@@ -14,28 +11,18 @@ env:
 
 jobs:
 
-  # ── Generate Version Tag ───────────────────────────────────────────────────
-  tag:
+  # ── Extract version from tag ───────────────────────────────────────────────
+  version:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      new_tag: ${{ steps.tag_action.outputs.new_tag }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: '0'
-      - name: Bump version and push tag
-        id: tag_action
-        uses: anothrNick/github-tag-action@1.71.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WITH_V: true
-          DEFAULT_BUMP: patch
+      - id: tag
+        run: echo "tag=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
 
   # ── Build Android APKs (mobile + tv) ────────────────────────────────────────
   build-apk:
-    needs: tag
+    needs: version
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -51,33 +38,32 @@ jobs:
 
       - name: Restore signing keystore
         run: |
-          mkdir -p ~/.android
-          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > ~/.android/debug.keystore
+          echo "${{ secrets.KEYSTORE_B64 }}" | base64 -d > android/debug.keystore
 
       - name: Build APKs (mobile + tv)
         working-directory: android
         run: |
-          VERSION="${{ needs.tag.outputs.new_tag }}"
+          VERSION="${{ needs.version.outputs.tag }}"
           VERSION_CLEAN="${VERSION#v}"
-          gradle :app:assembleMobileDebug :app:assembleTvDebug -PversionName="$VERSION_CLEAN"
+          gradle :app:assembleMobileRelease :app:assembleTvRelease -PversionName="$VERSION_CLEAN"
 
       - name: Upload mobile APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: stalkerweb-mobile-apk
-          path: android/app/build/outputs/apk/mobile/debug/app-mobile-debug.apk
+          path: android/app/build/outputs/apk/mobile/release/app-mobile-release.apk
           retention-days: 30
 
       - name: Upload tv APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: stalkerweb-tv-apk
-          path: android/app/build/outputs/apk/tv/debug/app-tv-debug.apk
+          path: android/app/build/outputs/apk/tv/release/app-tv-release.apk
           retention-days: 30
 
   # ── Build & push Docker image ────────────────────────────────────────────
   build-docker:
-    needs: tag
+    needs: version
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -103,7 +89,7 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=${{ needs.tag.outputs.new_tag }}
+            type=raw,value=${{ needs.version.outputs.tag }}
             type=raw,value=latest
 
       - name: Build and push Docker image
@@ -119,7 +105,7 @@ jobs:
 
   # ── Create GitHub Release ────────────────────────────────────────────────
   release:
-    needs: [tag, build-apk, build-docker]
+    needs: [version, build-apk, build-docker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -137,29 +123,29 @@ jobs:
 
       - name: Rename artifacts to include version
         run: |
-          mv app-mobile-debug.apk stalkerweb-mobile-${{ needs.tag.outputs.new_tag }}.apk
-          mv app-tv-debug.apk     stalkerweb-tv-${{ needs.tag.outputs.new_tag }}.apk
+          mv app-mobile-release.apk stalkerweb-mobile-${{ needs.version.outputs.tag }}.apk
+          mv app-tv-release.apk     stalkerweb-tv-${{ needs.version.outputs.tag }}.apk
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.tag.outputs.new_tag }}
+          tag_name: ${{ needs.version.outputs.tag }}
           generate_release_notes: true
           files: |
-            stalkerweb-mobile-${{ needs.tag.outputs.new_tag }}.apk
-            stalkerweb-tv-${{ needs.tag.outputs.new_tag }}.apk
+            stalkerweb-mobile-${{ needs.version.outputs.tag }}.apk
+            stalkerweb-tv-${{ needs.version.outputs.tag }}.apk
           body: |
             ## Docker image
 
             ```
-            docker pull ghcr.io/${{ github.repository }}:${{ needs.tag.outputs.new_tag }}
+            docker pull ghcr.io/${{ github.repository }}:${{ needs.version.outputs.tag }}
             ```
 
             ## Android APKs
 
             | APK | Target |
             |-----|--------|
-            | `stalkerweb-mobile-${{ needs.tag.outputs.new_tag }}.apk` | Phone / tablet (Android 8.0+) |
-            | `stalkerweb-tv-${{ needs.tag.outputs.new_tag }}.apk` | FireTV / Android TV / Google TV |
+            | `stalkerweb-mobile-${{ needs.version.outputs.tag }}.apk` | Phone / tablet (Android 8.0+) |
+            | `stalkerweb-tv-${{ needs.version.outputs.tag }}.apk` | FireTV / Android TV / Google TV |
 
             Enable **Install from unknown sources** before sideloading.
