@@ -8,19 +8,19 @@
 
 'use strict';
 
-const fs    = require('fs');
-const path  = require('path');
-const axios = require('axios');
+const fs     = require('fs');
+const path   = require('path');
+const axios  = require('axios');
 const crypto = require('crypto');
+const { Worker } = require('worker_threads');
 const CacheManager = require('../cache/CacheManager');
 const log = require('../logger');
 const TAG = 'logos';
 
-const CHANNELS_URL = 'https://raw.githubusercontent.com/iptv-org/database/master/data/channels.csv';
-const LOGOS_URL    = 'https://raw.githubusercontent.com/iptv-org/database/master/data/logos.csv';
-const CACHE_TTL    = 24 * 60 * 60 * 1000; // 24 h
+const CACHE_TTL     = 24 * 60 * 60 * 1000; // 24 h
+const WORKER_PATH   = path.join(__dirname, 'logo-worker.js');
 
-// Normalize a channel name for fuzzy matching.
+// Normalize a channel name for fuzzy matching (kept here for getLogo/checkName).
 function normName(name) {
   return String(name || '')
     .toLowerCase()
@@ -31,40 +31,18 @@ function normName(name) {
     .replace(/[^a-z0-9]/g, '');
 }
 
-// Minimal RFC-4180 CSV line parser (handles double-quoted fields with commas).
-function parseCSVLine(line) {
-  const fields = [];
-  let cur = '';
-  let inQ = false;
-  for (let i = 0; i < line.length; i++) {
-    const c = line[i];
-    if (c === '"') {
-      if (inQ && line[i + 1] === '"') { cur += '"'; i++; }
-      else inQ = !inQ;
-    } else if (c === ',' && !inQ) {
-      fields.push(cur); cur = '';
-    } else {
-      cur += c;
-    }
-  }
-  fields.push(cur);
-  return fields;
-}
-
-// Parse CSV text → array of plain objects keyed by the header row.
-function parseCSV(text) {
-  const lines = text.replace(/\r/g, '').split('\n');
-  const headers = parseCSVLine(lines[0]);
-  const out = [];
-  for (let i = 1; i < lines.length; i++) {
-    const l = lines[i].trim();
-    if (!l) continue;
-    const vals = parseCSVLine(l);
-    const obj = {};
-    headers.forEach((h, idx) => { obj[h] = vals[idx] || ''; });
-    out.push(obj);
-  }
-  return out;
+// Spawn a one-shot worker, send it one message, resolve/reject on reply.
+function runWorker(msg) {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(WORKER_PATH);
+    worker.once('message', (result) => {
+      worker.terminate();
+      if (result.ok) resolve(result);
+      else reject(new Error(result.error));
+    });
+    worker.once('error', reject);
+    worker.postMessage(msg);
+  });
 }
 
 module.exports.normName = normName;
@@ -197,7 +175,7 @@ class LogoManager {
         (Date.now() - fs.statSync(this._mapCacheFile).mtimeMs < CACHE_TTL);
 
       if (!forceDownload && diskFresh) {
-        this._loadFromDisk();
+        await this._loadFromDisk();
       } else {
         await this._download();
       }
@@ -206,11 +184,11 @@ class LogoManager {
     }
   }
 
-  _loadFromDisk() {
+  async _loadFromDisk() {
     try {
-      const data = JSON.parse(fs.readFileSync(this._mapCacheFile, 'utf8'));
-      this._logoMap  = new Map(Object.entries(data.map));
-      this._cachedAt = data.cachedAt || fs.statSync(this._mapCacheFile).mtimeMs;
+      const result = await runWorker({ cmd: 'load', cacheFile: this._mapCacheFile });
+      this._logoMap  = new Map(Object.entries(result.map));
+      this._cachedAt = result.cachedAt;
       log.info(TAG, `loaded from disk: ${this._logoMap.size} logo entries`);
     } catch (e) {
       log.warn(TAG, `disk cache read failed: ${e.message}`);
@@ -219,65 +197,18 @@ class LogoManager {
   }
 
   async _download() {
-    log.info(TAG, 'downloading iptv-org channels.csv + logos.csv...');
+    log.info(TAG, 'downloading iptv-org logo database…');
     try {
-      const [chResp, lgResp] = await Promise.all([
-        axios.get(CHANNELS_URL, { responseType: 'text', timeout: 45_000 }),
-        axios.get(LOGOS_URL,    { responseType: 'text', timeout: 45_000 }),
-      ]);
-
-      const channels = parseCSV(chResp.data);
-      const logos    = parseCSV(lgResp.data);
-
-      this._buildMap(channels, logos);
-      this._cachedAt = Date.now();
-
-      // Cache just the pre-built map — much smaller than raw CSVs
-      fs.mkdirSync(path.dirname(this._mapCacheFile), { recursive: true });
-      fs.writeFileSync(this._mapCacheFile, JSON.stringify({
-        cachedAt: this._cachedAt,
-        map: Object.fromEntries(this._logoMap),
-      }), 'utf8');
-
-      log.info(TAG, `downloaded: ${channels.length} channels, ${logos.length} logo rows → ${this._logoMap.size} name entries`);
+      const result = await runWorker({ cmd: 'download', cacheFile: this._mapCacheFile });
+      this._logoMap  = new Map(Object.entries(result.map));
+      this._cachedAt = result.cachedAt;
+      log.info(TAG, `downloaded ${result.count} logo entries`);
     } catch (e) {
       log.warn(TAG, `download failed: ${e.message}`);
       if (fs.existsSync(this._mapCacheFile)) {
-        this._loadFromDisk();
+        await this._loadFromDisk();
       } else {
         this._logoMap = new Map();
-      }
-    }
-  }
-
-  _buildMap(channels, logos) {
-    // Build channelId → logoUrl (in_use only; prefer default/empty feed)
-    const idToLogo = new Map();
-    for (const row of logos) {
-      if (row.in_use !== 'TRUE' || !row.url) continue;
-      if (!idToLogo.has(row.channel) || row.feed === '') {
-        idToLogo.set(row.channel, row.url);
-      }
-    }
-
-    // Build normalized name → logoUrl
-    this._logoMap = new Map();
-    for (const ch of channels) {
-      const logo = idToLogo.get(ch.id);
-      if (!logo) continue;
-
-      const nameKey = normName(ch.name);
-      if (nameKey && !this._logoMap.has(nameKey)) {
-        this._logoMap.set(nameKey, logo);
-      }
-
-      // alt_names is a comma-separated list (may be empty)
-      const alts = ch.alt_names ? ch.alt_names.split(',').map(s => s.trim()).filter(Boolean) : [];
-      for (const alt of alts) {
-        const altKey = normName(alt);
-        if (altKey && !this._logoMap.has(altKey)) {
-          this._logoMap.set(altKey, logo);
-        }
       }
     }
   }
