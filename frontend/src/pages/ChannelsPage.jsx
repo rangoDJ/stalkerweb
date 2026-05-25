@@ -153,6 +153,10 @@ export default function ChannelsPage() {
     return () => clearTimeout(id)
   }, [activeGroup, showAdult])
 
+  const openChannel = useCallback((channel) => {
+    navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
+  }, [navigate])
+
   // ── Keyboard: channel number jump ────────────────────────────────────────
   useEffect(() => {
     function onKey(e) {
@@ -203,10 +207,6 @@ export default function ChannelsPage() {
     if (id) setSearchParams({ group: id })
     else setSearchParams({})
   }
-
-  const openChannel = useCallback((channel) => {
-    navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
-  }, [navigate])
 
   // Enrich recently watched with current logoMap
   const recentChannels = useMemo(() =>
