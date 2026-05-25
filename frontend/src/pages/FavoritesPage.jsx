@@ -13,7 +13,7 @@ import {
   reorderFavoriteChannels, reorderFavoriteGroups,
   getProxiedLogoUrl,
 } from '../stalkerApi'
-import { useApp } from '../App'
+import { useApp } from '@/lib/appContext'
 
 // ── Drag-and-drop helpers ─────────────────────────────────────────────────
 function useDragReorder(items, setItems, onReorder) {

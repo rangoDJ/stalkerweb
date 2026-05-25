@@ -9,6 +9,8 @@ if (process.stderr._handle?.setBlocking) process.stderr._handle.setBlocking(true
 require('express-async-errors');
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
 const config = require('./config');
@@ -20,6 +22,8 @@ fs.mkdirSync(config.cacheDir, { recursive: true });
 const app = express();
 
 // ── Middleware ─────────────────────────────────────────────────────────────
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: false }));
+app.use(morgan('dev'));
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
@@ -38,7 +42,7 @@ app.get('/api/health', (_req, res) => {
   res.json({
     status: 'ok',
     connected: !!(appState.sessionManager?.isAuthenticated()),
-    version: '1.0.0',
+    version: config.version || require('./package.json').version,
   });
 });
 
