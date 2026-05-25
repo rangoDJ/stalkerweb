@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -74,7 +74,7 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
 }
 
 // ── Number jump overlay ───────────────────────────────────────────────────
-function NumberJumpOverlay({ digits, onClose }) {
+function NumberJumpOverlay({ digits }) {
   return (
     <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center gap-1 pointer-events-none">
       <div className="rounded-[var(--radius-md)] bg-black/80 border border-[var(--color-border)] px-6 py-3 text-center backdrop-blur-sm">
@@ -174,7 +174,7 @@ export default function ChannelsPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('keydown', onKey); clearTimeout(jumpTimer.current) }
-  }, [channels])
+  }, [channels, openChannel])
 
   async function toggleFavorite(channel) {
     const id = String(channel.uniqueId)
@@ -204,9 +204,9 @@ export default function ChannelsPage() {
     else setSearchParams({})
   }
 
-  function openChannel(channel) {
+  const openChannel = useCallback((channel) => {
     navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
-  }
+  }, [navigate])
 
   // Enrich recently watched with current logoMap
   const recentChannels = useMemo(() =>

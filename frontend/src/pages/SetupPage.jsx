@@ -38,7 +38,7 @@ function Card({ title, description, children, className }) {
 
 export default function SetupPage() {
   const navigate = useNavigate()
-  const { connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, setLastPingAt, setIdleInfo } = useApp()
+  const { connected, setConnected, setEpgEnabled, showAdult, setShowAdult, setLastPingAt, setIdleInfo } = useApp()
 
   const [form, setForm] = useState({
     portal: '', mac: '', timezone: 'Europe/London', lang: 'en',

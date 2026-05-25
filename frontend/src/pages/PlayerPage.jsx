@@ -78,7 +78,6 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
   const [query, setQuery]         = useState('')
   const [activeGroup, setGroup]   = useState('')   // genre group id (string) or '' for All
   const [favsOnly, setFavsOnly]   = useState(false)
-  const pillsRef                  = useRef(null)
 
 
 
@@ -215,6 +214,8 @@ export default function PlayerPage() {
   const channelsRef      = useRef([])
   const activeChannelRef = useRef(null)
   const selectChannelRef = useRef(null)
+  const volumeRef        = useRef(volume)
+  const mutedRef         = useRef(muted)
   const [activeChannel, setActiveChannel] = useState(
     initChannelId ? { uniqueId: initChannelId, name: initChannelName } : null
   )
@@ -261,10 +262,11 @@ export default function PlayerPage() {
     }
   }
 
+  const loadStreamRef = useRef(null)
   useEffect(() => {
     if (!activeChannel?.uniqueId) return
     retryCount.current = 0
-    loadStream(activeChannel.uniqueId)
+    loadStreamRef.current(activeChannel.uniqueId)
   }, [activeChannel?.uniqueId])
 
   async function loadStream(channelId, isRetry = false) {
@@ -287,6 +289,7 @@ export default function PlayerPage() {
       }
     }
   }
+  loadStreamRef.current = loadStream
 
   // Attach HLS when streamUrl changes
   useEffect(() => {
@@ -310,8 +313,8 @@ export default function PlayerPage() {
 
     const playNative = (src) => {
       video.src = src
-      video.volume = volume / 100
-      video.muted = muted
+      video.volume = volumeRef.current / 100
+      video.muted = mutedRef.current
       tryPlay()
     }
 
@@ -328,8 +331,8 @@ export default function PlayerPage() {
       hls.loadSource(streamUrl)
       hls.attachMedia(video)
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.volume = volume / 100
-        video.muted = muted
+        video.volume = volumeRef.current / 100
+        video.muted = mutedRef.current
         tryPlay()
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -368,7 +371,7 @@ export default function PlayerPage() {
     hideTimer.current = setTimeout(() => setShowControls(false), 3000)
   }, [])
 
-  useEffect(() => { resetHideTimer(); return () => clearTimeout(hideTimer.current) }, [])
+  useEffect(() => { resetHideTimer(); return () => clearTimeout(hideTimer.current) }, [resetHideTimer])
 
   // Fullscreen sync
   useEffect(() => {
