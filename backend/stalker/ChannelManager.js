@@ -173,15 +173,49 @@ class ChannelManager {
 
     if (channel.useHttpTmpLink || channel.useLoadBalancing) {
       log.info(TAG, `getting temp stream url for ch ${channel.number}`);
-      const linkData = await this.client.itvCreateLink(channel.cmd);
-      cmd = linkData?.js?.cmd || '';
+      try {
+        const linkData = await this.client.itvCreateLink(channel.cmd);
+        // Portals differ: some use js.cmd, others js.url, some return js as a string
+        cmd = linkData?.js?.cmd
+           || linkData?.js?.url
+           || (typeof linkData?.js === 'string' ? linkData.js : '')
+           || '';
+      } catch (e) {
+        log.warn(TAG, `create_link failed (${e.message}), falling back to direct cmd`);
+      }
+      if (!cmd) {
+        log.warn(TAG, `create_link returned no url for ch ${channel.number}, using direct cmd`);
+        cmd = channel.cmd;
+      }
     } else {
       cmd = channel.cmd;
     }
 
+    log.debug(TAG, `stream cmd for ch ${channel.number}: ${cmd}`);
+
     // cmd format: "ffrt<n> <url>" → extract url after space
     const spacePos = cmd.indexOf(' ');
-    return spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;
+    const url = spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;
+
+    // Last-resort: if direct cmd gave no URL, try create_link regardless of flags.
+    // Some portals require dynamic link creation for all channels even when
+    // use_http_tmp_link=0 and use_load_balancing=0.
+    if (!url && channel.cmd) {
+      log.warn(TAG, `direct cmd yielded no url for ch ${channel.number}, trying create_link`);
+      try {
+        const linkData = await this.client.itvCreateLink(channel.cmd);
+        const fallbackCmd = linkData?.js?.cmd || linkData?.js?.url
+          || (typeof linkData?.js === 'string' ? linkData.js : '') || '';
+        if (fallbackCmd) {
+          const sp = fallbackCmd.indexOf(' ');
+          return sp !== -1 ? fallbackCmd.slice(sp + 1) : fallbackCmd;
+        }
+      } catch (e) {
+        log.warn(TAG, `create_link fallback also failed: ${e.message}`);
+      }
+    }
+
+    return url;
   }
 }
 
