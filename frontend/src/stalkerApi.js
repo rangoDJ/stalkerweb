@@ -1,3 +1,6 @@
+import { invalidateChannelCache } from './lib/channelCache'
+import { invalidateFavoritesCache } from './lib/useFavorites'
+
 const BASE = '/api'
 const TIMEOUT_MS = 30_000
 
@@ -47,7 +50,12 @@ export const getProxiedLogoUrl = (url) => {
 
 // ── Auth ──────────────────────────────────────────────────────────────────
 export const connect = (body) => _post('/auth/connect', body)
-export const disconnect = () => _delete('/auth/disconnect')
+export async function disconnect() {
+  const result = await _delete('/auth/disconnect')
+  invalidateChannelCache()
+  invalidateFavoritesCache()
+  return result
+}
 export const getStatus = () => _get('/auth/status')
 export const getConfig = () => _get('/auth/config')
 export const saveConfig = (body) => _put('/auth/config', body)

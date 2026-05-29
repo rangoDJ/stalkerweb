@@ -5,7 +5,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { getChannels, getChannelEpg } from '../stalkerApi'
+import { getChannelEpg } from '../stalkerApi'
+import { getCachedChannelData } from '@/lib/channelCache'
 
 const PERIODS = [
   { label: '6h', value: 6 },
@@ -20,9 +21,9 @@ function formatTime(ts) {
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
-function isNow(start, stop) {
+function isNow(startTime, endTime) {
   const now = Date.now() / 1000
-  return start <= now && now < stop
+  return startTime <= now && now < endTime
 }
 
 export default function GuidePage() {
@@ -36,8 +37,8 @@ export default function GuidePage() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    getChannels()
-      .then(r => { const list = r.channels ?? []; setChannels(list); if (list.length) setActiveChannel(list[0]) })
+    getCachedChannelData()
+      .then(({ channels }) => { setChannels(channels); if (channels.length) setActiveChannel(channels[0]) })
       .catch(e => setError(e.message))
       .finally(() => setLoadingChannels(false))
   }, [])
@@ -47,7 +48,7 @@ export default function GuidePage() {
     setLoadingEpg(true)
     setEpg([])
     getChannelEpg(activeChannel.uniqueId, period)
-      .then(data => setEpg(Array.isArray(data) ? data : data?.epg || []))
+      .then(data => setEpg(data?.events || []))
       .catch(() => setEpg([]))
       .finally(() => setLoadingEpg(false))
   }, [activeChannel?.uniqueId, period])
@@ -139,7 +140,7 @@ export default function GuidePage() {
           {!loadingEpg && epg.length > 0 && (
             <div className="flex flex-col gap-1.5">
               {epg.map((prog, i) => {
-                const live = isNow(prog.start, prog.stop)
+                const live = isNow(prog.startTime, prog.endTime)
                 return (
                   <div
                     key={i}
@@ -151,18 +152,18 @@ export default function GuidePage() {
                     )}
                   >
                     <div className="shrink-0 w-24 text-xs text-[var(--color-muted)] pt-0.5">
-                      {formatTime(prog.start)}
-                      {prog.stop && <span className="block">{formatTime(prog.stop)}</span>}
+                      {formatTime(prog.startTime)}
+                      {prog.endTime && <span className="block">{formatTime(prog.endTime)}</span>}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className={cn('text-sm font-medium truncate', live ? 'text-[var(--color-primary-light)]' : 'text-[var(--color-text)]')}>
-                          {prog.name || prog.title || 'Untitled'}
+                          {prog.title || 'Untitled'}
                         </p>
                         {live && <Badge variant="live" className="shrink-0">NOW</Badge>}
                       </div>
-                      {prog.descr && (
-                        <p className="text-xs text-[var(--color-muted)] mt-0.5 line-clamp-2">{prog.descr}</p>
+                      {prog.description && (
+                        <p className="text-xs text-[var(--color-muted)] mt-0.5 line-clamp-2">{prog.description}</p>
                       )}
                     </div>
                   </div>

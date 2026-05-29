@@ -16,6 +16,8 @@ function getCachedFavorites() {
 
 function invalidateFavs() { favsCache = null }
 
+export function invalidateFavoritesCache() { favsCache = null }
+
 export function useFavorites() {
   const [favoriteIds, setFavoriteIds] = useState(new Set())
 
