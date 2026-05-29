@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import {
@@ -6,7 +6,6 @@ import {
   List, Search, Loader2, AlertCircle, Tv2, Heart, ChevronDown,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
@@ -53,18 +52,54 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
   )
 }
 
+// ── Virtual list hook ─────────────────────────────────────────────────────
+const ROW_H = 48
+
+function useVirtualList(items, containerRef, overscan = 3) {
+  const [containerHeight, setContainerHeight] = useState(0)
+  const [scrollTop, setScrollTop] = useState(0)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => setContainerHeight(entry.contentRect.height))
+    ro.observe(el)
+    setContainerHeight(el.clientHeight)
+    return () => ro.disconnect()
+  }, [containerRef])
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const onScroll = () => setScrollTop(el.scrollTop)
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [containerRef])
+
+  const startIndex = Math.max(0, Math.floor(scrollTop / ROW_H) - overscan)
+  const endIndex   = Math.min(items.length - 1, Math.ceil((scrollTop + containerHeight) / ROW_H) + overscan)
+  return {
+    visibleItems: items.slice(startIndex, endIndex + 1),
+    totalHeight:  items.length * ROW_H,
+    offsetY:      startIndex * ROW_H,
+  }
+}
+
 // ── Channel list panel ────────────────────────────────────────────────────
 function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext, onSelect, onToggleFavorite }) {
   const [query, setQuery]         = useState('')
   const [activeGroup, setGroup]   = useState('')
   const [favsOnly, setFavsOnly]   = useState(false)
+  const scrollRef = useRef(null)
 
-  const filtered = channels.filter(ch => {
+  const filtered = useMemo(() => channels.filter(ch => {
     if (favsOnly && !favoriteIds.has(String(ch.uniqueId))) return false
     if (activeGroup && String(ch.genreId ?? '') !== String(activeGroup)) return false
     if (query && !ch.name?.toLowerCase().includes(query.toLowerCase())) return false
     return true
-  })
+  }), [channels, favsOnly, favoriteIds, activeGroup, query])
+
+  const { visibleItems, totalHeight, offsetY } = useVirtualList(filtered, scrollRef)
 
   function selectGroup(id) {
     setGroup(id)
@@ -124,41 +159,50 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext
         )}
       </div>
 
-      {/* ── Channel rows ── */}
-      <ScrollArea className="flex-1">
-        {filtered.length === 0 && (
+      {/* ── Channel rows (virtualized) ── */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        {filtered.length === 0 ? (
           <p className="px-3 py-4 text-xs text-[var(--color-muted)] text-center">
             {favsOnly ? 'No favorites in this view.' : 'No channels found.'}
           </p>
-        )}
-        {filtered.map(ch => {
-          const isFav = favoriteIds.has(String(ch.uniqueId))
-          const epg   = nowNext?.[String(ch.uniqueId)]
-          return (
-            <div key={ch.uniqueId} className={cn('group flex items-center gap-2.5 px-3 py-2 transition-colors',
-              String(ch.uniqueId) === String(activeId)
-                ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
-                : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
-            )}>
-              <button className="flex items-center gap-2.5 flex-1 text-left min-w-0" onClick={() => onSelect(ch)}>
-                <ChannelLogo src={logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)} name={ch.name} size="xs" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs truncate">{ch.name}</p>
-                  {epg?.now?.title && (
-                    <p className="text-[10px] text-[var(--color-muted)] truncate leading-tight opacity-75">{epg.now.title}</p>
-                  )}
-                </div>
-              </button>
-              <button
-                onClick={() => onToggleFavorite(ch)}
-                className={cn('shrink-0 p-0.5 rounded transition-colors', isFav ? 'text-rose-500' : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400')}
-              >
-                <Heart size={12} fill={isFav ? 'currentColor' : 'none'} />
-              </button>
+        ) : (
+          <div style={{ height: totalHeight, position: 'relative' }}>
+            <div style={{ transform: `translateY(${offsetY}px)` }}>
+              {visibleItems.map(ch => {
+                const isFav = favoriteIds.has(String(ch.uniqueId))
+                const epg   = nowNext?.[String(ch.uniqueId)]
+                return (
+                  <div
+                    key={ch.uniqueId}
+                    style={{ height: ROW_H }}
+                    className={cn('group flex items-center gap-2.5 px-3 transition-colors overflow-hidden',
+                      String(ch.uniqueId) === String(activeId)
+                        ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
+                        : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
+                    )}
+                  >
+                    <button className="flex items-center gap-2.5 flex-1 text-left min-w-0 h-full" onClick={() => onSelect(ch)}>
+                      <ChannelLogo src={logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)} name={ch.name} size="xs" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs truncate">{ch.name}</p>
+                        {epg?.now?.title && (
+                          <p className="text-[10px] text-[var(--color-muted)] truncate leading-tight opacity-75">{epg.now.title}</p>
+                        )}
+                      </div>
+                    </button>
+                    <button
+                      onClick={() => onToggleFavorite(ch)}
+                      className={cn('shrink-0 p-0.5 rounded transition-colors', isFav ? 'text-rose-500' : 'text-[var(--color-muted)] opacity-0 group-hover:opacity-100 hover:text-rose-400')}
+                    >
+                      <Heart size={12} fill={isFav ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                )
+              })}
             </div>
-          )
-        })}
-      </ScrollArea>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
