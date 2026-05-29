@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
-  List, Search, Loader2, AlertCircle, Tv2, Heart,
+  List, Search, Loader2, AlertCircle, Tv2, Heart, ChevronDown,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -11,8 +11,11 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { pushRecentlyWatched } from '@/lib/recentlyWatched'
-import { getChannels, getGroups, getStreamUrl, streamKeepalive, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getProxiedLogoUrl } from '../stalkerApi'
+import { getStreamUrl, streamKeepalive, getProxiedLogoUrl } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
+import { ChannelLogo } from '@/components/ChannelLogo'
+import { useFavorites } from '@/lib/useFavorites'
+import { getCachedChannelData } from '@/lib/channelCache'
 
 // ── Controls bar ──────────────────────────────────────────────────────────
 function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
@@ -51,18 +54,10 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
 }
 
 // ── Channel list panel ────────────────────────────────────────────────────
-function ChannelLogo({ src, name }) {
-  const [err, setErr] = useState(false)
-  if (!src || err) return <Tv2 size={13} className="shrink-0 text-[var(--color-muted)]" />
-  return <img src={src} alt={name} loading="lazy" onError={() => setErr(true)} className="w-5 h-5 object-contain shrink-0 rounded-sm" />
-}
-
 function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelect, onToggleFavorite }) {
   const [query, setQuery]         = useState('')
-  const [activeGroup, setGroup]   = useState('')   // genre group id (string) or '' for All
+  const [activeGroup, setGroup]   = useState('')
   const [favsOnly, setFavsOnly]   = useState(false)
-
-
 
   const filtered = channels.filter(ch => {
     if (favsOnly && !favoriteIds.has(String(ch.uniqueId))) return false
@@ -73,12 +68,12 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
 
   function selectGroup(id) {
     setGroup(id)
-    if (id) setFavsOnly(false)   // genre filter and favs-only are mutually exclusive
+    if (id) setFavsOnly(false)
   }
 
   function toggleFavsOnly() {
     setFavsOnly(v => !v)
-    if (!favsOnly) setGroup('')  // clear genre when switching to favs-only
+    if (!favsOnly) setGroup('')
   }
 
   return (
@@ -111,34 +106,20 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
           </button>
         </div>
 
-        {/* ── Genre pills ── */}
+        {/* ── Genre dropdown ── */}
         {groups.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5 pb-2">
-            <button
-              onClick={() => selectGroup('')}
-              className={cn(
-                'shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap',
-                !activeGroup
-                  ? 'bg-[var(--color-primary)] text-white'
-                  : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
-              )}
+          <div className="relative">
+            <select
+              value={activeGroup}
+              onChange={e => selectGroup(e.target.value)}
+              className="w-full appearance-none rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] border border-[var(--color-border)] pl-2.5 pr-7 py-1.5 text-xs text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)] cursor-pointer"
             >
-              All
-            </button>
-            {groups.map(g => (
-              <button
-                key={g.id}
-                onClick={() => selectGroup(String(g.id))}
-                className={cn(
-                  'shrink-0 px-2.5 py-0.5 rounded-full text-[10px] font-medium transition-colors whitespace-nowrap',
-                  activeGroup === String(g.id)
-                    ? 'bg-[var(--color-primary)] text-white'
-                    : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)]'
-                )}
-              >
-                {g.name}
-              </button>
-            ))}
+              <option value="">All Genres</option>
+              {groups.map(g => (
+                <option key={g.id} value={String(g.id)}>{g.name}</option>
+              ))}
+            </select>
+            <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-muted)]" />
           </div>
         )}
       </div>
@@ -159,7 +140,7 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
                 : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
             )}>
               <button className="flex items-center gap-2.5 flex-1 text-left min-w-0" onClick={() => onSelect(ch)}>
-                <ChannelLogo src={logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)} name={ch.name} />
+                <ChannelLogo src={logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)} name={ch.name} size="xs" />
                 <span className="text-xs truncate">{ch.name}</span>
               </button>
               <button
@@ -192,8 +173,8 @@ export default function PlayerPage() {
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
   const { showAdult, disabledGenres }  = useApp()
-  const [favoriteIds, setFavoriteIds] = useState(new Set())
-  // Refs so keyboard handler always sees current values without re-registering
+  const { favoriteIds, toggleFavorite } = useFavorites()
+
   const [muted, setMuted]           = useState(false)
   const [volume, setVolume]         = useState(80)
   const channelsRef      = useRef([])
@@ -208,7 +189,7 @@ export default function PlayerPage() {
   const [status, setStatus]         = useState('idle')
   const [errorMsg, setErrorMsg]     = useState('')
   const [showControls, setShowControls] = useState(true)
-  const [showList, setShowList]     = useState(false)
+  const [showList, setShowList]     = useState(true)
   const [playing, setPlaying]       = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
@@ -216,68 +197,57 @@ export default function PlayerPage() {
   useEffect(() => { activeChannelRef.current = activeChannel }, [activeChannel])
 
   useEffect(() => {
-    Promise.all([getChannels(), getGroups(), getFavorites()])
-      .then(([chRes, grpRes, favRes]) => {
-        let chList = chRes.channels ?? []
-        let gList  = (grpRes.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')
+    getCachedChannelData()
+      .then(({ channels: chList, groups: gList, logoMap: lm }) => {
+        let ch = chList
+        let gr = gList.filter(g => g.name?.toLowerCase() !== 'all')
 
         if (!showAdult) {
-          chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
-          gList  = gList.filter(g => !isAdult(g.name))
+          ch = ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+          gr = gr.filter(g => !isAdult(g.name))
         }
 
         if (disabledGenres.size > 0) {
-          chList = chList.filter(c => !c.genre || !disabledGenres.has(c.genre))
-          gList  = gList.filter(g => !disabledGenres.has(g.name))
+          ch = ch.filter(c => !c.genre || !disabledGenres.has(c.genre))
+          gr = gr.filter(g => !disabledGenres.has(g.name))
         }
 
-        setChannels(chList)
-        setGroups(gList)
-        setFavoriteIds(new Set(favRes.channels.map(c => String(c.uniqueId))))
+        setChannels(ch)
+        setGroups(gr)
+        setLogoMap(lm)
       })
       .catch(() => {})
-    getLogoMap().then(setLogoMap).catch(() => {})
   }, [showAdult, disabledGenres])
 
-  async function toggleFavorite(channel) {
-    const id = String(channel.uniqueId)
-    if (favoriteIds.has(id)) {
-      await removeFavoriteChannel(id).catch(() => {})
-      setFavoriteIds(prev => { const s = new Set(prev); s.delete(id); return s })
-    } else {
-      await addFavoriteChannel(id).catch(() => {})
-      setFavoriteIds(prev => new Set(prev).add(id))
-    }
-  }
-
-  const loadStreamRef = useRef(null)
-  useEffect(() => {
-    if (!activeChannel?.uniqueId) return
-    retryCount.current = 0
-    loadStreamRef.current(activeChannel.uniqueId)
-  }, [activeChannel?.uniqueId])
-
-  async function loadStream(channelId, isRetry = false) {
+  // loadStream as a proper useCallback so deps are explicit
+  const loadStream = useCallback(async (channelId, isRetry = false) => {
     setStatus('loading')
     setErrorMsg('')
     try {
       const { streamUrl: url } = await getStreamUrl(channelId)
       setStreamUrl(url)
-      // Track in recently watched
       const ch = channels.find(c => String(c.uniqueId) === String(channelId)) || activeChannel
       if (ch) pushRecentlyWatched(ch, logoMap[String(ch.uniqueId)])
     } catch (e) {
       if (!isRetry && retryCount.current < 1) {
         retryCount.current++
         setErrorMsg('Stream unavailable, retrying…')
-        setTimeout(() => loadStream(channelId, true), 2000)
+        setTimeout(() => loadStreamRef.current(channelId, true), 2000)
       } else {
         setStatus('error')
         setErrorMsg(e.message)
       }
     }
-  }
-  loadStreamRef.current = loadStream
+  }, [channels, activeChannel, logoMap])
+
+  const loadStreamRef = useRef(loadStream)
+  useEffect(() => { loadStreamRef.current = loadStream }, [loadStream])
+
+  useEffect(() => {
+    if (!activeChannel?.uniqueId) return
+    retryCount.current = 0
+    loadStreamRef.current(activeChannel.uniqueId)
+  }, [activeChannel?.uniqueId])
 
   // Attach HLS when streamUrl changes
   useEffect(() => {
@@ -379,7 +349,6 @@ export default function PlayerPage() {
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e) {
-      // Don't steal keys when typing in an input
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
 
       switch (e.code) {
