@@ -69,7 +69,7 @@ module.exports = function streamRoutes(appState, config) {
         log.info(TAG, `resolving matrix url for ch ${channel.number}`);
         let cmd = '';
         try {
-          cmd = await client.resolveMatrixUrl(channel.cmd);
+          cmd = await client.resolveMatrixUrl(channel.cmd) || channel.cmd;
         } catch (e) {
           log.warn(TAG, `matrix call failed, falling back to cmd: ${e.message}`);
           cmd = channel.cmd;
@@ -79,6 +79,7 @@ module.exports = function streamRoutes(appState, config) {
       } else {
         streamUrl = await channelManager.getStreamUrl(channel);
       }
+      log.info(TAG, `stream url for ch ${channel.number} (${channel.name}): ${streamUrl || '(empty)'}`);
     } catch (err) {
       return res.status(502).json({ error: `Stream resolution failed: ${err.message}` });
     }
