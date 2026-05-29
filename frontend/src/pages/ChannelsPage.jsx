@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { SkeletonGrid } from '@/components/ui/skeleton'
-import { getChannels, getGroups, getLogoMap, getFavorites, addFavoriteChannel, removeFavoriteChannel, getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
+import { getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
 import { getRecentlyWatched, removeRecentlyWatched } from '@/lib/recentlyWatched'
 import { useApp } from '@/lib/appContext'
+import { getCachedChannelData } from '@/lib/channelCache'
+import { useFavorites } from '@/lib/useFavorites'
 
 // ── Channel card ──────────────────────────────────────────────────────────
 function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact, nowNext }) {
@@ -93,7 +95,7 @@ export default function ChannelsPage() {
   const [channels, setChannels]       = useState([])
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
-  const [favoriteIds, setFavoriteIds] = useState(new Set())
+  const { favoriteIds, toggleFavorite } = useFavorites()
   const [loading, setLoading]         = useState(true)
   const [error, setError]             = useState(null)
   const [progress, setProgress]       = useState(null) // { loading, page, totalPages, channelCount }
@@ -117,46 +119,54 @@ export default function ChannelsPage() {
   }, [])
 
   useEffect(() => {
-    getLogoMap().then(setLogoMap).catch(() => {})
-    getFavorites().then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId))))).catch(() => {})
     setRecentlyWatched(getRecentlyWatched())
     getNowNext().then(setNowNext).catch(() => {})
   }, [])
 
-  // Poll progress while channels are loading
+  // Load channels from the shared module cache, then poll server progress if still loading
   useEffect(() => {
-    let id
-    async function poll() {
+    let progressTimer
+    let cancelled = false
+
+    async function pollProgress() {
       try {
-        const [chRes, grpRes] = await Promise.all([getChannels(activeGroup || null), getGroups()])
-        let chList = chRes.channels ?? []
-        let gList  = (grpRes.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')
+        const p = await getChannelProgress()
+        if (cancelled) return
+        setProgress(p)
+        if (p.loading) progressTimer = setTimeout(pollProgress, 800)
+      } catch {}
+    }
+
+    getCachedChannelData()
+      .then(({ channels: chList, groups: gList, logoMap: lm }) => {
+        if (cancelled) return
+        let ch = chList
+        let gr = gList.filter(g => g.name?.toLowerCase() !== 'all')
 
         if (!showAdult) {
-          chList = chList.filter(c => !isAdult(c.genre) && !isAdult(c.name))
-          gList  = gList.filter(g => !isAdult(g.name))
+          ch = ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+          gr = gr.filter(g => !isAdult(g.name))
         }
 
         if (disabledGenres.size > 0) {
-          chList = chList.filter(c => !c.genre || !disabledGenres.has(c.genre))
-          gList  = gList.filter(g => !disabledGenres.has(g.name))
+          ch = ch.filter(c => !c.genre || !disabledGenres.has(c.genre))
+          gr = gr.filter(g => !disabledGenres.has(g.name))
         }
 
-        setChannels(chList)
-        setGroups(gList)
+        setChannels(ch)
+        setGroups(gr)
+        setLogoMap(lm)
         setLoading(false)
-
-        const p = await getChannelProgress()
-        setProgress(p)
-        if (p.loading) id = setTimeout(poll, 800)
-      } catch (err) {
+        pollProgress()
+      })
+      .catch(err => {
+        if (cancelled) return
         setError(err.message)
         setLoading(false)
-      }
-    }
-    poll()
-    return () => clearTimeout(id)
-  }, [activeGroup, showAdult, disabledGenres])
+      })
+
+    return () => { cancelled = true; clearTimeout(progressTimer) }
+  }, [showAdult, disabledGenres])
 
   const openChannel = useCallback((channel) => {
     navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
@@ -185,27 +195,18 @@ export default function ChannelsPage() {
     return () => { window.removeEventListener('keydown', onKey); clearTimeout(jumpTimer.current) }
   }, [channels, openChannel])
 
-  async function toggleFavorite(channel) {
-    const id = String(channel.uniqueId)
-    if (favoriteIds.has(id)) {
-      await removeFavoriteChannel(id).catch(() => {})
-      setFavoriteIds(prev => { const s = new Set(prev); s.delete(id); return s })
-    } else {
-      await addFavoriteChannel(id).catch(() => {})
-      setFavoriteIds(prev => new Set(prev).add(id))
-    }
-  }
-
   function removeRecentChannel(uniqueId) {
     removeRecentlyWatched(uniqueId)
     setRecentlyWatched(prev => prev.filter(c => String(c.uniqueId) !== String(uniqueId)))
   }
 
   const filtered = useMemo(() => {
-    if (!query.trim()) return channels
+    let result = channels
+    if (activeGroup) result = result.filter(c => String(c.genreId ?? '') === String(activeGroup))
+    if (!query.trim()) return result
     const q = query.toLowerCase()
-    return channels.filter(c => c.name?.toLowerCase().includes(q))
-  }, [channels, query])
+    return result.filter(c => c.name?.toLowerCase().includes(q))
+  }, [channels, activeGroup, query])
 
   function selectGroup(id) {
     setQuery('')

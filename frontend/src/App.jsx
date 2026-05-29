@@ -6,6 +6,7 @@ import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
 import { getStatus, getSettings } from './stalkerApi'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import { ToastHost } from '@/components/ToastHost'
 
 const SetupPage     = lazy(() => import('./pages/SetupPage'))
 const ChannelsPage  = lazy(() => import('./pages/ChannelsPage'))
@@ -238,6 +239,7 @@ export default function App() {
     <BrowserRouter>
       <ErrorBoundary>
         <AppInner />
+        <ToastHost />
       </ErrorBoundary>
     </BrowserRouter>
   )

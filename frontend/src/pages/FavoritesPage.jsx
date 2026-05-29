@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Heart, Tv2, Layers, Pencil, Trash2, Plus, Check, X, Search, ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
+import { Heart, Layers, Pencil, Trash2, Plus, Check, X, Search, ChevronDown, ChevronUp, GripVertical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -14,6 +14,7 @@ import {
   getProxiedLogoUrl,
 } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
+import { ChannelLogo } from '@/components/ChannelLogo'
 
 // ── Drag-and-drop helpers ─────────────────────────────────────────────────
 function useDragReorder(items, setItems, onReorder) {
@@ -47,20 +48,6 @@ function useDragReorder(items, setItems, onReorder) {
   }
 
   return { onDragStart, onDragOver, onDragEnd, draggingIndex }
-}
-
-// ── Shared logo helper ────────────────────────────────────────────────────
-function ChannelLogo({ src, name, size = 'md' }) {
-  const [err, setErr] = useState(false)
-  const dim = size === 'sm' ? 'h-8 w-8' : 'h-16 w-16'
-  const iconSize = size === 'sm' ? 16 : 28
-  return (
-    <div className={cn('flex items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden shrink-0', dim)}>
-      {src && !err
-        ? <img src={src} alt={name} loading="lazy" onError={() => setErr(true)} className="h-full w-full object-contain p-1" />
-        : <Tv2 size={iconSize} className="text-[var(--color-muted)]" />}
-    </div>
-  )
 }
 
 // ── Favorited channel card ────────────────────────────────────────────────
