@@ -134,7 +134,7 @@ export default function ChannelsPage() {
         if (cancelled) return
         setProgress(p)
         if (p.loading) progressTimer = setTimeout(pollProgress, 800)
-      } catch (_) { /* progress polling is best-effort */ }
+      } catch { /* progress polling is best-effort */ }
     }
 
     getCachedChannelData()
