@@ -11,7 +11,7 @@ import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { pushRecentlyWatched } from '@/lib/recentlyWatched'
-import { getStreamUrl, streamKeepalive, getProxiedLogoUrl } from '../stalkerApi'
+import { getStreamUrl, streamKeepalive, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { useFavorites } from '@/lib/useFavorites'
@@ -54,7 +54,7 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
 }
 
 // ── Channel list panel ────────────────────────────────────────────────────
-function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelect, onToggleFavorite }) {
+function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext, onSelect, onToggleFavorite }) {
   const [query, setQuery]         = useState('')
   const [activeGroup, setGroup]   = useState('')
   const [favsOnly, setFavsOnly]   = useState(false)
@@ -133,6 +133,7 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
         )}
         {filtered.map(ch => {
           const isFav = favoriteIds.has(String(ch.uniqueId))
+          const epg   = nowNext?.[String(ch.uniqueId)]
           return (
             <div key={ch.uniqueId} className={cn('group flex items-center gap-2.5 px-3 py-2 transition-colors',
               String(ch.uniqueId) === String(activeId)
@@ -141,7 +142,12 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, onSelec
             )}>
               <button className="flex items-center gap-2.5 flex-1 text-left min-w-0" onClick={() => onSelect(ch)}>
                 <ChannelLogo src={logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)} name={ch.name} size="xs" />
-                <span className="text-xs truncate">{ch.name}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs truncate">{ch.name}</p>
+                  {epg?.now?.title && (
+                    <p className="text-[10px] text-[var(--color-muted)] truncate leading-tight opacity-75">{epg.now.title}</p>
+                  )}
+                </div>
               </button>
               <button
                 onClick={() => onToggleFavorite(ch)}
@@ -172,6 +178,7 @@ export default function PlayerPage() {
   const [channels, setChannels]       = useState([])
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
+  const [nowNext, setNowNext]         = useState({})
   const { showAdult, disabledGenres }  = useApp()
   const { favoriteIds, toggleFavorite } = useFavorites()
 
@@ -195,6 +202,10 @@ export default function PlayerPage() {
 
   useEffect(() => { channelsRef.current = channels }, [channels])
   useEffect(() => { activeChannelRef.current = activeChannel }, [activeChannel])
+
+  useEffect(() => {
+    getNowNext().then(setNowNext).catch(() => {})
+  }, [])
 
   useEffect(() => {
     getCachedChannelData()
@@ -483,7 +494,7 @@ export default function PlayerPage() {
           <ChannelList
             channels={channels} activeId={activeChannel?.uniqueId}
             logoMap={logoMap} favoriteIds={favoriteIds}
-            groups={groups}
+            groups={groups} nowNext={nowNext}
             onSelect={selectChannel} onToggleFavorite={toggleFavorite}
           />
         )}

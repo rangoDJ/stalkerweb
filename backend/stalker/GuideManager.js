@@ -32,22 +32,22 @@ class GuideManager {
     const cacheFile = this.cacheDir ? path.join(this.cacheDir, 'epg_provider.json') : null;
     const now = Date.now();
 
-    // Return cached data if valid
+    // Return in-memory cached data if still valid
     if (this._useCache && this._epgData && now < this._cacheExpiry) {
       log.info(TAG, 'using cached EPG');
       return this._epgData;
     }
 
-    // Try loading from disk cache
+    // Try loading from disk cache (async — does not block the event loop)
     if (this._useCache && cacheFile) {
       try {
-        const stat = fs.statSync(cacheFile);
+        const stat = await fs.promises.stat(cacheFile);
         const ageMs = now - stat.mtimeMs;
         if (ageMs < this._cacheHours * 3600 * 1000) {
-          const raw = fs.readFileSync(cacheFile, 'utf8');
+          const raw    = await fs.promises.readFile(cacheFile, 'utf8');
           const parsed = JSON.parse(raw);
           if (parsed?.js?.data) {
-            this._epgData = parsed.js.data;
+            this._epgData    = parsed.js.data;
             this._cacheExpiry = stat.mtimeMs + this._cacheHours * 3600 * 1000;
             log.info(TAG, 'loaded EPG from disk cache');
             return this._epgData;
@@ -65,14 +65,14 @@ class GuideManager {
       throw new Error('get_epg_info returned no data');
     }
 
-    this._epgData = data.js.data;
+    this._epgData    = data.js.data;
     this._cacheExpiry = now + this._cacheHours * 3600 * 1000;
 
-    // Persist to disk
+    // Persist to disk (async)
     if (this._useCache && cacheFile) {
       try {
-        fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
-        fs.writeFileSync(cacheFile, JSON.stringify(data), 'utf8');
+        await fs.promises.mkdir(path.dirname(cacheFile), { recursive: true });
+        await fs.promises.writeFile(cacheFile, JSON.stringify(data), 'utf8');
       } catch (e) {
         log.warn(TAG, `failed to write EPG cache: ${e.message}`);
       }

@@ -13,6 +13,7 @@ class ChannelManager {
   constructor(client) {
     this.client = client;
     this._channels = [];
+    this._channelIndex = new Map();   // uniqueId → channel, for O(1) lookups
     this._groups = [];
     this._genreMap = new Map();
     this._loadGroupsPromise = null;   // deduplicates concurrent loadGroups calls
@@ -84,6 +85,8 @@ class ChannelManager {
     });
 
     this._progress = { loading: false, page: this._progress.totalPages, totalPages: this._progress.totalPages, channelCount: this._channels.length };
+    // Build O(1) lookup index
+    this._channelIndex = new Map(this._channels.map((c) => [String(c.uniqueId), c]));
     const withGenre = this._channels.filter((c) => c.genre).length;
     log.info(TAG, `loaded ${this._channels.length} channels (${withGenre} with genre, ${this._groups.length} groups)`);
     if (this._channels.length > 0) {
@@ -160,7 +163,7 @@ class ChannelManager {
   getGroups() { return this._groups; }
 
   getChannel(uniqueId) {
-    return this._channels.find((c) => String(c.uniqueId) === String(uniqueId)) || null;
+    return this._channelIndex.get(String(uniqueId)) ?? null;
   }
 
   // ── Stream URL resolution ─────────────────────────────────────────────────
