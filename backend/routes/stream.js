@@ -85,11 +85,15 @@ module.exports = function streamRoutes(appState, config) {
         try {
           const matrixResult = await client.resolveMatrixUrl(channel.cmd);
           log.debug(TAG, `ch ${channel.number}: resolveMatrixUrl returned: ${JSON.stringify(matrixResult)}`);
-          cmd = matrixResult || channel.cmd;
-          if (!matrixResult) log.warn(TAG, `ch ${channel.number}: matrix returned null/empty, using channel.cmd`);
+          if (matrixResult) {
+            cmd = matrixResult;
+          } else {
+            // matrix resolution failed — do NOT fall back to channel.cmd here because
+            // channel.cmd is a portal matrix endpoint, not a playable stream URL.
+            log.warn(TAG, `ch ${channel.number}: matrix returned null/empty — cannot serve stream`);
+          }
         } catch (e) {
-          log.warn(TAG, `ch ${channel.number}: matrix call failed (${e.message}), falling back to channel.cmd`);
-          cmd = channel.cmd;
+          log.warn(TAG, `ch ${channel.number}: matrix call failed (${e.message})`);
         }
         const spacePos = cmd.indexOf(' ');
         streamUrl = spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;

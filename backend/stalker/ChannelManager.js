@@ -173,7 +173,6 @@ class ChannelManager {
     let usedCreateLink = false;
 
     if (channel.useHttpTmpLink || channel.useLoadBalancing) {
-      usedCreateLink = true;
       log.info(TAG, `ch ${channel.number}: create_link path (useHttpTmpLink=${channel.useHttpTmpLink} useLoadBalancing=${channel.useLoadBalancing})`);
       try {
         const linkData = await this.client.itvCreateLink(channel.cmd);
@@ -192,8 +191,11 @@ class ChannelManager {
         } else {
           log.warn(TAG, `ch ${channel.number}: create_link returned no recognisable cmd field, raw js=${JSON.stringify(linkData?.js)}`);
         }
+        // Mark success only after a response was received (even if cmd is empty)
+        usedCreateLink = true;
       } catch (e) {
         log.warn(TAG, `ch ${channel.number}: create_link threw (${e.message}), falling back to direct cmd`);
+        // usedCreateLink stays false so the last-resort block can retry
       }
       if (!cmd) {
         log.warn(TAG, `ch ${channel.number}: create_link yielded empty cmd, falling back to channel.cmd="${channel.cmd}"`);
@@ -209,11 +211,12 @@ class ChannelManager {
     const url = spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;
     log.debug(TAG, `ch ${channel.number}: extracted url="${url || '(empty)'}"`);
 
-    // Last-resort: if direct cmd gave no URL, try create_link regardless of flags.
+    // Last-resort: if cmd gave no usable URL, try create_link regardless of flags.
     // Some portals require dynamic link creation for all channels even when
-    // use_http_tmp_link=0 and use_load_balancing=0.
-    // Guard: skip if we already called create_link above to avoid a redundant duplicate call.
-    if (!url && channel.cmd && !usedCreateLink) {
+    // use_http_tmp_link=0 and use_load_balancing=0. Also retries when create_link
+    // threw a transient error above (usedCreateLink=false in that case).
+    // A bare ffrt token (e.g. "ffrt2") is not a playable URL, so check startsWith('http').
+    if ((!url || !url.startsWith('http')) && channel.cmd && !usedCreateLink) {
       log.warn(TAG, `ch ${channel.number}: direct cmd yielded no url, trying create_link as last resort`);
       try {
         const linkData = await this.client.itvCreateLink(channel.cmd);

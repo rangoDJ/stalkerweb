@@ -471,8 +471,9 @@ class StalkerClient {
   async resolveMatrixUrl(cmd) {
     // Use filter(Boolean) to discard empty segments from trailing slashes,
     // then take the last path segment as the channel identifier.
+    // Strip any query string from the segment so ?token=abc doesn't corrupt the matrix API call.
     const parts = cmd.split('/').filter(Boolean);
-    const channel = parts[parts.length - 1] || '';
+    const channel = (parts[parts.length - 1] || '').split('?')[0];
     if (!channel) {
       log.warn(TAG, `resolveMatrixUrl: could not extract channel segment from cmd="${cmd}"`);
     }
