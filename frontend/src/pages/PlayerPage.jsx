@@ -73,6 +73,7 @@ function useVirtualList(items, containerRef, overscan = 3) {
     if (!el) return
     const onScroll = () => setScrollTop(el.scrollTop)
     el.addEventListener('scroll', onScroll, { passive: true })
+    setScrollTop(el.scrollTop)  // seed initial position, matching clientHeight seed above
     return () => el.removeEventListener('scroll', onScroll)
   }, [containerRef])
 
