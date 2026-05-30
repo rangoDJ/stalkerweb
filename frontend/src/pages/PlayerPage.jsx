@@ -14,7 +14,7 @@ import { getStreamUrl, streamKeepalive, getProxiedLogoUrl, getNowNext } from '..
 import { useApp } from '@/lib/appContext'
 import { ChannelLogo } from '@/components/ChannelLogo'
 import { useFavorites } from '@/lib/useFavorites'
-import { getCachedChannelData } from '@/lib/channelCache'
+import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 
 // ── Controls bar ──────────────────────────────────────────────────────────
 function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
@@ -220,6 +220,7 @@ export default function PlayerPage() {
   const hideTimer    = useRef(null)
   const retryCount   = useRef(0)
 
+  const [rawData, setRawData]         = useState(null)
   const [channels, setChannels]       = useState([])
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
@@ -252,28 +253,31 @@ export default function PlayerPage() {
     getNowNext().then(setNowNext).catch(() => {})
   }, [])
 
+  // Effect: fetch initial (partial) data + subscribe to full-data updates
   useEffect(() => {
-    getCachedChannelData()
-      .then(({ channels: chList, groups: gList, logoMap: lm }) => {
-        let ch = chList
-        let gr = gList.filter(g => g.name?.toLowerCase() !== 'all')
+    let cancelled = false
+    getCachedChannelData().then(d => { if (!cancelled) setRawData(d) }).catch(() => {})
+    const unsub = subscribeChannelUpdates(d => { if (!cancelled) setRawData(d) })
+    return () => { cancelled = true; unsub() }
+  }, [])
 
-        if (!showAdult) {
-          ch = ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
-          gr = gr.filter(g => !isAdult(g.name))
-        }
-
-        if (disabledGenres.size > 0) {
-          ch = ch.filter(c => !c.genre || !disabledGenres.has(c.genre))
-          gr = gr.filter(g => !disabledGenres.has(g.name))
-        }
-
-        setChannels(ch)
-        setGroups(gr)
-        setLogoMap(lm)
-      })
-      .catch(() => {})
-  }, [showAdult, disabledGenres])
+  // Effect: re-apply filters whenever raw data or filter settings change
+  useEffect(() => {
+    if (!rawData) return
+    let ch = rawData.channels
+    let gr = rawData.groups.filter(g => g.name?.toLowerCase() !== 'all')
+    if (!showAdult) {
+      ch = ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+      gr = gr.filter(g => !isAdult(g.name))
+    }
+    if (disabledGenres.size > 0) {
+      ch = ch.filter(c => !c.genre || !disabledGenres.has(c.genre))
+      gr = gr.filter(g => !disabledGenres.has(g.name))
+    }
+    setChannels(ch)
+    setGroups(gr)
+    setLogoMap(rawData.logoMap)
+  }, [rawData, showAdult, disabledGenres])
 
   // loadStream as a proper useCallback so deps are explicit
   const loadStream = useCallback(async (channelId, isRetry = false) => {

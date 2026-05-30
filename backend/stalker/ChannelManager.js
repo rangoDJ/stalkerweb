@@ -16,16 +16,29 @@ class ChannelManager {
     this._channelIndex = new Map();   // uniqueId → channel, for O(1) lookups
     this._groups = [];
     this._genreMap = new Map();
-    this._loadGroupsPromise = null;   // deduplicates concurrent loadGroups calls
+    this._loadGroupsPromise = null;    // deduplicates concurrent loadGroups calls
+    this._loadChannelsPromise = null;  // deduplicates concurrent loadChannels calls
     this._progress = { loading: false, page: 0, totalPages: 0, channelCount: 0 };
   }
 
   getProgress() { return { ...this._progress }; }
 
   // ── Load channels ──────────────────────────────────────────────────────────
+  // Deduplicates concurrent calls — only one fetch runs at a time.
+  // Callers that arrive while a load is in progress wait on the same promise
+  // instead of resetting _channels and starting a second concurrent fetch.
+  loadChannels() {
+    if (!this._loadChannelsPromise) {
+      this._loadChannelsPromise = this._doLoadChannels().finally(() => {
+        this._loadChannelsPromise = null;
+      });
+    }
+    return this._loadChannelsPromise;
+  }
+
   // Mirrors ChannelManager::LoadChannels()
   // First calls GetAllChannels to seed, then pages through GetOrderedList.
-  async loadChannels() {
+  async _doLoadChannels() {
     this._channels = [];
     this._progress = { loading: true, page: 0, totalPages: 0, channelCount: 0 };
 
