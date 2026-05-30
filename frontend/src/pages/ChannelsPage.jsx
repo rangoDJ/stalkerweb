@@ -9,7 +9,7 @@ import { SkeletonGrid } from '@/components/ui/skeleton'
 import { getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
 import { getRecentlyWatched, removeRecentlyWatched } from '@/lib/recentlyWatched'
 import { useApp } from '@/lib/appContext'
-import { getCachedChannelData } from '@/lib/channelCache'
+import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 import { useFavorites } from '@/lib/useFavorites'
 
 // ── Channel card ──────────────────────────────────────────────────────────
@@ -92,11 +92,12 @@ export default function ChannelsPage() {
   const { showAdult, disabledGenres } = useApp()
   const [searchParams, setSearchParams] = useSearchParams()
 
+  const [rawData, setRawData]         = useState(null) // unfiltered snapshot from cache
   const [channels, setChannels]       = useState([])
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
   const { favoriteIds, toggleFavorite } = useFavorites()
-  const [loading, setLoading]         = useState(true)
+  const [loading, setLoading]         = useState(true)  // true only before first data arrives
   const [error, setError]             = useState(null)
   const [progress, setProgress]       = useState(null) // { loading, page, totalPages, channelCount }
   const [recentlyWatched, setRecentlyWatched] = useState([])
@@ -123,7 +124,9 @@ export default function ChannelsPage() {
     getNowNext().then(setNowNext).catch(() => {})
   }, [])
 
-  // Load channels from the shared module cache, then poll server progress if still loading
+  // Effect 1: fetch initial (possibly partial) data + subscribe to full-data updates.
+  // Runs once on mount.  The subscription fires later when the backend finishes
+  // loading all channels, so the grid populates on the fly without blocking.
   useEffect(() => {
     let progressTimer
     let cancelled = false
@@ -138,26 +141,11 @@ export default function ChannelsPage() {
     }
 
     getCachedChannelData()
-      .then(({ channels: chList, groups: gList, logoMap: lm }) => {
+      .then(data => {
         if (cancelled) return
-        let ch = chList
-        let gr = gList.filter(g => g.name?.toLowerCase() !== 'all')
-
-        if (!showAdult) {
-          ch = ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
-          gr = gr.filter(g => !isAdult(g.name))
-        }
-
-        if (disabledGenres.size > 0) {
-          ch = ch.filter(c => !c.genre || !disabledGenres.has(c.genre))
-          gr = gr.filter(g => !disabledGenres.has(g.name))
-        }
-
-        setChannels(ch)
-        setGroups(gr)
-        setLogoMap(lm)
+        setRawData(data)
         setLoading(false)
-        pollProgress()
+        if (data.loading) pollProgress()   // backend still loading — track progress
       })
       .catch(err => {
         if (cancelled) return
@@ -165,8 +153,36 @@ export default function ChannelsPage() {
         setLoading(false)
       })
 
-    return () => { cancelled = true; clearTimeout(progressTimer) }
-  }, [showAdult, disabledGenres])
+    // Subscribe so the grid updates automatically when the full channel list arrives
+    const unsub = subscribeChannelUpdates(data => {
+      if (cancelled) return
+      setRawData(data)
+      setProgress(p => p ? { ...p, loading: false } : null)
+    })
+
+    return () => { cancelled = true; clearTimeout(progressTimer); unsub() }
+  }, [])
+
+  // Effect 2: re-apply adult/genre filters whenever raw data or filter settings change.
+  useEffect(() => {
+    if (!rawData) return
+    let ch = rawData.channels
+    let gr = rawData.groups.filter(g => g.name?.toLowerCase() !== 'all')
+
+    if (!showAdult) {
+      ch = ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+      gr = gr.filter(g => !isAdult(g.name))
+    }
+
+    if (disabledGenres.size > 0) {
+      ch = ch.filter(c => !c.genre || !disabledGenres.has(c.genre))
+      gr = gr.filter(g => !disabledGenres.has(g.name))
+    }
+
+    setChannels(ch)
+    setGroups(gr)
+    setLogoMap(rawData.logoMap)
+  }, [rawData, showAdult, disabledGenres])
 
   const openChannel = useCallback((channel) => {
     navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
@@ -289,8 +305,13 @@ export default function ChannelsPage() {
           </section>
         )}
 
-        {/* Progress bar while loading */}
-        {loading && progress?.loading && progress.totalPages > 0 && (
+        {/* Skeleton — only while waiting for the very first response */}
+        {loading && (
+          <SkeletonGrid count={12} />
+        )}
+
+        {/* Progress bar — shows while backend is still fetching pages (even after first channels appear) */}
+        {!loading && progress?.loading && progress.totalPages > 0 && (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between text-xs text-[var(--color-muted)]">
               <span>Loading channels…</span>
@@ -305,10 +326,6 @@ export default function ChannelsPage() {
           </div>
         )}
 
-        {loading && (!progress?.loading || !progress?.totalPages) && (
-          <SkeletonGrid count={12} />
-        )}
-
         {!loading && error && (
           <div className="flex flex-col items-center justify-center gap-3 h-48 text-center">
             <AlertCircle size={32} className="text-[var(--color-live)]" />
@@ -319,13 +336,15 @@ export default function ChannelsPage() {
           </div>
         )}
 
-        {!loading && !error && filtered.length === 0 && (
+        {/* Empty state — only shown when loading is truly complete with no results */}
+        {!loading && !progress?.loading && !error && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 h-48 text-center">
             <Tv2 size={32} className="text-[var(--color-muted)]" />
             <p className="text-sm text-[var(--color-muted)]">No channels found.</p>
           </div>
         )}
 
+        {/* Channel grid — renders as soon as any channels are available */}
         {!loading && !error && filtered.length > 0 && (
           <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
             {filtered.map(ch => (

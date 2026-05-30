@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { getChannelEpg } from '../stalkerApi'
-import { getCachedChannelData } from '@/lib/channelCache'
+import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 
 const PERIODS = [
   { label: '6h', value: 6 },
@@ -37,10 +37,27 @@ export default function GuidePage() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
+    let cancelled = false
+    const hasInit = { current: false }
+
     getCachedChannelData()
-      .then(({ channels }) => { setChannels(channels); if (channels.length) setActiveChannel(channels[0]) })
-      .catch(e => setError(e.message))
-      .finally(() => setLoadingChannels(false))
+      .then(({ channels: ch }) => {
+        if (cancelled) return
+        setChannels(ch)
+        if (ch.length && !hasInit.current) { hasInit.current = true; setActiveChannel(ch[0]) }
+        setLoadingChannels(false)
+      })
+      .catch(e => { if (!cancelled) { setError(e.message); setLoadingChannels(false) } })
+
+    // Subscribe so the sidebar populates automatically when loading completes
+    const unsub = subscribeChannelUpdates(({ channels: ch }) => {
+      if (cancelled) return
+      setChannels(ch)
+      if (ch.length && !hasInit.current) { hasInit.current = true; setActiveChannel(ch[0]) }
+      setLoadingChannels(false)
+    })
+
+    return () => { cancelled = true; unsub() }
   }, [])
 
   useEffect(() => {
