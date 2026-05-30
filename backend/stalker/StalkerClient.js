@@ -469,12 +469,20 @@ class StalkerClient {
   // ── Matrix channel URL resolution ─────────────────────────────────────────
   // Mirrors the matrix block in StalkerInstance::GetChannelStreamURL()
   async resolveMatrixUrl(cmd) {
-    const parts = cmd.split('/');
-    const channel = parts[parts.length - 1];
+    // Use filter(Boolean) to discard empty segments from trailing slashes,
+    // then take the last path segment as the channel identifier.
+    const parts = cmd.split('/').filter(Boolean);
+    const channel = parts[parts.length - 1] || '';
+    if (!channel) {
+      log.warn(TAG, `resolveMatrixUrl: could not extract channel segment from cmd="${cmd}"`);
+    }
+
     const matrixUrl =
       `${this.basePath}server/api/matrix.php` +
       `?channel=${encodeURIComponent(channel)}` +
       `&mac=${encodeURIComponent(this.identity.mac)}`;
+
+    log.info(TAG, `resolveMatrixUrl: GET ${matrixUrl}`);
 
     const response = await this.http.get(matrixUrl, {
       headers: this._buildHeaders(),
@@ -482,10 +490,21 @@ class StalkerClient {
     });
 
     const body = response.data;
+    log.debug(TAG, `resolveMatrixUrl: raw response type=${typeof body} body=${JSON.stringify(body)?.slice(0, 200)}`);
+
     if (typeof body === 'string') {
-      const p = body.trim().split(' ');
-      return p[p.length - 1];
+      const trimmed = body.trim();
+      if (!trimmed) {
+        log.warn(TAG, `resolveMatrixUrl: empty string response`);
+        return null;
+      }
+      const p = trimmed.split(' ');
+      const resolved = p[p.length - 1];
+      log.info(TAG, `resolveMatrixUrl: resolved="${resolved}"`);
+      return resolved;
     }
+
+    log.warn(TAG, `resolveMatrixUrl: unexpected non-string response (type=${typeof body})`);
     return null;
   }
 }
