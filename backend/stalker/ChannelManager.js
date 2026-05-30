@@ -40,6 +40,7 @@ class ChannelManager {
   // First calls GetAllChannels to seed, then pages through GetOrderedList.
   async _doLoadChannels() {
     this._channels = [];
+    this._channelIndex = new Map();   // reset so stale entries don't linger during reload
     this._progress = { loading: true, page: 0, totalPages: 0, channelCount: 0 };
 
     // Load groups first so genre names can be resolved during channel parsing.
@@ -134,6 +135,9 @@ class ChannelManager {
       };
 
       this._channels.push(channel);
+      // Keep index in sync as each page arrives so getChannel() works
+      // immediately — even while loading is still in progress.
+      this._channelIndex.set(channel.uniqueId, channel);
     }
   }
 
