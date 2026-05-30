@@ -170,48 +170,65 @@ class ChannelManager {
   // Mirrors ChannelManager::GetStreamURL() + ParseStreamCmd()
   async getStreamUrl(channel) {
     let cmd = '';
+    let usedCreateLink = false;
 
     if (channel.useHttpTmpLink || channel.useLoadBalancing) {
-      log.info(TAG, `getting temp stream url for ch ${channel.number}`);
+      usedCreateLink = true;
+      log.info(TAG, `ch ${channel.number}: create_link path (useHttpTmpLink=${channel.useHttpTmpLink} useLoadBalancing=${channel.useLoadBalancing})`);
       try {
         const linkData = await this.client.itvCreateLink(channel.cmd);
+        log.debug(TAG, `ch ${channel.number}: create_link raw js=${JSON.stringify(linkData?.js)}`);
+
         // Portals differ: some use js.cmd, others js.url, some return js as a string
-        cmd = linkData?.js?.cmd
-           || linkData?.js?.url
-           || (typeof linkData?.js === 'string' ? linkData.js : '')
-           || '';
+        if (linkData?.js?.cmd) {
+          cmd = linkData.js.cmd;
+          log.debug(TAG, `ch ${channel.number}: picked js.cmd="${cmd}"`);
+        } else if (linkData?.js?.url) {
+          cmd = linkData.js.url;
+          log.debug(TAG, `ch ${channel.number}: picked js.url="${cmd}"`);
+        } else if (typeof linkData?.js === 'string' && linkData.js) {
+          cmd = linkData.js;
+          log.debug(TAG, `ch ${channel.number}: picked js (string)="${cmd}"`);
+        } else {
+          log.warn(TAG, `ch ${channel.number}: create_link returned no recognisable cmd field, raw js=${JSON.stringify(linkData?.js)}`);
+        }
       } catch (e) {
-        log.warn(TAG, `create_link failed (${e.message}), falling back to direct cmd`);
+        log.warn(TAG, `ch ${channel.number}: create_link threw (${e.message}), falling back to direct cmd`);
       }
       if (!cmd) {
-        log.warn(TAG, `create_link returned no url for ch ${channel.number}, using direct cmd`);
+        log.warn(TAG, `ch ${channel.number}: create_link yielded empty cmd, falling back to channel.cmd="${channel.cmd}"`);
         cmd = channel.cmd;
       }
     } else {
+      log.debug(TAG, `ch ${channel.number}: direct cmd path, cmd="${channel.cmd}"`);
       cmd = channel.cmd;
     }
 
-    log.debug(TAG, `stream cmd for ch ${channel.number}: ${cmd}`);
-
-    // cmd format: "ffrt<n> <url>" → extract url after space
+    // cmd format: "ffrt<n> <url>" → extract url after first space
     const spacePos = cmd.indexOf(' ');
     const url = spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;
+    log.debug(TAG, `ch ${channel.number}: extracted url="${url || '(empty)'}"`);
 
     // Last-resort: if direct cmd gave no URL, try create_link regardless of flags.
     // Some portals require dynamic link creation for all channels even when
     // use_http_tmp_link=0 and use_load_balancing=0.
-    if (!url && channel.cmd) {
-      log.warn(TAG, `direct cmd yielded no url for ch ${channel.number}, trying create_link`);
+    // Guard: skip if we already called create_link above to avoid a redundant duplicate call.
+    if (!url && channel.cmd && !usedCreateLink) {
+      log.warn(TAG, `ch ${channel.number}: direct cmd yielded no url, trying create_link as last resort`);
       try {
         const linkData = await this.client.itvCreateLink(channel.cmd);
+        log.debug(TAG, `ch ${channel.number}: last-resort create_link raw js=${JSON.stringify(linkData?.js)}`);
         const fallbackCmd = linkData?.js?.cmd || linkData?.js?.url
           || (typeof linkData?.js === 'string' ? linkData.js : '') || '';
         if (fallbackCmd) {
           const sp = fallbackCmd.indexOf(' ');
-          return sp !== -1 ? fallbackCmd.slice(sp + 1) : fallbackCmd;
+          const fallbackUrl = sp !== -1 ? fallbackCmd.slice(sp + 1) : fallbackCmd;
+          log.info(TAG, `ch ${channel.number}: last-resort create_link resolved url="${fallbackUrl}"`);
+          return fallbackUrl;
         }
+        log.warn(TAG, `ch ${channel.number}: last-resort create_link also returned no url`);
       } catch (e) {
-        log.warn(TAG, `create_link fallback also failed: ${e.message}`);
+        log.warn(TAG, `ch ${channel.number}: last-resort create_link threw: ${e.message}`);
       }
     }
 
