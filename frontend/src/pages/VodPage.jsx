@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Film, Tv2, ChevronLeft, ChevronRight, Star, Clock, X, Loader2, Play } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Search, Film, Tv2, ChevronLeft, ChevronRight, Clock, X, Loader2, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getVodCategories, getVodItems, getVodSeasons } from '../stalkerApi'
-import { useApp } from '@/lib/appContext'
 
 // ── Thumbnail component ───────────────────────────────────────────────────
 function Thumb({ src, name, isHD }) {
@@ -202,7 +201,6 @@ function buildPlayerParams(item, seriesNo, episodeTitle) {
 // ── Main VOD page ─────────────────────────────────────────────────────────
 export default function VodPage() {
   const navigate  = useNavigate()
-  const [searchParams, setSearchParams] = useSearchParams()
 
   const [vodType, setVodType]         = useState('vod')
   const [categories, setCategories]   = useState([])
@@ -214,7 +212,7 @@ export default function VodPage() {
   const [itemsLoading, setItemsLoading] = useState(false)
   const [itemsError, setItemsError]   = useState('')
   const [totalItems, setTotalItems]   = useState(0)
-  const [totalPages, setTotalPages]   = useState(1)
+  const [, setTotalPages]             = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
   const [hasMore, setHasMore]         = useState(false)
 
