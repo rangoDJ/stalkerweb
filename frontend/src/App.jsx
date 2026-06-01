@@ -1,6 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2 } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
@@ -8,11 +8,13 @@ import { getStatus, getSettings } from './stalkerApi'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastHost } from '@/components/ToastHost'
 
-const SetupPage     = lazy(() => import('./pages/SetupPage'))
-const ChannelsPage  = lazy(() => import('./pages/ChannelsPage'))
-const PlayerPage    = lazy(() => import('./pages/PlayerPage'))
-const GuidePage     = lazy(() => import('./pages/GuidePage'))
-const FavoritesPage = lazy(() => import('./pages/FavoritesPage'))
+const SetupPage      = lazy(() => import('./pages/SetupPage'))
+const ChannelsPage   = lazy(() => import('./pages/ChannelsPage'))
+const PlayerPage     = lazy(() => import('./pages/PlayerPage'))
+const GuidePage      = lazy(() => import('./pages/GuidePage'))
+const FavoritesPage  = lazy(() => import('./pages/FavoritesPage'))
+const VodPage        = lazy(() => import('./pages/VodPage'))
+const VodPlayerPage  = lazy(() => import('./pages/VodPlayerPage'))
 
 // ── Nav link style ────────────────────────────────────────────────────────
 function NavItem({ to, icon: Icon, label }) {
@@ -103,6 +105,7 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
       {connected && (
         <nav className="flex items-center gap-1">
           <NavItem to="/channels" icon={Tv2} label="Channels" />
+          <NavItem to="/vod"      icon={Film} label="VOD" />
           <NavItem to="/favorites" icon={Heart} label="Favorites" />
           {epgEnabled && <NavItem to="/guide" icon={BookOpen} label="Guide" />}
         </nav>
@@ -219,6 +222,22 @@ function AppInner() {
               element={
                 <RequireAuth connected={connected}>
                   <GuidePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/vod"
+              element={
+                <RequireAuth connected={connected}>
+                  <VodPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/vod-player"
+              element={
+                <RequireAuth connected={connected}>
+                  <VodPlayerPage />
                 </RequireAuth>
               }
             />

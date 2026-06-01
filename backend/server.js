@@ -32,6 +32,7 @@ const appState = {
   sessionManager: null,
   channelManager: null,
   guideManager: null,
+  vodManager: null,
   identity: null,
 };
 
@@ -100,6 +101,9 @@ appState.touchActivity = function touchActivity() {
   appState._idleTimer = setTimeout(destroySession, IDLE_TIMEOUT_MS);
 };
 
+const VodManager   = require('./stalker/VodManager');
+const vodRoutes    = require('./routes/vod')(appState);
+
 const channelRoutes = require('./routes/channels')(appState);
 const epgRoutes = require('./routes/epg')(appState);
 const streamRoutes = require('./routes/stream')(appState, config);
@@ -112,6 +116,7 @@ const favoritesRoutes = require('./routes/favorites')(favoritesManager, appState
 const exportRoutes    = require('./routes/export')(config);
 
 app.use('/api/auth', authRoutes);
+app.use('/api/vod', vodRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/epg', epgRoutes);
 app.use('/api/stream', streamRoutes);

@@ -1,0 +1,89 @@
+// routes/vod.js
+// GET /api/vod/categories?type=vod|series
+// GET /api/vod/items?type=vod|series&category=X&page=1&search=&fav=0
+// GET /api/vod/seasons/:movieId
+// GET /api/vod/stream?videoId=X&cmd=<encoded>&series=0
+
+'use strict';
+
+const express = require('express');
+const router  = express.Router();
+const sessionMiddleware = require('../middleware/session');
+const log = require('../logger');
+const TAG = 'vod';
+
+module.exports = function vodRoutes(appState) {
+  const guard = sessionMiddleware(appState);
+
+  // GET /api/vod/categories?type=vod|series
+  router.get('/categories', guard, async (req, res) => {
+    const { vodManager } = appState;
+    const type = req.query.type === 'series' ? 'series' : 'vod';
+    const categories = await vodManager.getCategories(type);
+    res.json({ categories });
+  });
+
+  // GET /api/vod/items?type=vod|series&category=X&page=1&search=&fav=0
+  router.get('/items', guard, async (req, res) => {
+    const { vodManager } = appState;
+    const { category, search = '', fav = '0', page = '1' } = req.query;
+    const type = req.query.type === 'series' ? 'series' : 'vod';
+
+    if (!category) return res.status(400).json({ error: 'category is required' });
+
+    const result = await vodManager.getItems({
+      type,
+      categoryId: category,
+      page:       Math.max(1, parseInt(page, 10) || 1),
+      search:     search.trim(),
+      fav:        fav === '1' ? 1 : 0,
+    });
+
+    // Resolve screenshot URIs to absolute URLs server-side
+    result.items = result.items.map(item => ({
+      ...item,
+      screenshotUrl: item.screenshotUri ? vodManager.resolveScreenshot(item.screenshotUri) : null,
+    }));
+
+    appState.touchActivity?.();
+    res.json(result);
+  });
+
+  // GET /api/vod/seasons/:movieId
+  router.get('/seasons/:movieId', guard, async (req, res) => {
+    const { vodManager } = appState;
+    const seasons = await vodManager.getSeasons(req.params.movieId);
+    const normalized = seasons.map(s => ({
+      ...s,
+      screenshotUrl: s.screenshotUri ? vodManager.resolveScreenshot(s.screenshotUri) : null,
+    }));
+    log.info(TAG, `seasons for movieId=${req.params.movieId}: ${normalized.length} seasons`);
+    res.json({ seasons: normalized });
+  });
+
+  // GET /api/vod/stream?videoId=X&cmd=<encoded>&series=0
+  router.get('/stream', guard, async (req, res) => {
+    const { vodManager } = appState;
+    const { videoId, cmd = '', series = '0' } = req.query;
+    if (!videoId) return res.status(400).json({ error: 'videoId is required' });
+
+    log.info(TAG, `resolve stream: videoId=${videoId} series=${series}`);
+
+    let streamUrl;
+    try {
+      streamUrl = await vodManager.getStreamUrl(
+        videoId,
+        cmd || null,
+        parseInt(series, 10) || 0,
+      );
+    } catch (e) {
+      log.error(TAG, `stream resolution failed: ${e.message}`);
+      return res.status(502).json({ error: e.message });
+    }
+
+    appState.touchActivity?.();
+    res.json({ streamUrl, videoId });
+  });
+
+  return router;
+};
