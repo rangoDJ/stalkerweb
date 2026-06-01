@@ -86,51 +86,67 @@ class VodManager {
   //   Fallback: create_link with cmd string from listing
   //   Last resort: use cmd directly if it is already a playable URL
   async getStreamUrl(videoId, cmd, series = 0) {
-    // Primary path
+    const seriesStr = String(series);
+
+    // ── Attempt 1: create_link with /media/{id}.mpg (standard primary path) ──
+    // Note: no forced_storage — Kodi plugin omits it for VOD and some portals
+    // reject the request with "nothing_to_play" when it is present.
     try {
       const r = await this.client._stalkerCall({
-        type:            'vod',
-        action:          'create_link',
-        cmd:             `/media/${videoId}.mpg`,
-        series:          String(series),
-        forced_storage:  'undefined',
+        type:   'vod',
+        action: 'create_link',
+        cmd:    `/media/${videoId}.mpg`,
+        series: seriesStr,
       });
       const url = this._extractCmdUrl(r?.js);
       if (url) {
         log.info(TAG, `stream resolved (primary): ${url.slice(0, 80)}…`);
         return url;
       }
-      log.warn(TAG, `primary create_link returned no url, js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
+      log.warn(TAG, `primary create_link: no url  js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
     } catch (e) {
       log.warn(TAG, `primary create_link failed for ${videoId}: ${e.message}`);
     }
 
-    // Fallback: create_link with cmd from listing
-    if (cmd) {
+    // ── Attempt 2: create_link with cmd from listing (only if different) ──
+    const listingCmd = cmd && cmd !== `/media/${videoId}.mpg` ? cmd : null;
+    if (listingCmd) {
       try {
         const r = await this.client._stalkerCall({
-          type:            'vod',
-          action:          'create_link',
-          cmd,
-          series:          String(series),
-          forced_storage:  'undefined',
+          type:   'vod',
+          action: 'create_link',
+          cmd:    listingCmd,
+          series: seriesStr,
         });
         const url = this._extractCmdUrl(r?.js);
         if (url) {
-          log.info(TAG, `stream resolved (fallback create_link): ${url.slice(0, 80)}…`);
+          log.info(TAG, `stream resolved (listing cmd): ${url.slice(0, 80)}…`);
           return url;
         }
-        log.warn(TAG, `fallback create_link returned no url, js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
+        log.warn(TAG, `listing-cmd create_link: no url  js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
       } catch (e) {
-        log.warn(TAG, `fallback create_link failed for ${videoId}: ${e.message}`);
+        log.warn(TAG, `listing-cmd create_link failed: ${e.message}`);
       }
+    }
 
-      // Last resort: use the cmd from the listing directly if it is already a URL
+    // ── Attempt 3: cmd from listing is already a playable URL ──
+    if (cmd) {
       const direct = this._extractUrl(cmd);
       if (direct) {
-        log.info(TAG, `stream resolved (direct cmd): ${direct.slice(0, 80)}…`);
+        log.info(TAG, `stream resolved (direct listing url): ${direct.slice(0, 80)}…`);
         return direct;
       }
+    }
+
+    // ── Attempt 4: construct absolute URL from portal basePath + cmd ──
+    // Some portals return "nothing_to_play" for create_link but serve the
+    // /media/{id}.mpg path directly (authenticated via session cookies).
+    const relCmd = cmd || `/media/${videoId}.mpg`;
+    const base   = (this.client?.basePath || '').replace(/\/$/, '');
+    if (base.startsWith('http')) {
+      const constructed = base + '/' + relCmd.replace(/^\//, '');
+      log.info(TAG, `stream resolved (constructed basePath+cmd): ${constructed.slice(0, 80)}…`);
+      return constructed;
     }
 
     throw new Error('Could not resolve VOD stream URL');
