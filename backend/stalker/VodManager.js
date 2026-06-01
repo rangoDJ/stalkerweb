@@ -84,6 +84,7 @@ class VodManager {
   // Mirrors api.py get_vod_stream_url():
   //   Primary:  create_link with /media/{videoId}.mpg
   //   Fallback: create_link with cmd string from listing
+  //   Last resort: use cmd directly if it is already a playable URL
   async getStreamUrl(videoId, cmd, series = 0) {
     // Primary path
     try {
@@ -94,16 +95,17 @@ class VodManager {
         series:          String(series),
         forced_storage:  'undefined',
       });
-      const url = this._extractUrl(r?.js?.cmd);
+      const url = this._extractCmdUrl(r?.js);
       if (url) {
         log.info(TAG, `stream resolved (primary): ${url.slice(0, 80)}…`);
         return url;
       }
+      log.warn(TAG, `primary create_link returned no url, js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
     } catch (e) {
       log.warn(TAG, `primary create_link failed for ${videoId}: ${e.message}`);
     }
 
-    // Fallback path
+    // Fallback: create_link with cmd from listing
     if (cmd) {
       try {
         const r = await this.client._stalkerCall({
@@ -113,13 +115,21 @@ class VodManager {
           series:          String(series),
           forced_storage:  'undefined',
         });
-        const url = this._extractUrl(r?.js?.cmd);
+        const url = this._extractCmdUrl(r?.js);
         if (url) {
-          log.info(TAG, `stream resolved (fallback): ${url.slice(0, 80)}…`);
+          log.info(TAG, `stream resolved (fallback create_link): ${url.slice(0, 80)}…`);
           return url;
         }
+        log.warn(TAG, `fallback create_link returned no url, js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
       } catch (e) {
         log.warn(TAG, `fallback create_link failed for ${videoId}: ${e.message}`);
+      }
+
+      // Last resort: use the cmd from the listing directly if it is already a URL
+      const direct = this._extractUrl(cmd);
+      if (direct) {
+        log.info(TAG, `stream resolved (direct cmd): ${direct.slice(0, 80)}…`);
+        return direct;
       }
     }
 
@@ -134,6 +144,17 @@ class VodManager {
     if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
     const base = (this.client?.basePath || '').replace(/\/$/, '');
     return base + '/' + uri.replace(/^\//, '');
+  }
+
+  // Extract the playable URL from a create_link js response.
+  // Mirrors ChannelManager.getStreamUrl() which handles three portal variants:
+  //   js.cmd  — most common ("ffrt2 http://..." or plain "http://...")
+  //   js.url  — alternative field name used by some portals
+  //   js      — some portals return the cmd as a bare string
+  _extractCmdUrl(js) {
+    if (!js) return null;
+    const raw = js.cmd || js.url || (typeof js === 'string' ? js : null);
+    return raw ? this._extractUrl(raw) : null;
   }
 
   // Strip the "ffrt<n> " or "ffmpeg " prefix that Stalker portals prepend to
