@@ -17,7 +17,7 @@ import { useFavorites } from '@/lib/useFavorites'
 import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 
 // ── Controls bar ──────────────────────────────────────────────────────────
-function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
+function Controls({ playing, muted, volume, isFullscreen, channelName, jumpDigits, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent">
       <div className="flex items-center gap-2">
@@ -37,9 +37,15 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, onPlayPau
       <div className="flex-1 text-center">
         <span className="text-sm font-medium text-white/90 truncate">{channelName}</span>
       </div>
-      <div className="flex items-center gap-1 text-xs text-white/50 mr-2 hidden sm:block">
-        Space·F·M·↑↓ ch
-      </div>
+      {jumpDigits ? (
+        <div className="text-sm font-mono font-bold text-white bg-white/20 rounded px-2 py-0.5 min-w-[2.5rem] text-center">
+          {jumpDigits}
+        </div>
+      ) : (
+        <div className="flex items-center gap-1 text-xs text-white/50 mr-2 hidden sm:block">
+          Space·F·M·↑↓·0-9
+        </div>
+      )}
       <div className="flex items-center gap-1">
         <button onClick={onToggleList} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label="Toggle channel list">
           <List size={18} />
@@ -73,7 +79,7 @@ function useVirtualList(items, containerRef, overscan = 3) {
     if (!el) return
     const onScroll = () => setScrollTop(el.scrollTop)
     el.addEventListener('scroll', onScroll, { passive: true })
-    setScrollTop(el.scrollTop)  // seed initial position, matching clientHeight seed above
+    setScrollTop(el.scrollTop)
     return () => el.removeEventListener('scroll', onScroll)
   }, [containerRef])
 
@@ -84,6 +90,20 @@ function useVirtualList(items, containerRef, overscan = 3) {
     totalHeight:  items.length * ROW_H,
     offsetY:      startIndex * ROW_H,
   }
+}
+
+// ── EPG progress bar ──────────────────────────────────────────────────────
+function EpgProgress({ epg }) {
+  const now = Math.floor(Date.now() / 1000)
+  if (!epg?.now?.startTime || !epg?.now?.endTime) return null
+  const pct = Math.min(100, Math.max(0,
+    ((now - epg.now.startTime) / (epg.now.endTime - epg.now.startTime)) * 100
+  ))
+  return (
+    <div className="h-0.5 w-full bg-[var(--color-border)] rounded-full overflow-hidden mt-0.5">
+      <div className="h-full bg-[var(--color-primary-light)] rounded-full" style={{ width: `${pct}%` }} />
+    </div>
+  )
 }
 
 // ── Channel list panel ────────────────────────────────────────────────────
@@ -183,25 +203,38 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext
           <div style={{ height: totalHeight, position: 'relative' }}>
             <div style={{ transform: `translateY(${offsetY}px)` }}>
               {visibleItems.map(ch => {
-                const isFav = favoriteIds.has(String(ch.uniqueId))
-                const epg   = nowNext?.[String(ch.uniqueId)]
+                const isFav   = favoriteIds.has(String(ch.uniqueId))
+                const epg     = nowNext?.[String(ch.uniqueId)]
+                const isActive = String(ch.uniqueId) === String(activeId)
                 return (
                   <div
                     key={ch.uniqueId}
                     style={{ height: ROW_H }}
-                    className={cn('group flex items-center gap-2.5 px-3 transition-colors overflow-hidden',
-                      String(ch.uniqueId) === String(activeId)
+                    className={cn('group flex items-center gap-2 px-2 transition-colors overflow-hidden',
+                      isActive
                         ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
                         : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
                     )}
                   >
-                    <button className="flex items-center gap-2.5 flex-1 text-left min-w-0 h-full" onClick={() => onSelect(ch)}>
+                    {/* Channel number bubble */}
+                    {ch.number > 0 && (
+                      <span className={cn(
+                        'shrink-0 text-[10px] font-mono font-semibold rounded px-1 py-0.5 min-w-[1.75rem] text-center leading-none',
+                        isActive
+                          ? 'bg-[var(--color-primary)]/30 text-[var(--color-primary-light)]'
+                          : 'bg-[var(--color-surface-2)] text-[var(--color-muted)]'
+                      )}>
+                        {ch.number}
+                      </span>
+                    )}
+                    <button className="flex items-center gap-2 flex-1 text-left min-w-0 h-full" onClick={() => onSelect(ch)}>
                       <ChannelLogo src={logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)} name={ch.name} size="xs" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs truncate">{ch.name}</p>
+                        <p className="text-xs truncate leading-tight">{ch.name}</p>
                         {epg?.now?.title && (
                           <p className="text-[10px] text-[var(--color-muted)] truncate leading-tight opacity-75">{epg.now.title}</p>
                         )}
+                        <EpgProgress epg={epg} />
                       </div>
                     </button>
                     <button
@@ -219,6 +252,23 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext
       </div>
     </div>
   )
+}
+
+// ── Persisted player prefs ────────────────────────────────────────────────
+function loadPlayerPrefs() {
+  try {
+    const s = localStorage.getItem('playerPrefs')
+    return s ? JSON.parse(s) : {}
+  } catch {
+    return {}
+  }
+}
+
+function savePlayerPrefs(patch) {
+  try {
+    const prev = loadPlayerPrefs()
+    localStorage.setItem('playerPrefs', JSON.stringify({ ...prev, ...patch }))
+  } catch { /* storage full or blocked */ }
 }
 
 // ── Player page ───────────────────────────────────────────────────────────
@@ -241,26 +291,44 @@ export default function PlayerPage() {
   const { showAdult, disabledGenres }  = useApp()
   const { favoriteIds, toggleFavorite } = useFavorites()
 
+  const prefs = useMemo(() => loadPlayerPrefs(), [])
+
   const [muted, setMuted]           = useState(false)
-  const [volume, setVolume]         = useState(80)
+  const [volume, setVolume]         = useState(prefs.volume ?? 80)
   const channelsRef      = useRef([])
   const activeChannelRef = useRef(null)
   const selectChannelRef = useRef(null)
   const volumeRef        = useRef(volume)
   const mutedRef         = useRef(muted)
-  const [activeChannel, setActiveChannel] = useState(
-    initChannelId ? { uniqueId: initChannelId, name: initChannelName } : null
-  )
+
+  // Restore last-watched channel: URL param takes priority, then localStorage
+  const [activeChannel, setActiveChannel] = useState(() => {
+    if (initChannelId) return { uniqueId: initChannelId, name: initChannelName }
+    if (prefs.lastChannelId) return { uniqueId: prefs.lastChannelId, name: prefs.lastChannelName || '' }
+    return null
+  })
+
   const [streamUrl, setStreamUrl]   = useState(null)
   const [status, setStatus]         = useState('idle')
   const [errorMsg, setErrorMsg]     = useState('')
   const [showControls, setShowControls] = useState(true)
-  const [showList, setShowList]     = useState(true)
+  const [showList, setShowList]     = useState(prefs.showList ?? true)
   const [playing, setPlaying]       = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
 
+  // Channel number jump
+  const [jumpDigits, setJumpDigits] = useState('')
+  const jumpTimer                   = useRef(null)
+
   useEffect(() => { channelsRef.current = channels }, [channels])
   useEffect(() => { activeChannelRef.current = activeChannel }, [activeChannel])
+
+  // Persist volume changes
+  useEffect(() => { volumeRef.current = volume; savePlayerPrefs({ volume }) }, [volume])
+  useEffect(() => { mutedRef.current = muted }, [muted])
+
+  // Persist sidebar visibility
+  useEffect(() => { savePlayerPrefs({ showList }) }, [showList])
 
   useEffect(() => {
     getNowNext().then(setNowNext).catch(() => {})
@@ -424,6 +492,29 @@ export default function PlayerPage() {
     function onKey(e) {
       if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
 
+      // Digit keys: channel number jump
+      if (/^\d$/.test(e.key)) {
+        e.preventDefault()
+        setJumpDigits(prev => {
+          const next = (prev + e.key).slice(-4)
+          clearTimeout(jumpTimer.current)
+          jumpTimer.current = setTimeout(() => {
+            const num = parseInt(next, 10)
+            const ch = channelsRef.current.find(c => c.number === num)
+            if (ch) selectChannelRef.current(ch)
+            setJumpDigits('')
+          }, 1200)
+          return next
+        })
+        return
+      }
+
+      if (e.key === 'Escape') {
+        setJumpDigits('')
+        clearTimeout(jumpTimer.current)
+        return
+      }
+
       switch (e.code) {
         case 'Space':
           e.preventDefault()
@@ -454,7 +545,7 @@ export default function PlayerPage() {
       }
     }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    return () => { window.removeEventListener('keydown', onKey); clearTimeout(jumpTimer.current) }
   }, [])
 
   function togglePlayPause() {
@@ -484,6 +575,7 @@ export default function PlayerPage() {
   function selectChannel(ch) {
     setActiveChannel(ch)
     setSearchParams({ channel: ch.uniqueId, name: encodeURIComponent(ch.name) })
+    savePlayerPrefs({ lastChannelId: String(ch.uniqueId), lastChannelName: ch.name })
   }
   selectChannelRef.current = selectChannel
 
@@ -542,6 +634,7 @@ export default function PlayerPage() {
           <Controls
             playing={playing} muted={muted} volume={volume} isFullscreen={isFullscreen}
             channelName={activeChannel?.name || initChannelName || 'No channel selected'}
+            jumpDigits={jumpDigits}
             onPlayPause={togglePlayPause}
             onMute={() => setMuted(m => !m)}
             onVolume={(v) => { setVolume(v); setMuted(false) }}
