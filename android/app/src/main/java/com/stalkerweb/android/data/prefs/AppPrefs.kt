@@ -55,9 +55,23 @@ class AppPrefs(context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    // ── Per-channel stream URL overrides ─────────────────────────────────────
+
+    fun getStreamOverride(uniqueId: String): String? =
+        prefs.getString("$KEY_OVERRIDE_PREFIX$uniqueId", null)
+            ?.takeIf { it.isNotBlank() }
+
+    fun setStreamOverride(uniqueId: String, url: String?) {
+        val editor = prefs.edit()
+        if (url.isNullOrBlank()) editor.remove("$KEY_OVERRIDE_PREFIX$uniqueId")
+        else editor.putString("$KEY_OVERRIDE_PREFIX$uniqueId", url.trim())
+        editor.apply()
+    }
+
     companion object {
-        private const val KEY_SERVER_URL    = "server_url"
-        private const val KEY_WATCH_HISTORY = "watch_history"
-        private const val MAX_HISTORY       = 10
+        private const val KEY_SERVER_URL      = "server_url"
+        private const val KEY_WATCH_HISTORY   = "watch_history"
+        private const val KEY_OVERRIDE_PREFIX = "stream_override_"
+        private const val MAX_HISTORY         = 10
     }
 }

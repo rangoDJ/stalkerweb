@@ -14,22 +14,28 @@ import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
+import com.stalkerweb.android.cast.CastManager
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.repository.ChannelRepository
 import com.stalkerweb.android.service.PlaybackService
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 data class PlayerUiState(
-    val channels: List<Channel>      = emptyList(),
-    val logoMap: Map<String, String> = emptyMap(),
-    val favoriteIds: Set<String>     = emptySet(),
-    val activeChannelId: String      = "",
-    val showChannelList: Boolean     = false,
-    val selectedGenre: String?       = null,
+    val channels: List<Channel>        = emptyList(),
+    val logoMap: Map<String, String>   = emptyMap(),
+    val favoriteIds: Set<String>       = emptySet(),
+    val activeChannelId: String        = "",
+    val showChannelList: Boolean       = false,
+    val selectedGenre: String?         = null,
+    val sleepTimerEndsAt: Long?        = null,
+    val overrideSheetChannel: Channel? = null,
+    val isCasting: Boolean             = false,
 ) {
     val genres: List<String>
         get() = channels.mapNotNull { it.genre }.filter { it.isNotBlank() }.distinct().sorted()
@@ -52,6 +58,20 @@ class PlayerViewModel(
     val player: StateFlow<Player?> = _player.asStateFlow()
 
     private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var sleepTimerJob: Job? = null
+
+    val castManager: CastManager? = runCatching { CastManager(application) }.getOrNull()
+
+    init {
+        // Mirror cast session state into UI state
+        castManager?.let { cm ->
+            viewModelScope.launch {
+                cm.isCasting.collect { casting ->
+                    _state.value = _state.value.copy(isCasting = casting)
+                }
+            }
+        }
+    }
 
     fun init(channelId: String) {
         _state.value = _state.value.copy(activeChannelId = channelId)
@@ -87,8 +107,9 @@ class PlayerViewModel(
     fun loadStream(channelId: String) {
         val p = _player.value ?: return
         val channel = _state.value.channels.find { it.uniqueId == channelId }
+        val url = repository.streamUrl(channelId)
         val item = MediaItem.Builder()
-            .setUri(repository.streamUrl(channelId))
+            .setUri(url)
             .setMimeType(MimeTypes.APPLICATION_M3U8)
             .setMediaMetadata(MediaMetadata.Builder().setTitle(channel?.name).build())
             .build()
@@ -98,6 +119,8 @@ class PlayerViewModel(
         if (channel != null) {
             repository.pushWatched(channel, _state.value.logoMap[channelId])
         }
+        // Keep Cast session in sync with channel changes
+        castManager?.setStream(url, channel?.name)
     }
 
     fun selectChannel(channelId: String) {
@@ -149,7 +172,49 @@ class PlayerViewModel(
         return false
     }
 
+    // ── Sleep timer ───────────────────────────────────────────────────────────
+
+    fun setSleepTimer(minutes: Int) {
+        sleepTimerJob?.cancel()
+        val endsAt = System.currentTimeMillis() + minutes * 60_000L
+        _state.value = _state.value.copy(sleepTimerEndsAt = endsAt)
+        sleepTimerJob = viewModelScope.launch {
+            delay(minutes * 60_000L)
+            _player.value?.pause()
+            _state.value = _state.value.copy(sleepTimerEndsAt = null)
+        }
+    }
+
+    fun cancelSleepTimer() {
+        sleepTimerJob?.cancel()
+        sleepTimerJob = null
+        _state.value = _state.value.copy(sleepTimerEndsAt = null)
+    }
+
+    // ── Stream URL override sheet ─────────────────────────────────────────────
+
+    fun showOverrideSheet(channel: Channel) {
+        _state.value = _state.value.copy(overrideSheetChannel = channel)
+    }
+
+    fun dismissOverrideSheet() {
+        _state.value = _state.value.copy(overrideSheetChannel = null)
+    }
+
+    fun saveStreamOverride(channelId: String, url: String?) {
+        repository.setStreamOverride(channelId, url)
+        _state.value = _state.value.copy(overrideSheetChannel = null)
+        // Reload stream with new URL if it's the active channel
+        if (channelId == _state.value.activeChannelId) loadStream(channelId)
+    }
+
+    fun getStreamOverride(channelId: String): String? = repository.getStreamOverride(channelId)
+
+    fun getDefaultStreamUrl(channelId: String): String = repository.defaultStreamUrl(channelId)
+
     override fun onCleared() {
+        sleepTimerJob?.cancel()
+        castManager?.release()
         controllerFuture?.let { MediaController.releaseFuture(it) }
         super.onCleared()
     }
