@@ -102,6 +102,19 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext
 
   const { visibleItems, totalHeight, offsetY } = useVirtualList(filtered, scrollRef)
 
+  // Scroll active channel into view when it changes
+  useEffect(() => {
+    if (!activeId || !scrollRef.current) return
+    const idx = filtered.findIndex(ch => String(ch.uniqueId) === String(activeId))
+    if (idx === -1) return
+    const el = scrollRef.current
+    const itemTop = idx * ROW_H
+    const itemBottom = itemTop + ROW_H
+    if (itemTop < el.scrollTop || itemBottom > el.scrollTop + el.clientHeight) {
+      el.scrollTo({ top: itemTop - el.clientHeight / 2 + ROW_H / 2, behavior: 'smooth' })
+    }
+  }, [activeId, filtered])
+
   function selectGroup(id) {
     setGroup(id)
     if (id) setFavsOnly(false)
