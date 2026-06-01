@@ -1,12 +1,16 @@
 package com.stalkerweb.android
 
 import android.app.PictureInPictureParams
+import android.content.Intent
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -15,8 +19,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -34,11 +40,33 @@ import com.stalkerweb.android.ui.player.PlayerScreen
 import com.stalkerweb.android.ui.theme.StalkerTheme
 import com.stalkerweb.android.ui.update.UpdateDialog
 import com.stalkerweb.android.ui.update.UpdateViewModel
+import kotlinx.coroutines.launch
+import java.io.File
 
 class MainActivity : ComponentActivity() {
 
     private var shouldEnterPipOnLeave = false
     private val isInPipMode = mutableStateOf(false)
+
+    // File waiting to be installed after the user grants "unknown sources" permission.
+    private var pendingInstallFile: File? = null
+
+    // Launcher for ACTION_MANAGE_UNKNOWN_APP_SOURCES. Fires install as soon as
+    // the user grants permission; silently does nothing if they deny.
+    private val unknownSourcesLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        // Re-check permission after returning from Settings.
+        val file = pendingInstallFile ?: return@registerForActivityResult
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+            packageManager.canRequestPackageInstalls()
+        ) {
+            pendingInstallFile = null
+            launchInstallIntent(file)
+        }
+        // If still not granted, pendingInstallFile is kept so the dialog's
+        // "Install" button can try again.
+    }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
@@ -67,7 +95,6 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             StalkerTheme {
-                // Apply overscan safe-zone on TV so content stays away from screen edges
                 Box(Modifier.fillMaxSize().padding(if (isTV) 48.dp else 0.dp)) {
                 val navController = rememberNavController()
                 val startDest     = if (repository.getServerUrl() != null) Screen.Channels.route
@@ -98,6 +125,14 @@ class MainActivity : ComponentActivity() {
                 val channelViewModel: ChannelViewModel = viewModel(factory = channelVmFactory)
                 val playerViewModel:  PlayerViewModel  = viewModel(factory = playerVmFactory)
                 val updateViewModel:  UpdateViewModel  = viewModel(factory = updateVmFactory)
+
+                // Collect install events from the ViewModel and handle them here
+                // where we have a real Activity context and the result launcher.
+                LaunchedEffect(updateViewModel) {
+                    updateViewModel.installEvent.collect { file ->
+                        handleInstall(file)
+                    }
+                }
 
                 LaunchedEffect(Unit) { updateViewModel.check() }
                 UpdateDialog(updateViewModel)
@@ -147,5 +182,30 @@ class MainActivity : ComponentActivity() {
                 } // end overscan Box
             }
         }
+    }
+
+    private fun handleInstall(file: File) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !packageManager.canRequestPackageInstalls()
+        ) {
+            pendingInstallFile = file
+            unknownSourcesLauncher.launch(
+                Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+            )
+            return
+        }
+        launchInstallIntent(file)
+    }
+
+    private fun launchInstallIntent(file: File) {
+        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", file)
+        startActivity(
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        )
     }
 }
