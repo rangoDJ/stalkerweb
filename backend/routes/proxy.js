@@ -171,7 +171,7 @@ module.exports = function proxyModule(appState) {
     const { channelManager } = appState;
     const uniqueId = req.params.channelId;
 
-    const channel = channelManager.getChannel(uniqueId);
+    const channel = await channelManager.waitForChannel(uniqueId);
     if (!channel) return res.status(404).send('Channel not found');
 
     let streamUrl;

@@ -183,6 +183,33 @@ class ChannelManager {
     return this._channelIndex.get(String(uniqueId)) ?? null;
   }
 
+  // Resolves to the channel as soon as it is indexed, or null on timeout.
+  // Handles the post-reconnect race where channelManager is empty while
+  // the first page of channels is still loading from the portal.
+  async waitForChannel(uniqueId, timeoutMs = 10_000) {
+    const id = String(uniqueId);
+
+    // Fast path — already in index
+    const immediate = this._channelIndex.get(id);
+    if (immediate) return immediate;
+
+    // If the list is empty and not loading, trigger a background load now
+    if (this._channels.length === 0 && !this._progress.loading) {
+      log.info(TAG, `waitForChannel: channel list empty — triggering background load`);
+      this.loadChannels().catch(e => log.warn(TAG, `triggered load failed: ${e.message}`));
+    }
+
+    // Poll until the channel appears or loading finishes (or we time out)
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline && this._progress.loading) {
+      await new Promise(r => setTimeout(r, 500));
+      const found = this._channelIndex.get(id);
+      if (found) return found;
+    }
+
+    return this._channelIndex.get(id) ?? null;
+  }
+
   // ── Stream URL resolution ─────────────────────────────────────────────────
   // Mirrors ChannelManager::GetStreamURL() + ParseStreamCmd()
   async getStreamUrl(channel) {

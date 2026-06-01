@@ -67,7 +67,7 @@ module.exports = function streamRoutes(appState, config) {
     }
     const uniqueId = parseInt(rawId, 10);
 
-    const channel = channelManager.getChannel(uniqueId);
+    const channel = await channelManager.waitForChannel(uniqueId);
     if (!channel) {
       log.warn(TAG, `channel not found: uniqueId=${uniqueId}`);
       return res.status(404).json({ error: 'Channel not found' });
