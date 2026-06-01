@@ -62,27 +62,18 @@ module.exports = function vodRoutes(appState) {
   });
 
   // GET /api/vod/stream?videoId=X&cmd=<encoded>&series=0
-  router.get('/stream', guard, async (req, res) => {
-    const { vodManager } = appState;
+  // Returns a /proxy/vod/stream URL so the browser never talks to the portal
+  // directly — the proxy carries the session cookies and handles auth.
+  router.get('/stream', guard, (req, res) => {
     const { videoId, cmd = '', series = '0' } = req.query;
     if (!videoId) return res.status(400).json({ error: 'videoId is required' });
 
-    log.info(TAG, `resolve stream: videoId=${videoId} series=${series}`);
-
-    let streamUrl;
-    try {
-      streamUrl = await vodManager.getStreamUrl(
-        videoId,
-        cmd || null,
-        parseInt(series, 10) || 0,
-      );
-    } catch (e) {
-      log.error(TAG, `stream resolution failed: ${e.message}`);
-      return res.status(502).json({ error: e.message });
-    }
+    const p = new URLSearchParams({ videoId });
+    if (cmd)                        p.set('cmd', cmd);
+    if (series && series !== '0')   p.set('series', series);
 
     appState.touchActivity?.();
-    res.json({ streamUrl, videoId });
+    res.json({ streamUrl: `/proxy/vod/stream?${p}`, videoId });
   });
 
   return router;
