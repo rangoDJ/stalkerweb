@@ -86,15 +86,18 @@ class PlayerViewModel(
 
     fun loadStream(channelId: String) {
         val p = _player.value ?: return
-        val channelName = _state.value.channels.find { it.uniqueId == channelId }?.name
+        val channel = _state.value.channels.find { it.uniqueId == channelId }
         val item = MediaItem.Builder()
             .setUri(repository.streamUrl(channelId))
             .setMimeType(MimeTypes.APPLICATION_M3U8)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(channelName).build())
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(channel?.name).build())
             .build()
         p.setMediaItem(item)
         p.prepare()
         p.playWhenReady = true
+        if (channel != null) {
+            repository.pushWatched(channel, _state.value.logoMap[channelId])
+        }
     }
 
     fun selectChannel(channelId: String) {

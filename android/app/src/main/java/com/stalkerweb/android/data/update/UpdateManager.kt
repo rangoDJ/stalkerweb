@@ -1,7 +1,12 @@
 package com.stalkerweb.android.data.update
 
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.util.Log
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -60,17 +65,61 @@ class UpdateManager(private val context: Context) {
         val dir      = File(context.externalCacheDir ?: context.cacheDir, "apk_downloads").also { it.mkdirs() }
         val file     = File(dir, "update.apk")
         var received = 0L
+
+        val nm = NotificationManagerCompat.from(context)
+        val progressBuilder = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("Downloading update…")
+            .setOngoing(true)
+            .setSilent(true)
+            .setProgress(100, 0, total <= 0)
+
         body.byteStream().use { input ->
             file.outputStream().use { output ->
                 val buf = ByteArray(8 * 1024)
                 var n: Int
+                var lastNotifiedPct = -1
                 while (input.read(buf).also { n = it } != -1) {
                     output.write(buf, 0, n)
                     received += n
-                    if (total > 0) onProgress(received.toFloat() / total)
+                    if (total > 0) {
+                        val pct = (received * 100 / total).toInt()
+                        onProgress(received.toFloat() / total)
+                        // Throttle notification updates to every 5 %
+                        if (pct >= lastNotifiedPct + 5) {
+                            lastNotifiedPct = pct
+                            runCatching {
+                                nm.notify(NOTIF_PROGRESS, progressBuilder
+                                    .setProgress(100, pct, false)
+                                    .setContentText("$pct%")
+                                    .build())
+                            }
+                        }
+                    }
                 }
             }
         }
+
+        // Cancel progress notification and post "ready to install" notification
+        nm.cancel(NOTIF_PROGRESS)
+
+        val launchIntent = context.packageManager
+            .getLaunchIntentForPackage(context.packageName)
+            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        val pi = PendingIntent.getActivity(
+            context, 0, launchIntent ?: Intent(),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        runCatching {
+            nm.notify(NOTIF_READY, NotificationCompat.Builder(context, CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.stat_sys_download_done)
+                .setContentTitle("Update ready to install")
+                .setContentText("Tap to open the app and install")
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build())
+        }
+
         file.setReadable(true, false)
         file
     }
@@ -90,5 +139,12 @@ class UpdateManager(private val context: Context) {
             if (diff != 0) return diff > 0
         }
         return false
+    }
+
+    companion object {
+        const val CHANNEL_ID     = "stalkerweb_updates"
+        const val CHANNEL_NAME   = "App updates"
+        private const val NOTIF_PROGRESS = 1001
+        private const val NOTIF_READY    = 1002
     }
 }
