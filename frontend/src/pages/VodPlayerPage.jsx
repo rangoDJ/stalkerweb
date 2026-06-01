@@ -93,7 +93,7 @@ export default function VodPlayerPage() {
       tryPlay()
     }
 
-    const isNative = /\.(mp4|mkv|avi|mov|webm|ts)(\?|$)/i.test(url)
+    const isNative = /\.(mp4|mkv|avi|mov|webm|ts|mpg|mpeg|mp2|m4v)(\?|$)/i.test(url)
     if (isNative) { playNative(url); return }
 
     if (Hls.isSupported()) {
