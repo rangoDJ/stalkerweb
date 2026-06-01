@@ -27,11 +27,22 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     fun getServerUrl(): String? = prefs.serverUrl
 
-    /** Returns the proxy stream URL for a channel — ExoPlayer plays this directly. */
-    fun streamUrl(channelId: String): String {
+    /** Returns the stream URL for a channel — override takes priority over the proxy URL. */
+    fun streamUrl(channelId: String): String =
+        prefs.getStreamOverride(channelId)
+            ?: run {
+                val base = prefs.serverUrl?.trimEnd('/') ?: ""
+                "$base/proxy/stream/$channelId"
+            }
+
+    fun defaultStreamUrl(channelId: String): String {
         val base = prefs.serverUrl?.trimEnd('/') ?: ""
         return "$base/proxy/stream/$channelId"
     }
+
+    fun getStreamOverride(channelId: String): String? = prefs.getStreamOverride(channelId)
+
+    fun setStreamOverride(channelId: String, url: String?) = prefs.setStreamOverride(channelId, url)
 
     suspend fun testConnection(): StatusResponse = requireApi().getStatus()
 

@@ -8,6 +8,7 @@ import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
@@ -40,6 +41,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.mediarouter.app.MediaRouteButton
+import com.google.android.gms.cast.framework.CastButtonFactory
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
@@ -49,6 +52,7 @@ import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.ui.utils.rememberIsTV
 import kotlinx.coroutines.delay
+import java.util.concurrent.TimeUnit
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -72,10 +76,10 @@ fun PlayerScreen(
     var isPlaying    by remember { mutableStateOf(false) }
     var isBuffering  by remember { mutableStateOf(true) }
     var playerError  by remember { mutableStateOf<String?>(null) }
+    var showSleepTimer by remember { mutableStateOf(false) }
 
     val activeId = state.activeChannelId.ifBlank { channelId }
 
-    // Track playback state from the MediaController
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
@@ -99,14 +103,11 @@ fun PlayerScreen(
         onDispose {
             onSetPipEnabled(false)
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            // Player is owned by PlaybackService — do not release here
         }
     }
 
-    // Reset error state when channel changes
     LaunchedEffect(activeId) { playerError = null }
 
-    // Auto-hide controls after 3 s when playing in landscape or on TV
     LaunchedEffect(showControls, isPlaying, isLandscape, isTV) {
         if (showControls && isPlaying && (isLandscape || isTV)) {
             delay(3_000)
@@ -116,7 +117,27 @@ fun PlayerScreen(
 
     val displayName = state.channels.find { it.uniqueId == activeId }?.name ?: channelName
 
-    // In PiP the window is tiny — show only the video surface, no chrome
+    // Sleep timer dialog
+    if (showSleepTimer) {
+        SleepTimerDialog(
+            currentEndsAt = state.sleepTimerEndsAt,
+            onSet         = { viewModel.setSleepTimer(it) },
+            onCancel      = { viewModel.cancelSleepTimer() },
+            onDismiss     = { showSleepTimer = false },
+        )
+    }
+
+    // Stream override sheet
+    state.overrideSheetChannel?.let { ch ->
+        StreamOverrideSheet(
+            channel         = ch,
+            currentOverride = viewModel.getStreamOverride(ch.uniqueId),
+            defaultUrl      = viewModel.getDefaultStreamUrl(ch.uniqueId),
+            onSave          = { url -> viewModel.saveStreamOverride(ch.uniqueId, url) },
+            onDismiss       = { viewModel.dismissOverrideSheet() },
+        )
+    }
+
     if (isInPipMode) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             ExoPlayerSurface(player = player, modifier = Modifier.fillMaxSize())
@@ -126,55 +147,65 @@ fun PlayerScreen(
 
     if (isLandscape || isTV) {
         LandscapePlayer(
-            player           = player,
-            displayName      = displayName,
-            isPlaying        = isPlaying,
-            isBuffering      = isBuffering,
-            playerError      = playerError,
-            showControls     = showControls,
-            showChannelList  = state.showChannelList,
-            channels         = state.channels,
-            activeId         = activeId,
-            logoMap          = state.logoMap,
-            favoriteIds      = state.favoriteIds,
-            isTV             = isTV,
-            onToggleControls = { showControls = !showControls },
-            onShowControls   = { showControls = true },
-            onBack           = onBack,
-            onExitFullscreen = {
+            player              = player,
+            displayName         = displayName,
+            isPlaying           = isPlaying,
+            isBuffering         = isBuffering,
+            playerError         = playerError,
+            showControls        = showControls,
+            showChannelList     = state.showChannelList,
+            channels            = state.channels,
+            activeId            = activeId,
+            logoMap             = state.logoMap,
+            favoriteIds         = state.favoriteIds,
+            sleepTimerEndsAt    = state.sleepTimerEndsAt,
+            isCasting           = state.isCasting,
+            castManager         = viewModel.castManager,
+            isTV                = isTV,
+            onToggleControls    = { showControls = !showControls },
+            onShowControls      = { showControls = true },
+            onBack              = onBack,
+            onExitFullscreen    = {
                 if (!isTV) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
             },
             onToggleChannelList = viewModel::toggleChannelList,
             onSelectChannel     = { viewModel.selectChannel(it.uniqueId) },
+            onLongClickChannel  = { viewModel.showOverrideSheet(it) },
             onToggleFavorite    = { viewModel.toggleFavorite(it) },
             onPreviousChannel   = { viewModel.previousChannel() },
             onNextChannel       = { viewModel.nextChannel() },
             onTogglePlayPause   = { if (isPlaying) player?.pause() else player?.play() },
             onRetry             = { viewModel.loadStream(activeId) },
+            onSleepTimer        = { showSleepTimer = true },
         )
     } else {
         PortraitPlayer(
-            player           = player,
-            displayName      = displayName,
-            isPlaying        = isPlaying,
-            isBuffering      = isBuffering,
-            playerError      = playerError,
-            showControls     = showControls,
-            channels         = state.displayedChannels,
-            genres           = state.genres,
-            selectedGenre    = state.selectedGenre,
-            activeId         = activeId,
-            logoMap          = state.logoMap,
-            favoriteIds      = state.favoriteIds,
-            onToggleControls = { showControls = !showControls },
-            onBack           = onBack,
-            onGoFullscreen   = {
+            player              = player,
+            displayName         = displayName,
+            isPlaying           = isPlaying,
+            isBuffering         = isBuffering,
+            playerError         = playerError,
+            showControls        = showControls,
+            channels            = state.displayedChannels,
+            genres              = state.genres,
+            selectedGenre       = state.selectedGenre,
+            activeId            = activeId,
+            logoMap             = state.logoMap,
+            favoriteIds         = state.favoriteIds,
+            sleepTimerEndsAt    = state.sleepTimerEndsAt,
+            isCasting           = state.isCasting,
+            castManager         = viewModel.castManager,
+            onToggleControls    = { showControls = !showControls },
+            onBack              = onBack,
+            onGoFullscreen      = {
                 activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
             },
-            onSelectChannel  = { viewModel.selectChannel(it.uniqueId) },
-            onToggleFavorite = { viewModel.toggleFavorite(it) },
-            onSelectGenre    = { viewModel.setGenre(it) },
-            onRetry          = { viewModel.loadStream(activeId) },
+            onSelectChannel     = { viewModel.selectChannel(it.uniqueId) },
+            onLongClickChannel  = { viewModel.showOverrideSheet(it) },
+            onToggleFavorite    = { viewModel.toggleFavorite(it) },
+            onSelectGenre       = { viewModel.setGenre(it) },
+            onRetry             = { viewModel.loadStream(activeId) },
+            onSleepTimer        = { showSleepTimer = true },
         )
     }
 }
@@ -195,6 +226,9 @@ private fun LandscapePlayer(
     activeId: String,
     logoMap: Map<String, String>,
     favoriteIds: Set<String>,
+    sleepTimerEndsAt: Long?,
+    isCasting: Boolean,
+    castManager: com.stalkerweb.android.cast.CastManager?,
     isTV: Boolean = false,
     onToggleControls: () -> Unit,
     onShowControls: () -> Unit,
@@ -202,11 +236,13 @@ private fun LandscapePlayer(
     onExitFullscreen: () -> Unit,
     onToggleChannelList: () -> Unit,
     onSelectChannel: (Channel) -> Unit,
+    onLongClickChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
     onPreviousChannel: () -> Unit = {},
     onNextChannel: () -> Unit = {},
     onTogglePlayPause: () -> Unit = {},
     onRetry: () -> Unit,
+    onSleepTimer: () -> Unit,
 ) {
     val playerFocusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
@@ -269,8 +305,15 @@ private fun LandscapePlayer(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
                 )
+                SleepTimerChip(sleepTimerEndsAt)
                 LiveBadge()
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(4.dp))
+                IconButton(onClick = onSleepTimer) {
+                    Icon(Icons.Default.Bedtime, "Sleep timer", tint = if (sleepTimerEndsAt != null) MaterialTheme.colorScheme.primary else Color.White)
+                }
+                if (!isTV && castManager != null) {
+                    CastButton(castManager)
+                }
                 IconButton(onClick = onToggleChannelList) {
                     Icon(Icons.AutoMirrored.Filled.List, "Channel list", tint = Color.White)
                 }
@@ -320,6 +363,7 @@ private fun LandscapePlayer(
                 logoMap          = logoMap,
                 favoriteIds      = favoriteIds,
                 onSelect         = onSelectChannel,
+                onLongClick      = onLongClickChannel,
                 onToggleFavorite = onToggleFavorite,
                 dark             = true,
             )
@@ -344,13 +388,18 @@ private fun PortraitPlayer(
     activeId: String,
     logoMap: Map<String, String>,
     favoriteIds: Set<String>,
+    sleepTimerEndsAt: Long?,
+    isCasting: Boolean,
+    castManager: com.stalkerweb.android.cast.CastManager?,
     onToggleControls: () -> Unit,
     onBack: () -> Unit,
     onGoFullscreen: () -> Unit,
     onSelectChannel: (Channel) -> Unit,
+    onLongClickChannel: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
     onSelectGenre: (String?) -> Unit,
     onRetry: () -> Unit,
+    onSleepTimer: () -> Unit,
 ) {
     Column(
         Modifier
@@ -381,11 +430,20 @@ private fun PortraitPlayer(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = Color.White)
                     }
-                    IconButton(
-                        onClick  = onGoFullscreen,
+                    Row(
                         modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(0.dp),
                     ) {
-                        Icon(Icons.Default.Fullscreen, "Fullscreen", tint = Color.White)
+                        IconButton(onClick = onSleepTimer) {
+                            Icon(
+                                Icons.Default.Bedtime, "Sleep timer",
+                                tint = if (sleepTimerEndsAt != null) MaterialTheme.colorScheme.primary else Color.White,
+                            )
+                        }
+                        if (castManager != null) CastButton(castManager)
+                        IconButton(onClick = onGoFullscreen) {
+                            Icon(Icons.Default.Fullscreen, "Fullscreen", tint = Color.White)
+                        }
                     }
                     IconButton(
                         onClick  = { if (isPlaying) player?.pause() else player?.play() },
@@ -393,9 +451,7 @@ private fun PortraitPlayer(
                     ) {
                         Icon(
                             if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            "Play/Pause",
-                            tint     = Color.White,
-                            modifier = Modifier.size(40.dp),
+                            "Play/Pause", tint = Color.White, modifier = Modifier.size(40.dp),
                         )
                     }
                 }
@@ -419,6 +475,8 @@ private fun PortraitPlayer(
                 modifier = Modifier.weight(1f),
             )
             Spacer(Modifier.width(8.dp))
+            SleepTimerChip(sleepTimerEndsAt)
+            Spacer(Modifier.width(4.dp))
             LiveBadge()
         }
 
@@ -449,13 +507,13 @@ private fun PortraitPlayer(
             HorizontalDivider()
         }
 
-        // Channel list fills remaining space
         ChannelListPanel(
             channels         = channels,
             activeId         = activeId,
             logoMap          = logoMap,
             favoriteIds      = favoriteIds,
             onSelect         = onSelectChannel,
+            onLongClick      = onLongClickChannel,
             onToggleFavorite = onToggleFavorite,
             dark             = false,
         )
@@ -478,6 +536,46 @@ private fun ExoPlayerSurface(player: Player?, modifier: Modifier) {
         update  = { view -> view.player = player },
         modifier = modifier,
     )
+}
+
+@Composable
+private fun CastButton(castManager: com.stalkerweb.android.cast.CastManager) {
+    AndroidView(
+        factory = { ctx ->
+            MediaRouteButton(ctx).also { btn ->
+                runCatching { CastButtonFactory.setUpMediaRouteButton(ctx, btn) }
+            }
+        },
+        modifier = Modifier
+            .size(44.dp)
+            .padding(10.dp),
+    )
+}
+
+@Composable
+private fun SleepTimerChip(endsAt: Long?) {
+    if (endsAt == null) return
+    var remaining by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(endsAt) {
+        while (true) {
+            remaining = ((endsAt - System.currentTimeMillis()) / 1000L).coerceAtLeast(0)
+            if (remaining == 0L) break
+            delay(1_000)
+        }
+    }
+    val mins = TimeUnit.SECONDS.toMinutes(remaining)
+    val secs = remaining % 60
+    Surface(
+        color  = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+        shape  = MaterialTheme.shapes.extraSmall,
+    ) {
+        Text(
+            "%d:%02d".format(mins, secs),
+            style    = MaterialTheme.typography.labelSmall,
+            color    = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+    }
 }
 
 @Composable
@@ -514,6 +612,7 @@ private fun LiveBadge() {
     }
 }
 
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun ChannelListPanel(
     channels: List<Channel>,
@@ -521,6 +620,7 @@ private fun ChannelListPanel(
     logoMap: Map<String, String>,
     favoriteIds: Set<String>,
     onSelect: (Channel) -> Unit,
+    onLongClick: (Channel) -> Unit,
     onToggleFavorite: (Channel) -> Unit,
     dark: Boolean,
 ) {
@@ -552,7 +652,10 @@ private fun ChannelListPanel(
                             else if (focused) MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
                             else Color.Transparent
                         )
-                        .clickable { onSelect(ch) }
+                        .combinedClickable(
+                            onClick     = { onSelect(ch) },
+                            onLongClick = { onLongClick(ch) },
+                        )
                         .padding(horizontal = 12.dp, vertical = 9.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
