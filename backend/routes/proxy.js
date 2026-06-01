@@ -189,42 +189,54 @@ module.exports = function proxyModule(appState) {
 
     log.info(TAG, `VOD proxy: videoId=${videoId} → ${streamUrl.slice(0, 80)}…`);
 
-    // HLS playlist — rewrite sub-playlist/segment URLs and serve
+    const http           = client.getHttpClient();
+    const streamHeaders  = { ...client.getStreamHeaders() };
+    if (req.headers['range']) streamHeaders['Range'] = req.headers['range'];
+
+    // HLS playlist URL (extension-based fast path)
     if (isPlaylistUrl(streamUrl)) {
       return servePlaylist(req, res, streamUrl);
     }
 
-    // Direct stream (.mpg, .mp4, etc.) — proxy bytes with Range pass-through
-    const http = client.getHttpClient();
-    const upstreamHeaders = { ...client.getStreamHeaders() };
-    if (req.headers['range']) upstreamHeaders['Range'] = req.headers['range'];
-
+    // Fetch content into a buffer so we can inspect whether the portal
+    // returned an m3u8 playlist (common even for .mpg-extension URLs).
+    // Portals often ignore the extension and serve HLS regardless.
     let upstream;
     try {
-      upstream = await http.get(streamUrl, {
-        headers:        upstreamHeaders,
-        responseType:   'stream',
-        timeout:        30_000,
-        validateStatus: () => true,
-      });
+      upstream = await fetchFromPortal(http, streamHeaders, streamUrl, 30_000);
     } catch (e) {
       log.error(TAG, `VOD proxy: fetch failed: ${e.message}`);
       return res.status(502).send(`Fetch failed: ${e.message}`);
     }
 
     if (upstream.status >= 400) {
+      log.warn(TAG, `VOD proxy: portal returned ${upstream.status} for ${streamUrl}`);
       return res.status(502).send(`Portal returned HTTP ${upstream.status}`);
     }
 
-    res.status(upstream.status);
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Content-Type', upstream.headers['content-type'] || 'video/mpeg');
-    if (upstream.headers['content-length'])  res.set('Content-Length',  upstream.headers['content-length']);
-    if (upstream.headers['content-range'])   res.set('Content-Range',   upstream.headers['content-range']);
-    if (upstream.headers['accept-ranges'])   res.set('Accept-Ranges',   upstream.headers['accept-ranges']);
+    const buf  = Buffer.from(upstream.data);
+    const head = buf.toString('utf8', 0, 128);
 
-    upstream.data.pipe(res);
-    req.on('close', () => upstream.data.destroy?.());
+    if (isM3u8Body(head)) {
+      // Portal served an HLS playlist — rewrite all sub-URLs through the proxy
+      log.info(TAG, `VOD proxy: videoId=${req.query.videoId} → m3u8 detected, rewriting URLs`);
+      const proxyOrigin = `${req.protocol}://${req.get('host')}`;
+      const rewritten   = rewriteM3u8(buf.toString('utf8'), streamUrl, proxyOrigin);
+      res.set('Content-Type', 'application/vnd.apple.mpegurl');
+      res.set('Cache-Control', 'no-cache, no-store');
+      res.set('Access-Control-Allow-Origin', '*');
+      return res.send(rewritten);
+    }
+
+    // Binary video — serve directly
+    const ct = upstream.headers['content-type'] || 'video/mpeg';
+    log.info(TAG, `VOD proxy: videoId=${req.query.videoId} → binary ${ct} ${buf.length} bytes`);
+    res.status(upstream.status);
+    res.set('Content-Type', ct);
+    res.set('Access-Control-Allow-Origin', '*');
+    if (upstream.headers['content-length']) res.set('Content-Length', upstream.headers['content-length']);
+    if (upstream.headers['content-range'])  res.set('Content-Range',  upstream.headers['content-range']);
+    return res.send(buf);
   });
 
   // ── GET /proxy/stream/:channelId ──────────────────────────────────────────
