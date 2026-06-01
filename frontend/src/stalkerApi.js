@@ -126,3 +126,24 @@ export const reorderFavoriteGroups   = (order) => _put('/favorites/groups/order'
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)
 export const streamKeepalive = () => _get('/stream/keepalive')
 
+// ── VOD ───────────────────────────────────────────────────────────────────
+export const getVodCategories = (type = 'vod') =>
+  _get(`/vod/categories?type=${type}`)
+
+export const getVodItems = ({ type = 'vod', category, page = 1, search = '', fav = 0 }) => {
+  const p = new URLSearchParams({ type, category: String(category), page: String(page) })
+  if (search) p.set('search', search)
+  if (fav)    p.set('fav', '1')
+  return _get(`/vod/items?${p}`)
+}
+
+export const getVodSeasons = (movieId) =>
+  _get(`/vod/seasons/${movieId}`)
+
+export const getVodStreamUrl = ({ videoId, cmd = '', series = 0 }) => {
+  const p = new URLSearchParams({ videoId: String(videoId) })
+  if (cmd)    p.set('cmd', cmd)
+  if (series) p.set('series', String(series))
+  return _get(`/vod/stream?${p}`)
+}
+

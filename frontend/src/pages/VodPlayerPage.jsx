@@ -1,0 +1,366 @@
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams, useNavigate } from 'react-router-dom'
+import Hls from 'hls.js'
+import {
+  Play, Pause, Volume2, VolumeX, Maximize, Minimize,
+  ChevronLeft, AlertCircle, Loader2, Clock, Calendar, User, Film,
+} from 'lucide-react'
+import { Slider } from '@/components/ui/slider'
+import { cn } from '@/lib/utils'
+import { getVodStreamUrl } from '../stalkerApi'
+
+function formatTime(secs) {
+  if (!isFinite(secs) || secs < 0) return '0:00'
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = Math.floor(secs % 60)
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${m}:${String(s).padStart(2, '0')}`
+}
+
+export default function VodPlayerPage() {
+  const [searchParams] = useSearchParams()
+  const navigate        = useNavigate()
+
+  const videoId      = searchParams.get('videoId') || ''
+  const cmd          = searchParams.get('cmd') || ''
+  const title        = searchParams.get('title') || 'Untitled'
+  const seriesNo     = parseInt(searchParams.get('series') || '0', 10)
+  const episodeTitle = searchParams.get('episodeTitle') || ''
+
+  const displayTitle = episodeTitle ? `${title} · ${episodeTitle}` : title
+
+  const videoRef     = useRef(null)
+  const hlsRef       = useRef(null)
+  const containerRef = useRef(null)
+  const hideTimer    = useRef(null)
+  const volumeRef    = useRef(80)
+  const mutedRef     = useRef(false)
+
+  const [status, setStatus]           = useState('loading') // loading | playing | paused | error
+  const [errorMsg, setErrorMsg]       = useState('')
+  const [playing, setPlaying]         = useState(false)
+  const [muted, setMuted]             = useState(false)
+  const [volume, setVolume]           = useState(80)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration]       = useState(0)
+  const [showControls, setShowControls] = useState(true)
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  useEffect(() => { volumeRef.current = volume }, [volume])
+  useEffect(() => { mutedRef.current  = muted  }, [muted])
+
+  // Fetch + load stream
+  useEffect(() => {
+    if (!videoId) { setStatus('error'); setErrorMsg('No video ID provided.'); return }
+
+    let cancelled = false
+    setStatus('loading')
+    setErrorMsg('')
+
+    getVodStreamUrl({ videoId, cmd, series: seriesNo })
+      .then(({ streamUrl }) => {
+        if (!cancelled) loadStreamUrl(streamUrl)
+      })
+      .catch(e => {
+        if (!cancelled) { setStatus('error'); setErrorMsg(e.message) }
+      })
+
+    return () => { cancelled = true }
+  }, [videoId, cmd, seriesNo])
+
+  function loadStreamUrl(url) {
+    const video = videoRef.current
+    if (!video) return
+
+    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+
+    const tryPlay = () =>
+      video.play()
+        .then(() => { setStatus('playing'); setPlaying(true) })
+        .catch(() => {
+          video.muted = true; setMuted(true)
+          return video.play()
+            .then(() => { setStatus('playing'); setPlaying(true) })
+            .catch(() => { setStatus('paused'); setPlaying(false) })
+        })
+
+    const playNative = (src) => {
+      video.src = src
+      video.volume = volumeRef.current / 100
+      video.muted  = mutedRef.current
+      tryPlay()
+    }
+
+    const isNative = /\.(mp4|mkv|avi|mov|webm|ts)(\?|$)/i.test(url)
+    if (isNative) { playNative(url); return }
+
+    if (Hls.isSupported()) {
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: false })
+      hlsRef.current = hls
+      hls.loadSource(url)
+      hls.attachMedia(video)
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.volume = volumeRef.current / 100
+        video.muted  = mutedRef.current
+        tryPlay()
+      })
+      hls.on(Hls.Events.ERROR, (_e, data) => {
+        if (data.fatal) {
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            hls.recoverMediaError()
+          } else {
+            hls.destroy(); hlsRef.current = null
+            playNative(url)
+          }
+        }
+      })
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      playNative(url)
+    } else {
+      setStatus('error'); setErrorMsg('HLS is not supported in this browser.')
+    }
+  }
+
+  // Sync volume/mute to video element
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    v.volume = volume / 100
+    v.muted  = muted
+  }, [volume, muted])
+
+  // Video event listeners
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onTime   = () => setCurrentTime(v.currentTime)
+    const onDur    = () => setDuration(v.duration || 0)
+    const onPlay   = () => { setPlaying(true); setStatus('playing') }
+    const onPause  = () => { setPlaying(false); setStatus('paused') }
+    const onEnded  = () => { setPlaying(false); setStatus('paused') }
+    v.addEventListener('timeupdate',       onTime)
+    v.addEventListener('durationchange',   onDur)
+    v.addEventListener('play',             onPlay)
+    v.addEventListener('pause',            onPause)
+    v.addEventListener('ended',            onEnded)
+    return () => {
+      v.removeEventListener('timeupdate',     onTime)
+      v.removeEventListener('durationchange', onDur)
+      v.removeEventListener('play',           onPlay)
+      v.removeEventListener('pause',          onPause)
+      v.removeEventListener('ended',          onEnded)
+    }
+  }, [])
+
+  // Cleanup HLS on unmount
+  useEffect(() => () => { hlsRef.current?.destroy() }, [])
+
+  // Auto-hide controls when playing fullscreen
+  const resetHideTimer = useCallback(() => {
+    setShowControls(true)
+    clearTimeout(hideTimer.current)
+    if (playing && isFullscreen) {
+      hideTimer.current = setTimeout(() => setShowControls(false), 3000)
+    }
+  }, [playing, isFullscreen])
+
+  useEffect(() => { resetHideTimer(); return () => clearTimeout(hideTimer.current) }, [resetHideTimer])
+
+  // Fullscreen sync
+  useEffect(() => {
+    const h = () => setIsFullscreen(!!document.fullscreenElement)
+    document.addEventListener('fullscreenchange', h)
+    return () => document.removeEventListener('fullscreenchange', h)
+  }, [])
+
+  function togglePlayPause() {
+    const v = videoRef.current; if (!v) return
+    if (v.paused) v.play().catch(() => {})
+    else v.pause()
+  }
+
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) containerRef.current?.requestFullscreen()
+    else document.exitFullscreen()
+  }
+
+  function seek(pct) {
+    const v = videoRef.current; if (!v || !duration) return
+    v.currentTime = (pct / 100) * duration
+  }
+
+  const progressPct = duration > 0 ? (currentTime / duration) * 100 : 0
+
+  return (
+    <div className="flex flex-col lg:flex-row h-[calc(100vh-3.5rem)] bg-black">
+
+      {/* ── Video panel ── */}
+      <div
+        ref={containerRef}
+        className="relative flex-1 flex flex-col bg-black"
+        onMouseMove={resetHideTimer}
+        onMouseLeave={() => clearTimeout(hideTimer.current)}
+      >
+        {/* Back button (always visible, top-left) */}
+        <div className={cn(
+          'absolute top-0 inset-x-0 z-20 flex items-center gap-2 px-3 py-2 bg-gradient-to-b from-black/60 to-transparent transition-opacity duration-300',
+          showControls || status !== 'playing' ? 'opacity-100' : 'opacity-0 pointer-events-none',
+        )}>
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-1.5 text-white/80 hover:text-white transition-colors text-sm"
+          >
+            <ChevronLeft size={18} />
+            Back
+          </button>
+          <span className="flex-1 text-center text-sm font-medium text-white/90 truncate px-4">
+            {displayTitle}
+          </span>
+        </div>
+
+        {/* Video element */}
+        <div
+          className="flex-1 flex items-center justify-center cursor-pointer"
+          onClick={togglePlayPause}
+        >
+          <video ref={videoRef} className="w-full h-full object-contain" playsInline />
+        </div>
+
+        {/* Loading overlay */}
+        {status === 'loading' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 pointer-events-none">
+            <Loader2 size={40} className="animate-spin text-[var(--color-primary-light)]" />
+            <p className="text-sm text-white/60">Loading stream…</p>
+          </div>
+        )}
+
+        {/* Error overlay */}
+        {status === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/80">
+            <AlertCircle size={40} className="text-[var(--color-live)]" />
+            <p className="text-sm text-white/80 max-w-xs text-center">{errorMsg}</p>
+            <button
+              onClick={() => navigate(-1)}
+              className="px-4 py-2 rounded-[var(--radius-sm)] bg-[var(--color-surface)] text-sm text-[var(--color-text)] hover:bg-[var(--color-surface-2)] transition-colors"
+            >
+              Go back
+            </button>
+          </div>
+        )}
+
+        {/* Paused icon */}
+        {status === 'paused' && (
+          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+            <div className="rounded-full bg-black/50 p-5">
+              <Play size={36} className="text-white" fill="currentColor" />
+            </div>
+          </div>
+        )}
+
+        {/* Controls bar */}
+        <div className={cn(
+          'absolute bottom-0 inset-x-0 z-20 transition-opacity duration-300',
+          showControls || status !== 'playing' ? 'opacity-100' : 'opacity-0 pointer-events-none',
+        )}>
+          {/* Seek bar */}
+          {duration > 0 && (
+            <div className="px-4 pb-1" onClick={e => e.stopPropagation()}>
+              <Slider
+                min={0} max={100} step={0.1}
+                value={[progressPct]}
+                onValueChange={([v]) => seek(v)}
+                className="w-full"
+              />
+              <div className="flex justify-between text-[10px] text-white/50 mt-0.5">
+                <span>{formatTime(currentTime)}</span>
+                <span>-{formatTime(duration - currentTime)}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Playback controls */}
+          <div
+            className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent"
+            onClick={e => e.stopPropagation()}
+          >
+            <button onClick={togglePlayPause} className="text-white/90 hover:text-white p-1 transition-colors">
+              {playing
+                ? <Pause size={20} fill="currentColor" />
+                : <Play  size={20} fill="currentColor" />}
+            </button>
+            <div className="flex items-center gap-2 group/vol">
+              <button onClick={() => setMuted(m => !m)} className="text-white/90 hover:text-white p-1 transition-colors">
+                {muted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+              </button>
+              <div className="w-0 overflow-hidden group-hover/vol:w-20 transition-all duration-200">
+                <Slider min={0} max={100} step={1} value={[muted ? 0 : volume]}
+                  onValueChange={([v]) => { setVolume(v); setMuted(false) }} className="w-20" />
+              </div>
+            </div>
+            <div className="flex-1" />
+            <button onClick={toggleFullscreen} className="text-white/80 hover:text-white p-1.5 rounded hover:bg-white/10 transition-colors">
+              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Metadata panel (right side on desktop, hidden on mobile) ── */}
+      <aside className="hidden lg:flex flex-col w-72 shrink-0 bg-[var(--color-surface)] border-l border-[var(--color-border)] overflow-y-auto">
+        <div className="p-4 flex flex-col gap-4">
+          <div>
+            <h2 className="text-base font-semibold text-[var(--color-text)] leading-snug">{title}</h2>
+            {episodeTitle && (
+              <p className="text-sm text-[var(--color-primary-light)] mt-0.5">{episodeTitle}</p>
+            )}
+          </div>
+
+          {/* Meta chips */}
+          <div className="flex flex-wrap gap-1.5">
+            {searchParams.get('year') && (
+              <MetaChip icon={Calendar} label={searchParams.get('year')} />
+            )}
+            {searchParams.get('durationMin') && parseInt(searchParams.get('durationMin')) > 0 && (
+              <MetaChip icon={Clock} label={`${searchParams.get('durationMin')} min`} />
+            )}
+            {searchParams.get('isHD') === 'true' && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-[var(--color-primary)]/20 text-[var(--color-primary-light)] leading-none">HD</span>
+            )}
+          </div>
+
+          {/* Description */}
+          {searchParams.get('description') && (
+            <p className="text-xs text-[var(--color-muted)] leading-relaxed">
+              {decodeURIComponent(searchParams.get('description'))}
+            </p>
+          )}
+
+          {/* Director / Actors */}
+          {searchParams.get('director') && (
+            <div>
+              <p className="text-[10px] font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-0.5">Director</p>
+              <p className="text-xs text-[var(--color-text)]">{decodeURIComponent(searchParams.get('director'))}</p>
+            </div>
+          )}
+          {searchParams.get('actors') && (
+            <div>
+              <p className="text-[10px] font-semibold text-[var(--color-muted)] uppercase tracking-wide mb-0.5">Cast</p>
+              <p className="text-xs text-[var(--color-text)]">{decodeURIComponent(searchParams.get('actors'))}</p>
+            </div>
+          )}
+        </div>
+      </aside>
+    </div>
+  )
+}
+
+function MetaChip({ icon: Icon, label }) {
+  return (
+    <span className="flex items-center gap-1 text-[10px] text-[var(--color-muted)] bg-[var(--color-surface-2)] rounded px-1.5 py-0.5">
+      <Icon size={9} />
+      {label}
+    </span>
+  )
+}
