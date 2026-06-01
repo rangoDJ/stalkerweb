@@ -101,7 +101,6 @@ appState.touchActivity = function touchActivity() {
   appState._idleTimer = setTimeout(destroySession, IDLE_TIMEOUT_MS);
 };
 
-const VodManager   = require('./stalker/VodManager');
 const vodRoutes    = require('./routes/vod')(appState);
 
 const channelRoutes = require('./routes/channels')(appState);
