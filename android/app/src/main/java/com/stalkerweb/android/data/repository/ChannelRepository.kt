@@ -7,6 +7,7 @@ import com.stalkerweb.android.data.api.NowNextEntry
 import com.stalkerweb.android.data.api.StalkerApi
 import com.stalkerweb.android.data.api.StatusResponse
 import com.stalkerweb.android.data.prefs.AppPrefs
+import com.stalkerweb.android.data.prefs.WatchedChannel
 
 class ChannelRepository(private val prefs: AppPrefs) {
 
@@ -54,6 +55,13 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     suspend fun getNowNext(): Map<String, NowNextEntry> =
         runCatching { requireApi().getNowNext() }.getOrDefault(emptyMap())
+
+    // ── Watch history ─────────────────────────────────────────────────────────
+
+    fun pushWatched(channel: Channel, logoUrl: String?) =
+        prefs.pushWatchedChannel(channel.uniqueId, channel.name, logoUrl)
+
+    fun getWatched(): List<WatchedChannel> = prefs.getWatchedChannels()
 
     private fun requireApi(): StalkerApi =
         api ?: throw IllegalStateException("No server URL configured")

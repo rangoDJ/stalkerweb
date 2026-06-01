@@ -1,5 +1,7 @@
 package com.stalkerweb.android
 
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.app.PictureInPictureParams
 import android.content.Intent
 import android.net.Uri
@@ -22,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -40,7 +41,6 @@ import com.stalkerweb.android.ui.player.PlayerScreen
 import com.stalkerweb.android.ui.theme.StalkerTheme
 import com.stalkerweb.android.ui.update.UpdateDialog
 import com.stalkerweb.android.ui.update.UpdateViewModel
-import kotlinx.coroutines.launch
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -50,6 +50,9 @@ class MainActivity : ComponentActivity() {
 
     // File waiting to be installed after the user grants "unknown sources" permission.
     private var pendingInstallFile: File? = null
+
+    // Kept so onResume can call refreshHistory() without capturing a stale reference.
+    private var channelViewModel: ChannelViewModel? = null
 
     // Launcher for ACTION_MANAGE_UNKNOWN_APP_SOURCES. Fires install as soon as
     // the user grants permission; silently does nothing if they deny.
@@ -86,6 +89,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        createNotificationChannel()
 
         val prefs         = AppPrefs(this)
         val repository    = ChannelRepository(prefs).also { it.initFromPrefs() }
@@ -122,7 +126,7 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val channelViewModel: ChannelViewModel = viewModel(factory = channelVmFactory)
+                val channelViewModel: ChannelViewModel = viewModel(factory = channelVmFactory).also { this@MainActivity.channelViewModel = it }
                 val playerViewModel:  PlayerViewModel  = viewModel(factory = playerVmFactory)
                 val updateViewModel:  UpdateViewModel  = viewModel(factory = updateVmFactory)
 
@@ -181,6 +185,23 @@ class MainActivity : ComponentActivity() {
                 }
                 } // end overscan Box
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Refresh so "Continue watching" shows channels added during the player session
+        channelViewModel?.refreshHistory()
+    }
+
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                UpdateManager.CHANNEL_ID,
+                UpdateManager.CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_LOW,
+            ).apply { description = "Update download progress" }
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 

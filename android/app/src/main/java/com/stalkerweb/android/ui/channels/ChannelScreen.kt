@@ -28,6 +28,7 @@ import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
 import com.stalkerweb.android.data.api.NowNextEntry
+import com.stalkerweb.android.data.prefs.WatchedChannel
 import com.stalkerweb.android.ui.utils.rememberIsTV
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -175,6 +176,42 @@ fun ChannelScreen(
                 }
                 else -> {
                     LazyColumn {
+                        // Continue watching row
+                        if (state.showRecent) {
+                            item(key = "recent_header") {
+                                Text(
+                                    "Continue watching",
+                                    style    = MaterialTheme.typography.labelMedium,
+                                    color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                    modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp),
+                                )
+                            }
+                            item(key = "recent_row") {
+                                LazyRow(
+                                    contentPadding       = PaddingValues(horizontal = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    modifier             = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                ) {
+                                    items(state.recentChannels, key = { "r_${it.uniqueId}" }) { recent ->
+                                        RecentChannelChip(
+                                            recent    = recent,
+                                            logoUrl   = state.logoMap[recent.uniqueId] ?: recent.logoUrl,
+                                            onClick   = {
+                                                val ch = state.channels.find { it.uniqueId == recent.uniqueId }
+                                                if (ch != null) onSelectChannel(ch)
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+                            item(key = "recent_divider") {
+                                HorizontalDivider(
+                                    thickness = 0.5.dp,
+                                    color     = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+                                )
+                            }
+                        }
+
                         items(state.displayed, key = { it.uniqueId }) { channel ->
                             val isFirst = channel == state.displayed.first()
                             ChannelRow(
@@ -195,6 +232,56 @@ fun ChannelScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun RecentChannelChip(
+    recent: WatchedChannel,
+    logoUrl: String?,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick   = onClick,
+        shape     = RoundedCornerShape(8.dp),
+        color     = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 2.dp,
+        modifier  = Modifier.width(100.dp),
+    ) {
+        Column(
+            modifier            = Modifier.padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(MaterialTheme.colorScheme.surface),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (!logoUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model              = logoUrl,
+                        contentDescription = recent.name,
+                        contentScale       = ContentScale.Fit,
+                        modifier           = Modifier.fillMaxSize().padding(4.dp),
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Tv, null, Modifier.size(20.dp),
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f),
+                    )
+                }
+            }
+            Text(
+                text     = recent.name,
+                style    = MaterialTheme.typography.labelSmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

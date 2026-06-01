@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
 import com.stalkerweb.android.data.api.NowNextEntry
+import com.stalkerweb.android.data.prefs.WatchedChannel
 import com.stalkerweb.android.data.repository.ChannelRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,6 +21,7 @@ data class ChannelUiState(
     val favoriteIds: Set<String>     = emptySet(),
     val groups: List<Group>          = emptyList(),
     val nowNext: Map<String, NowNextEntry> = emptyMap(),
+    val recentChannels: List<WatchedChannel> = emptyList(),
     val selectedGroupId: String?     = null,
     val query: String                = "",
     val tab: ChannelTab              = ChannelTab.ALL,
@@ -40,6 +42,10 @@ data class ChannelUiState(
             return if (query.isBlank()) base
             else base.filter { it.name.contains(query, ignoreCase = true) }
         }
+
+    /** Show recent row only when on the All tab with no search/group filter active. */
+    val showRecent: Boolean
+        get() = tab == ChannelTab.ALL && query.isBlank() && selectedGroupId == null && recentChannels.isNotEmpty()
 }
 
 class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() {
@@ -52,8 +58,13 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
     }
 
     fun load() {
+        // Load watch history immediately so it shows before the network call finishes
+        _state.value = _state.value.copy(
+            loading        = true,
+            error          = null,
+            recentChannels = repository.getWatched(),
+        )
         viewModelScope.launch {
-            _state.value = _state.value.copy(loading = true, error = null)
             runCatching {
                 val channels = async { repository.getChannels() }
                 val logos    = async { repository.getLogoMap() }
@@ -80,6 +91,12 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
             val nowNext = repository.getNowNext()
             if (nowNext.isNotEmpty()) _state.value = _state.value.copy(nowNext = nowNext)
         }
+    }
+
+    /** Re-read history from prefs — called from MainActivity.onResume so the row
+     *  stays fresh after the user returns from the player. */
+    fun refreshHistory() {
+        _state.value = _state.value.copy(recentChannels = repository.getWatched())
     }
 
     fun setQuery(q: String) { _state.value = _state.value.copy(query = q) }
