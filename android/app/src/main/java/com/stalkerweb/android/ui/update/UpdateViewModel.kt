@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.stalkerweb.android.data.update.ReleaseInfo
 import com.stalkerweb.android.data.update.UpdateManager
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
@@ -22,7 +25,18 @@ class UpdateViewModel(private val manager: UpdateManager) : ViewModel() {
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state: StateFlow<UpdateState> = _state.asStateFlow()
 
+    // One-shot event the Activity observes to trigger the install intent with
+    // an Activity context + ActivityResultLauncher.
+    private val _installEvent = MutableSharedFlow<File>(extraBufferCapacity = 1)
+    val installEvent: SharedFlow<File> = _installEvent.asSharedFlow()
+
     fun check() {
+        // Restore ReadyToInstall if the APK survived a process death / Settings round-trip
+        val cached = manager.cachedApk()
+        if (cached != null) {
+            _state.value = UpdateState.ReadyToInstall(cached)
+            return
+        }
         viewModelScope.launch {
             val info = manager.checkForUpdate() ?: return@launch
             _state.value = UpdateState.Available(info)
@@ -43,7 +57,10 @@ class UpdateViewModel(private val manager: UpdateManager) : ViewModel() {
         }
     }
 
-    fun install(file: File) = manager.installApk(file)
+    /** Called from the Activity (which holds the ActivityResultLauncher). */
+    fun install(file: File) {
+        _installEvent.tryEmit(file)
+    }
 
     fun dismiss() { _state.value = UpdateState.Idle }
 }
