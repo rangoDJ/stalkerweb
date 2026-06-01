@@ -164,6 +164,69 @@ module.exports = function proxyModule(appState) {
     res.send(rewritten);
   }
 
+  // ── GET /proxy/vod/stream?videoId=X&cmd=<encoded>&series=0 ───────────────
+  // Resolves a VOD stream URL via VodManager (auth + all fallbacks), then
+  // either proxies an HLS playlist (rewriting sub-URLs) or pipes a direct
+  // video stream with Range-request pass-through for seeking.
+  router.get('/vod/stream', async (req, res) => {
+    if (!appState.client) { res.status(503).send('Not connected to portal'); return; }
+    appState.touchActivity?.();
+
+    const { videoId, series = '0' } = req.query;
+    const cmd = req.query.cmd || '';
+    if (!videoId) return res.status(400).send('videoId is required');
+
+    const { vodManager, client } = appState;
+    if (!vodManager) return res.status(503).send('VOD not available');
+
+    let streamUrl;
+    try {
+      streamUrl = await vodManager.getStreamUrl(videoId, cmd || null, parseInt(series, 10) || 0);
+    } catch (e) {
+      log.error(TAG, `VOD proxy: stream resolution failed: ${e.message}`);
+      return res.status(502).send(`Stream resolution failed: ${e.message}`);
+    }
+
+    log.info(TAG, `VOD proxy: videoId=${videoId} → ${streamUrl.slice(0, 80)}…`);
+
+    // HLS playlist — rewrite sub-playlist/segment URLs and serve
+    if (isPlaylistUrl(streamUrl)) {
+      return servePlaylist(req, res, streamUrl);
+    }
+
+    // Direct stream (.mpg, .mp4, etc.) — proxy bytes with Range pass-through
+    const http = client.getHttpClient();
+    const upstreamHeaders = { ...client.getStreamHeaders() };
+    if (req.headers['range']) upstreamHeaders['Range'] = req.headers['range'];
+
+    let upstream;
+    try {
+      upstream = await http.get(streamUrl, {
+        headers:        upstreamHeaders,
+        responseType:   'stream',
+        timeout:        30_000,
+        validateStatus: () => true,
+      });
+    } catch (e) {
+      log.error(TAG, `VOD proxy: fetch failed: ${e.message}`);
+      return res.status(502).send(`Fetch failed: ${e.message}`);
+    }
+
+    if (upstream.status >= 400) {
+      return res.status(502).send(`Portal returned HTTP ${upstream.status}`);
+    }
+
+    res.status(upstream.status);
+    res.set('Access-Control-Allow-Origin', '*');
+    res.set('Content-Type', upstream.headers['content-type'] || 'video/mpeg');
+    if (upstream.headers['content-length'])  res.set('Content-Length',  upstream.headers['content-length']);
+    if (upstream.headers['content-range'])   res.set('Content-Range',   upstream.headers['content-range']);
+    if (upstream.headers['accept-ranges'])   res.set('Accept-Ranges',   upstream.headers['accept-ranges']);
+
+    upstream.data.pipe(res);
+    req.on('close', () => upstream.data.destroy?.());
+  });
+
   // ── GET /proxy/stream/:channelId ──────────────────────────────────────────
   router.get('/stream/:channelId', channelIdRules, async (req, res) => {
     if (!requireSession(res)) return;
