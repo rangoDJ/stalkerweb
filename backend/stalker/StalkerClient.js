@@ -251,10 +251,6 @@ class StalkerClient {
       'Accept':            'application/json, text/javascript, */*; q=0.01',
     };
 
-    // Kodi plugin sends SN as a dedicated header in addition to the cookie.
-    // Some portals check this header specifically when processing create_link.
-    if (id.serial_number) headers['SN'] = id.serial_number;
-
     if (!isHandshake && id.token) {
       headers['Authorization'] = `Bearer ${id.token}`;
     }
