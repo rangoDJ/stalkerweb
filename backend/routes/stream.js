@@ -49,6 +49,10 @@ module.exports = function streamRoutes(appState, config) {
   });
 
   // GET /api/stream/:channelId
+  // Validates the channel exists (waiting for load if needed) then returns
+  // the authenticated proxy URL.  All stream resolution — create_link,
+  // matrix, localhost rewriting, HLS playlist rewriting — is handled by
+  // /proxy/stream/:channelId which runs server-side with the portal session.
   router.get('/:channelId', async (req, res) => {
     try {
       await ensureSession();
@@ -57,9 +61,7 @@ module.exports = function streamRoutes(appState, config) {
       return res.status(503).json({ error: e.message });
     }
 
-    const { client, channelManager } = appState;
-
-    // Validate channelId is numeric before parseInt to avoid silent NaN lookups
+    const { channelManager } = appState;
     const rawId = req.params.channelId;
     if (!/^\d+$/.test(rawId)) {
       log.warn(TAG, `invalid channelId param: "${rawId}"`);
@@ -73,47 +75,12 @@ module.exports = function streamRoutes(appState, config) {
       return res.status(404).json({ error: 'Channel not found' });
     }
 
-    log.info(TAG, `resolving stream — ch ${channel.number} "${channel.name}" ` +
-      `cmd="${channel.cmd}" useHttpTmpLink=${channel.useHttpTmpLink} useLoadBalancing=${channel.useLoadBalancing}`);
-
-    let streamUrl = '';
-
-    try {
-      if (channel.cmd.includes('matrix')) {
-        log.info(TAG, `ch ${channel.number}: matrix path`);
-        let cmd = '';
-        try {
-          const matrixResult = await client.resolveMatrixUrl(channel.cmd);
-          log.debug(TAG, `ch ${channel.number}: resolveMatrixUrl returned: ${JSON.stringify(matrixResult)}`);
-          if (matrixResult) {
-            cmd = matrixResult;
-          } else {
-            // matrix resolution failed — do NOT fall back to channel.cmd here because
-            // channel.cmd is a portal matrix endpoint, not a playable stream URL.
-            log.warn(TAG, `ch ${channel.number}: matrix returned null/empty — cannot serve stream`);
-          }
-        } catch (e) {
-          log.warn(TAG, `ch ${channel.number}: matrix call failed (${e.message})`);
-        }
-        const spacePos = cmd.indexOf(' ');
-        streamUrl = spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;
-        log.info(TAG, `ch ${channel.number}: matrix resolved cmd="${cmd}" → url="${streamUrl || '(empty)'}"`);
-      } else {
-        streamUrl = await channelManager.getStreamUrl(channel);
-        log.info(TAG, `ch ${channel.number}: getStreamUrl → "${streamUrl || '(empty)'}"`);
-      }
-    } catch (err) {
-      log.error(TAG, `ch ${channel.number}: stream resolution threw: ${err.message}`);
-      return res.status(502).json({ error: `Stream resolution failed: ${err.message}` });
-    }
-
-    if (!streamUrl) {
-      log.error(TAG, `ch ${channel.number} "${channel.name}": all resolution paths returned empty`);
-      return res.status(502).json({ error: 'Could not resolve stream URL' });
-    }
-
     appState.touchActivity?.();
-    res.json({ channelId: uniqueId, channelName: channel.name, streamUrl });
+    res.json({
+      channelId:   uniqueId,
+      channelName: channel.name,
+      streamUrl:   `/proxy/stream/${rawId}`,
+    });
   });
 
   return router;
