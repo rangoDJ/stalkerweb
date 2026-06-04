@@ -1,6 +1,6 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film, LayoutGrid, User } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film, LayoutGrid } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
@@ -135,7 +135,6 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
           />
           {connected ? 'Connected' : 'Disconnected'}
         </span>
-        <NavItem to="/profiles" icon={User}     label="Profiles" />
         <NavItem to="/settings" icon={Settings} label="Profiles" />
       </div>
     </header>
