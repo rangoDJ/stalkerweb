@@ -87,6 +87,9 @@ export const getLogoMap = () => _get('/logos/map')
 export const addLogoOverride = (name, url) => _post('/logos', { name, url })
 export const deleteLogoOverride = (name) => _delete(`/logos/${encodeURIComponent(name)}`)
 export const refreshLogosDb = () => _post('/logos/refresh', {})
+export const getLogoStripWords = () => _get('/logos/strip')
+export const addLogoStripWord = (word) => _post('/logos/strip', { word })
+export const deleteLogoStripWord = (word) => _delete(`/logos/strip/${encodeURIComponent(word)}`)
 
 // ── Favorites ─────────────────────────────────────────────────────────────
 export const getFavorites = () => _get('/favorites')

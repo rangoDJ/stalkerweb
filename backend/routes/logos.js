@@ -82,6 +82,25 @@ module.exports = function logosModule(logoManager, appState) {
     }
   });
 
+  // ── Strip words ─────────────────────────────────────────────────────────────
+  // Words removed from channel names before logo lookup.
+  // e.g. "BBC CANADA" + strip "CANADA" → looks up "BBC" in iptv-org db.
+  router.get('/strip', (_req, res) => {
+    res.json({ stripWords: logoManager.getStripWords() });
+  });
+
+  router.post('/strip', (req, res) => {
+    const { word } = req.body;
+    if (!word || typeof word !== 'string') return res.status(400).json({ error: 'word required' });
+    logoManager.addStripWord(word.trim());
+    res.json({ success: true, stripWords: logoManager.getStripWords() });
+  });
+
+  router.delete('/strip/:word', (req, res) => {
+    logoManager.deleteStripWord(decodeURIComponent(req.params.word));
+    res.json({ success: true, stripWords: logoManager.getStripWords() });
+  });
+
   router.post('/', (req, res) => {
     const { name, url } = req.body;
     if (!name || typeof name !== 'string') return res.status(400).json({ error: 'name required' });
