@@ -1,12 +1,14 @@
 import { useEffect, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film, LayoutGrid, User } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
 import { getStatus, getSettings } from './stalkerApi'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastHost } from '@/components/ToastHost'
+import { ReminderBell } from '@/components/ReminderBell'
+import { useReminders } from '@/lib/useReminders'
 
 const SetupPage      = lazy(() => import('./pages/SetupPage'))
 const ChannelsPage   = lazy(() => import('./pages/ChannelsPage'))
@@ -15,6 +17,8 @@ const GuidePage      = lazy(() => import('./pages/GuidePage'))
 const FavoritesPage  = lazy(() => import('./pages/FavoritesPage'))
 const VodPage        = lazy(() => import('./pages/VodPage'))
 const VodPlayerPage  = lazy(() => import('./pages/VodPlayerPage'))
+const EpgGridPage    = lazy(() => import('./pages/EpgGridPage'))
+const ProfilesPage   = lazy(() => import('./pages/ProfilesPage'))
 
 // ── Nav link style ────────────────────────────────────────────────────────
 function NavItem({ to, icon: Icon, label }) {
@@ -90,6 +94,8 @@ function IdleBadge({ idleInfo }) {
 
 // ── Top nav ───────────────────────────────────────────────────────────────
 function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
+  const { reminders, removeReminder } = useReminders()
+
   return (
     <header className="fixed top-0 inset-x-0 z-40 h-14 flex items-center px-6 gap-6 border-b border-[var(--color-border)] bg-[var(--color-bg)]/90 backdrop-blur-sm">
       <div className="flex items-center gap-2 shrink-0">
@@ -104,10 +110,11 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
 
       {connected && (
         <nav className="flex items-center gap-1">
-          <NavItem to="/channels" icon={Tv2} label="Channels" />
-          <NavItem to="/vod"      icon={Film} label="VOD" />
-          <NavItem to="/favorites" icon={Heart} label="Favorites" />
-          {epgEnabled && <NavItem to="/guide" icon={BookOpen} label="Guide" />}
+          <NavItem to="/channels"  icon={Tv2}         label="Channels" />
+          <NavItem to="/vod"       icon={Film}        label="VOD" />
+          <NavItem to="/favorites" icon={Heart}       label="Favorites" />
+          {epgEnabled && <NavItem to="/guide"    icon={BookOpen}    label="Guide" />}
+          {epgEnabled && <NavItem to="/epg-grid" icon={LayoutGrid}  label="EPG Grid" />}
         </nav>
       )}
 
@@ -116,6 +123,9 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
       <div className="flex items-center gap-3">
         {connected && <IdleBadge idleInfo={idleInfo} />}
         {connected && <KeepaliveBadge lastPingAt={lastPingAt} />}
+        {connected && (
+          <ReminderBell reminders={reminders} onRemove={removeReminder} />
+        )}
         <span className="flex items-center gap-1.5 text-xs text-[var(--color-muted)]">
           <span
             className={cn(
@@ -125,6 +135,7 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
           />
           {connected ? 'Connected' : 'Disconnected'}
         </span>
+        <NavItem to="/profiles" icon={User}     label="Profiles" />
         <NavItem to="/settings" icon={Settings} label="Settings" />
       </div>
     </header>
@@ -193,6 +204,7 @@ function AppInner() {
           <Suspense fallback={<div className="flex h-48 items-center justify-center"><Loader2 size={24} className="animate-spin text-[var(--color-primary-light)]" /></div>}>
           <Routes>
             <Route path="/settings" element={<SetupPage />} />
+            <Route path="/profiles" element={<ProfilesPage />} />
             <Route
               path="/channels"
               element={
@@ -222,6 +234,14 @@ function AppInner() {
               element={
                 <RequireAuth connected={connected}>
                   <GuidePage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/epg-grid"
+              element={
+                <RequireAuth connected={connected}>
+                  <EpgGridPage />
                 </RequireAuth>
               }
             />
