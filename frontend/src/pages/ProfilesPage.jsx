@@ -83,7 +83,7 @@ function ProfileCard({ name, profile, isActive, onActivate, onDelete, activating
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 export default function ProfilesPage() {
-  const { setConnected, setLastPingAt, setIdleInfo } = useApp()
+  const { setConnected } = useApp()
 
   const [profiles, setProfiles] = useState({})
   const [currentConfig, setCurrentConfig] = useState(null)
