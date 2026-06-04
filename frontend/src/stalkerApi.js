@@ -126,6 +126,12 @@ export const reorderFavoriteGroups   = (order) => _put('/favorites/groups/order'
 export const getStreamUrl = (channelId) => _get(`/stream/${channelId}`)
 export const streamKeepalive = () => _get('/stream/keepalive')
 
+// ── Profiles ──────────────────────────────────────────────────────────────
+export const getProfiles    = ()       => _get('/auth/profiles')
+export const saveProfile    = (name)   => _post('/auth/profiles', { name })
+export const activateProfile = (name) => _put(`/auth/profiles/${encodeURIComponent(name)}`, {})
+export const deleteProfile  = (name)  => _delete(`/auth/profiles/${encodeURIComponent(name)}`)
+
 // ── VOD ───────────────────────────────────────────────────────────────────
 export const getVodCategories = (type = 'vod') =>
   _get(`/vod/categories?type=${type}`)
