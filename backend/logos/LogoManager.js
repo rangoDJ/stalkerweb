@@ -272,7 +272,7 @@ class LogoManager {
     const map = this._getFailedUrls();
     map.set(url, Date.now());
     // Persist asynchronously — fire-and-forget to avoid blocking the request
-    setImmediate(() => {
+    Promise.resolve().then(() => {
       try {
         const obj = Object.fromEntries(map);
         fs.writeFileSync(this._failureCacheFile, JSON.stringify(obj));
