@@ -122,14 +122,16 @@ module.exports = function proxyModule(appState) {
     }
   }
 
-  async function servePlaylist(req, res, realUrl) {
+  // trusted=true skips the SSRF hostname check — use when realUrl came from
+  // the portal's own create_link / stream-resolution API (not user-supplied).
+  async function servePlaylist(req, res, realUrl, trusted = false) {
     const { client } = appState;
     const http = client.getHttpClient();
     const headers = client.getStreamHeaders();
 
     const setCors = () => res.set('Access-Control-Allow-Origin', '*');
 
-    if (!isAllowedUrl(realUrl, appState.client?.getBasePath())) {
+    if (!trusted && !isAllowedUrl(realUrl, appState.client?.getBasePath())) {
       log.warn(TAG, `blocked SSRF attempt to ${realUrl}`);
       setCors();
       return res.status(403).send('Forbidden');
@@ -198,19 +200,14 @@ module.exports = function proxyModule(appState) {
 
     log.info(TAG, `VOD proxy: videoId=${videoId} → ${streamUrl.slice(0, 80)}…`);
 
-    // Fix: SSRF guard on the resolved URL — same check used by servePlaylist and the segment handler
-    if (!isAllowedUrl(streamUrl, client.getBasePath())) {
-      log.warn(TAG, `VOD proxy: blocked SSRF attempt to ${streamUrl}`);
-      return res.status(403).send('Forbidden');
-    }
-
     const http          = client.getHttpClient();
     const streamHeaders = { ...client.getStreamHeaders() };
     if (req.headers['range']) streamHeaders['Range'] = req.headers['range'];
 
     // HLS playlist URL (extension-based fast path) — servePlaylist handles buffering + rewrite
+    // trusted=true: URL came from portal's own getStreamUrl(), not user-supplied
     if (isPlaylistUrl(streamUrl)) {
-      return servePlaylist(req, res, streamUrl);
+      return servePlaylist(req, res, streamUrl, true);
     }
 
     // For non-playlist URLs, stream the response to avoid loading large files into memory.
@@ -319,7 +316,7 @@ module.exports = function proxyModule(appState) {
 
     channelManager.recordStreamSuccess(uniqueId);
     log.info(TAG, `master playlist for ch ${channel.number}: ${streamUrl}`);
-    return servePlaylist(req, res, streamUrl);
+    return servePlaylist(req, res, streamUrl, true); // trusted — URL from portal create_link
   });
 
   // ── GET /proxy/hls?url=<encoded> — sub-playlist proxy ────────────────────
