@@ -78,6 +78,36 @@ module.exports = function channelRoutes(appState) {
     res.json({ total: groups.length, groups });
   });
 
+  // GET /api/channels/events — SSE stream of loading progress
+  // Pushes a JSON progress object every 400ms until loading completes, then closes.
+  router.get('/events', guard, (req, res) => {
+    const { channelManager } = appState;
+    res.set({
+      'Content-Type':  'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':    'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+    });
+    res.flushHeaders();
+
+    const send = () => {
+      const p = channelManager.getProgress();
+      res.write(`data: ${JSON.stringify(p)}\n\n`);
+      if (!p.loading) { clearInterval(iv); res.end(); }
+    };
+
+    send(); // send immediately
+    const iv = setInterval(send, 400);
+    req.on('close', () => clearInterval(iv));
+  });
+
+  // GET /api/channels/health — stream error counts per channel
+  router.get('/health', guard, (req, res) => {
+    const { channelManager } = appState;
+    if (!channelManager) return res.json({});
+    res.json(channelManager.getHealth());
+  });
+
   // GET /api/channels/:id
   router.get('/:id', guard, (req, res) => {
     const id = parseInt(req.params.id, 10);
