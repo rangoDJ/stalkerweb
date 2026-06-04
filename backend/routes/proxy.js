@@ -334,7 +334,9 @@ module.exports = function proxyModule(appState) {
       return res.status(400).send('Invalid url encoding');
     }
 
-    return servePlaylist(req, res, realUrl);
+    // trusted=true: URL was embedded in an m3u8 we already proxied and rewrote.
+    // Portals deliver streams via CDNs whose hostnames differ from the portal.
+    return servePlaylist(req, res, realUrl, true);
   });
 
   // ── GET /proxy/hls/seg/:encoded.ts — segment proxy ───────────────────────
@@ -353,11 +355,6 @@ module.exports = function proxyModule(appState) {
       realUrl = decodeProxyUrl(encoded);
     } catch {
       return res.status(400).send('Invalid url encoding');
-    }
-
-    if (!isAllowedUrl(realUrl, appState.client?.getBasePath())) {
-      log.warn(TAG, `blocked SSRF attempt to ${realUrl}`);
-      return res.status(403).send('Forbidden');
     }
 
     const { client } = appState;
