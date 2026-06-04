@@ -17,8 +17,9 @@ const CacheManager = require('../cache/CacheManager');
 const log = require('../logger');
 const TAG = 'logos';
 
-const CACHE_TTL     = 24 * 60 * 60 * 1000; // 24 h
-const WORKER_PATH   = path.join(__dirname, 'logo-worker.js');
+const CACHE_TTL        = 24 * 60 * 60 * 1000;  // 24 h  — iptv-org DB
+const FAILURE_TTL      =  7 * 24 * 60 * 60 * 1000;  // 7 days — negative logo cache
+const WORKER_PATH      = path.join(__dirname, 'logo-worker.js');
 
 // Normalize a channel name for fuzzy matching (kept here for getLogo/checkName).
 function normName(name) {
@@ -63,9 +64,11 @@ class LogoManager {
   constructor(dataDir) {
     this._mapCacheFile  = path.join(dataDir, 'cache', 'iptv-org-logos.json');
     this._cache         = new CacheManager(dataDir);
-    this._logoMap       = null;   // Map<normalizedName, logoUrl>
-    this._overrides     = null;   // in-memory cache, invalidated on write
-    this._stripWords    = null;   // in-memory cache, invalidated on write
+    this._logoMap           = null;   // Map<normalizedName, logoUrl>
+    this._overrides         = null;   // in-memory cache, invalidated on write
+    this._stripWords        = null;   // in-memory cache, invalidated on write
+    this._failedUrls        = null;   // Map<url, failedAtMs> — negative cache
+    this._failureCacheFile  = path.join(dataDir, 'cache', 'logo-failures.json');
     this._cachedAt      = null;
     this._refreshing    = false;
     this._cacheDir      = path.join(dataDir, 'cache', 'logos');
@@ -169,9 +172,15 @@ class LogoManager {
   /**
    * Fetches an image from URL and returns its local path (cached).
    * If not in cache, downloads it.
+   * 404/403 failures are remembered for FAILURE_TTL (7 days) so the
+   * same broken URL is never re-fetched within that window.
    */
   async getLogoPath(url, headers = {}) {
     if (!url || !url.startsWith('http')) return null;
+
+    // Skip known-bad URLs immediately — no network round-trip
+    const failed = this._getFailedUrls();
+    if (failed.has(url)) return null;
 
     const hash = crypto.createHash('md5').update(url).digest('hex');
     const ext  = path.extname(new URL(url).pathname) || '.png';
@@ -194,7 +203,15 @@ class LogoManager {
       fs.writeFileSync(filePath, resp.data);
       return filePath;
     } catch (err) {
-      log.warn(TAG, `failed to download ${url}: ${err.message}`);
+      const status = err.response?.status;
+      // Only cache permanent failures (404, 403, 410).
+      // Transient errors (network timeout, 5xx) are not cached so they retry.
+      if (status === 404 || status === 403 || status === 410) {
+        this._recordFailure(url);
+        log.debug(TAG, `logo ${status} — skipping future requests: ${url}`);
+      } else {
+        log.warn(TAG, `failed to download ${url}: ${err.message}`);
+      }
       return null;
     }
   }
@@ -225,6 +242,38 @@ class LogoManager {
     const config = this._cache.load() || {};
     config.logo_strip_words = words;
     this._cache.save(config);
+  }
+
+  // ── Negative logo URL cache ────────────────────────────────────────────────
+
+  _getFailedUrls() {
+    if (this._failedUrls) return this._failedUrls;
+
+    // Load from disk, pruning entries older than FAILURE_TTL
+    try {
+      const raw  = JSON.parse(fs.readFileSync(this._failureCacheFile, 'utf8'));
+      const now  = Date.now();
+      const map  = new Map(
+        Object.entries(raw).filter(([, ts]) => now - ts < FAILURE_TTL)
+      );
+      this._failedUrls = map;
+      log.debug(TAG, `loaded ${map.size} negative-cached logo URLs`);
+    } catch {
+      this._failedUrls = new Map();
+    }
+    return this._failedUrls;
+  }
+
+  _recordFailure(url) {
+    const map = this._getFailedUrls();
+    map.set(url, Date.now());
+    // Persist asynchronously — fire-and-forget to avoid blocking the request
+    setImmediate(() => {
+      try {
+        const obj = Object.fromEntries(map);
+        fs.writeFileSync(this._failureCacheFile, JSON.stringify(obj));
+      } catch { /* non-critical */ }
+    });
   }
 
   async _loadOrDownload(forceDownload) {
