@@ -1,9 +1,13 @@
 // routes/auth.js
-// POST   /api/auth/connect     — initialise portal connection
-// GET    /api/auth/status      — check session state
-// GET    /api/auth/config      — return saved config for WebUI pre-fill
-// DELETE /api/auth/disconnect  — tear down session
-// POST   /api/auth/reconnect   — re-connect using saved config
+// POST   /api/auth/connect          — initialise portal connection
+// GET    /api/auth/status           — check session state
+// GET    /api/auth/config           — return saved config for WebUI pre-fill
+// DELETE /api/auth/disconnect       — tear down session
+// POST   /api/auth/reconnect        — re-connect using saved config
+// GET    /api/auth/profiles         — list saved profiles
+// POST   /api/auth/profiles         — save current config as named profile { name }
+// PUT    /api/auth/profiles/:name   — activate a profile (reconnect with it)
+// DELETE /api/auth/profiles/:name   — delete a profile
 
 'use strict';
 
@@ -283,6 +287,89 @@ module.exports = function authModule(appState, config) {
       log.error(TAG, `reconnect failed: ${err.message}`);
       res.status(401).json({ error: err.message });
     }
+  });
+
+  // ── GET /api/auth/profiles ─────────────────────────────────────────────────
+  // Returns all saved profiles (name → { portal, mac, timezone, ... }).
+  router.get('/profiles', (req, res) => {
+    const saved = cache.load() || {};
+    res.json({ profiles: saved.profiles || {} });
+  });
+
+  // ── POST /api/auth/profiles ────────────────────────────────────────────────
+  // Saves the current portal config as a named profile.
+  router.post('/profiles', (req, res) => {
+    const { name } = req.body || {};
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({ error: 'Profile name is required' });
+    }
+    const profileName = name.trim();
+    const existing = cache.load() || {};
+
+    // Build a profile snapshot from the current flat config fields.
+    const { portal, mac, timezone, lang, login, serial_number,
+            device_id, device_id2, signature, connection_timeout } = existing;
+
+    if (!portal || !mac) {
+      return res.status(400).json({ error: 'No active portal config to save as a profile' });
+    }
+
+    const profiles = existing.profiles || {};
+    profiles[profileName] = {
+      portal, mac,
+      timezone: timezone || 'Europe/London',
+      lang: lang || 'en',
+      login: login || '',
+      serial_number: serial_number || '0000000000000',
+      device_id: device_id || '',
+      device_id2: device_id2 || '',
+      signature: signature || '',
+      connection_timeout: connection_timeout || 10,
+    };
+
+    cache.save({ ...existing, profiles });
+    log.info(TAG, `profile saved: "${profileName}"`);
+    res.json({ success: true, name: profileName });
+  });
+
+  // ── PUT /api/auth/profiles/:name ───────────────────────────────────────────
+  // Activates a saved profile by reconnecting with its stored config.
+  router.put('/profiles/:name', reconnectLimiter, async (req, res) => {
+    const profileName = decodeURIComponent(req.params.name);
+    const existing = cache.load() || {};
+    const profiles = existing.profiles || {};
+    const profile = profiles[profileName];
+
+    if (!profile) {
+      return res.status(404).json({ error: `Profile "${profileName}" not found` });
+    }
+
+    try {
+      const result = await connectPortal(profile);
+      appState.touchActivity?.();
+      log.info(TAG, `profile activated: "${profileName}"`);
+      res.json({ success: true, name: profileName, ...result });
+    } catch (err) {
+      log.error(TAG, `profile activation failed for "${profileName}": ${err.message}`);
+      res.status(401).json({ error: err.message });
+    }
+  });
+
+  // ── DELETE /api/auth/profiles/:name ───────────────────────────────────────
+  // Deletes a saved profile.
+  router.delete('/profiles/:name', (req, res) => {
+    const profileName = decodeURIComponent(req.params.name);
+    const existing = cache.load() || {};
+    const profiles = existing.profiles || {};
+
+    if (!profiles[profileName]) {
+      return res.status(404).json({ error: `Profile "${profileName}" not found` });
+    }
+
+    delete profiles[profileName];
+    cache.save({ ...existing, profiles });
+    log.info(TAG, `profile deleted: "${profileName}"`);
+    res.json({ success: true });
   });
 
   return { authRoutes: router, connectPortal };
