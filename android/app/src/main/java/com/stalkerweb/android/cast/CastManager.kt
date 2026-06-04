@@ -42,7 +42,6 @@ class CastManager(context: Context) {
             _isCasting.value = false
         }
         override fun onSessionStartFailed(session: CastSession, error: Int)  { _isCasting.value = false }
-        override fun onSessionEndFailed(session: CastSession, error: Int)    {}
         override fun onSessionStarting(session: CastSession)                 {}
         override fun onSessionEnding(session: CastSession)                   {}
         override fun onSessionResuming(session: CastSession, sessionId: String) {}

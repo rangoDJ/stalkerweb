@@ -126,9 +126,9 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val channelViewModel: ChannelViewModel = viewModel(factory = channelVmFactory).also { this@MainActivity.channelViewModel = it }
-                val playerViewModel:  PlayerViewModel  = viewModel(factory = playerVmFactory)
-                val updateViewModel:  UpdateViewModel  = viewModel(factory = updateVmFactory)
+                val channelViewModel: ChannelViewModel = viewModel<ChannelViewModel>(factory = channelVmFactory).also { this@MainActivity.channelViewModel = it }
+                val playerViewModel:  PlayerViewModel  = viewModel<PlayerViewModel>(factory = playerVmFactory)
+                val updateViewModel:  UpdateViewModel  = viewModel<UpdateViewModel>(factory = updateVmFactory)
 
                 // Collect install events from the ViewModel and handle them here
                 // where we have a real Activity context and the result launcher.
