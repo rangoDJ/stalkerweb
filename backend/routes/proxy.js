@@ -298,14 +298,26 @@ module.exports = function proxyModule(appState) {
 
     let streamUrl;
     try {
-      streamUrl = await resolveStreamUrl(channel);
+      // Catch-up support: if ?startTime= is provided, modify the cmd to request archive stream
+      if (req.query.startTime) {
+        log.info(TAG, `catch-up request for ch ${channel.number}: startTime=${req.query.startTime}`);
+        const archiveChannel = { ...channel, cmd: `${channel.cmd} archive=1 start=${req.query.startTime}` };
+        streamUrl = await resolveStreamUrl(archiveChannel);
+      } else {
+        streamUrl = await resolveStreamUrl(channel);
+      }
     } catch (e) {
       log.error(TAG, `stream resolution failed: ${e.message}`);
+      channelManager.recordStreamError(uniqueId);
       return res.status(502).send(`Stream resolution failed: ${e.message}`);
     }
 
-    if (!streamUrl) return res.status(502).send('Could not resolve stream URL');
+    if (!streamUrl) {
+      channelManager.recordStreamError(uniqueId);
+      return res.status(502).send('Could not resolve stream URL');
+    }
 
+    channelManager.recordStreamSuccess(uniqueId);
     log.info(TAG, `master playlist for ch ${channel.number}: ${streamUrl}`);
     return servePlaylist(req, res, streamUrl);
   });

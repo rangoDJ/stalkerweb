@@ -19,9 +19,29 @@ class ChannelManager {
     this._loadGroupsPromise = null;    // deduplicates concurrent loadGroups calls
     this._loadChannelsPromise = null;  // deduplicates concurrent loadChannels calls
     this._progress = { loading: false, page: 0, totalPages: 0, channelCount: 0 };
+    this._health = new Map();          // uniqueId → { errors, lastError }
   }
 
   getProgress() { return { ...this._progress }; }
+
+  // ── Stream health tracking ────────────────────────────────────────────────────
+  recordStreamError(uniqueId) {
+    const key = String(uniqueId);
+    const entry = this._health.get(key) || { errors: 0, lastError: null };
+    entry.errors++;
+    entry.lastError = new Date().toISOString();
+    this._health.set(key, entry);
+  }
+
+  recordStreamSuccess(uniqueId) {
+    this._health.delete(String(uniqueId)); // clear errors on success
+  }
+
+  getHealth() {
+    const result = {};
+    for (const [k, v] of this._health) result[k] = v;
+    return result;
+  }
 
   // ── Load channels ──────────────────────────────────────────────────────────
   // Deduplicates concurrent calls — only one fetch runs at a time.
