@@ -136,7 +136,7 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
           {connected ? 'Connected' : 'Disconnected'}
         </span>
         <NavItem to="/profiles" icon={User}     label="Profiles" />
-        <NavItem to="/settings" icon={Settings} label="Settings" />
+        <NavItem to="/settings" icon={Settings} label="Profiles" />
       </div>
     </header>
   )
