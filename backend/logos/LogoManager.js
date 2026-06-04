@@ -31,6 +31,18 @@ function normName(name) {
     .replace(/[^a-z0-9]/g, '');
 }
 
+// Apply a list of strip words (whole-word, case-insensitive) to a channel name
+// before normalisation.  e.g. "BBC CANADA" + ["canada"] → "BBC"
+function applyStripWords(channelName, stripWords) {
+  if (!stripWords || stripWords.length === 0) return channelName;
+  let result = channelName;
+  for (const word of stripWords) {
+    const escaped = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    result = result.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), '');
+  }
+  return result.replace(/\s+/g, ' ').trim();
+}
+
 // Spawn a one-shot worker, send it one message, resolve/reject on reply.
 function runWorker(msg) {
   return new Promise((resolve, reject) => {
@@ -53,6 +65,7 @@ class LogoManager {
     this._cache         = new CacheManager(dataDir);
     this._logoMap       = null;   // Map<normalizedName, logoUrl>
     this._overrides     = null;   // in-memory cache, invalidated on write
+    this._stripWords    = null;   // in-memory cache, invalidated on write
     this._cachedAt      = null;
     this._refreshing    = false;
     this._cacheDir      = path.join(dataDir, 'cache', 'logos');
@@ -62,25 +75,60 @@ class LogoManager {
   // ── Public ─────────────────────────────────────────────────────────────────
 
   getLogo(channelName) {
-    const overrides = this._getOverrides();
+    const overrides  = this._getOverrides();
+    const stripWords = this._getStripWords();
 
-    // 1. Exact override
+    // 1. Exact override (no stripping — user typed the full name)
     if (overrides[channelName]) return overrides[channelName];
 
-    // 2. Normalized override
-    const norm = normName(channelName);
+    // 2. Normalized override — try both the original name and the stripped name
+    const norm        = normName(channelName);
+    const stripped    = applyStripWords(channelName, stripWords);
+    const normStripped = normName(stripped);
+
     for (const [k, v] of Object.entries(overrides)) {
-      if (normName(k) === norm) return v;
+      const kn = normName(k);
+      if (kn === norm || kn === normStripped) return v;
     }
 
-    // 3. iptv-org map
-    return (this._logoMap && this._logoMap.get(norm)) || '';
+    // 3. iptv-org map — try stripped name first (more specific), then original
+    if (this._logoMap) {
+      return this._logoMap.get(normStripped) || this._logoMap.get(norm) || '';
+    }
+    return '';
   }
 
   checkName(name) {
-    const norm = normName(name);
-    const logo = this.getLogo(name);
-    return { name, normalized: norm, logo: logo || null, db_loaded: this._logoMap !== null };
+    const stripWords   = this._getStripWords();
+    const stripped     = applyStripWords(name, stripWords);
+    const norm         = normName(name);
+    const normStripped = normName(stripped);
+    const logo         = this.getLogo(name);
+    return {
+      name,
+      normalized:     norm,
+      stripped:       stripped !== name ? stripped : null,
+      normStripped:   stripped !== name ? normStripped : null,
+      logo:           logo || null,
+      db_loaded:      this._logoMap !== null,
+    };
+  }
+
+  getStripWords()  { return this._getStripWords(); }
+
+  addStripWord(word) {
+    const w     = String(word).trim();
+    if (!w) return;
+    const words = this._getStripWords();
+    if (!words.includes(w)) {
+      words.push(w);
+      this._saveStripWords(words);
+    }
+  }
+
+  deleteStripWord(word) {
+    const words   = this._getStripWords().filter(w => w !== word);
+    this._saveStripWords(words);
   }
 
   ensureLoadedBackground() {
@@ -163,6 +211,19 @@ class LogoManager {
     this._overrides = overrides;
     const config = this._cache.load() || {};
     config.logo_overrides = overrides;
+    this._cache.save(config);
+  }
+
+  _getStripWords() {
+    if (this._stripWords) return this._stripWords;
+    this._stripWords = this._cache.load()?.logo_strip_words || [];
+    return this._stripWords;
+  }
+
+  _saveStripWords(words) {
+    this._stripWords = words;
+    const config = this._cache.load() || {};
+    config.logo_strip_words = words;
     this._cache.save(config);
   }
 

@@ -14,6 +14,7 @@ import {
   connect, disconnect, getConfig, getStatus, getSettings, saveSettings,
   getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb,
   downloadStbEmuBackup, getChannels, getLogoMap, getProxiedLogoUrl, getGroups,
+  getLogoStripWords, addLogoStripWord, deleteLogoStripWord,
 } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
 
@@ -298,6 +299,8 @@ export default function SetupPage() {
   const [testResult, setTestResult]   = useState(null)
   const [deviceProfile, setDeviceProfile] = useState(null)
   const [unmatchedChannels, setUnmatchedChannels] = useState([])
+  const [stripWords, setStripWords]   = useState([])
+  const [newStripWord, setNewStripWord] = useState('')
   const [allGenres, setAllGenres]     = useState([])
   const [genresLoading, setGenresLoading] = useState(false)
 
@@ -315,7 +318,9 @@ export default function SetupPage() {
       getSettings().catch(() => null),
       getLogos().catch(() => ({ overrides: {}, stats: null })),
       getStatus().catch(() => ({})),
-    ]).then(([cfg, s, logos, status]) => {
+      getLogoStripWords().catch(() => ({ stripWords: [] })),
+    ]).then(([cfg, s, logos, status, sw]) => {
+      if (sw?.stripWords) setStripWords(sw.stripWords)
       // Track which portal is currently connected
       if (status?.connected && status?.portal && status?.mac) {
         setConnectedPortal({ portal: status.portal, mac: status.mac })
@@ -419,6 +424,25 @@ export default function SetupPage() {
   function isConnectedProfile(p) {
     return connected && connectedPortal &&
       p.portal === connectedPortal.portal && p.mac === connectedPortal.mac
+  }
+
+  // ── Strip word handlers ───────────────────────────────────────────────────
+  async function handleAddStripWord(e) {
+    e.preventDefault()
+    const w = newStripWord.trim()
+    if (!w) return
+    try {
+      const r = await addLogoStripWord(w)
+      setStripWords(r.stripWords)
+      setNewStripWord('')
+    } catch (err) { setLogoNotice({ type: 'error', msg: err.message }) }
+  }
+
+  async function handleDeleteStripWord(word) {
+    try {
+      const r = await deleteLogoStripWord(word)
+      setStripWords(r.stripWords)
+    } catch (err) { setLogoNotice({ type: 'error', msg: err.message }) }
   }
 
   // ── Other handlers ────────────────────────────────────────────────────────
@@ -651,6 +675,31 @@ export default function SetupPage() {
               </Button>
             </div>
           </form>
+        </Card>
+
+        {/* ── Logo Strip Words ─────────────────────────────────────────────── */}
+        <Card title="Logo Strip Words" description="Words removed from channel names before logo matching. Useful when your portal adds country or quality suffixes — e.g. add 'CANADA' so 'BBC CANADA' matches the 'BBC' logo.">
+          {stripWords.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {stripWords.map(w => (
+                <span key={w} className="flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] border border-[var(--color-border)] pl-3 pr-1.5 py-1 text-xs text-[var(--color-text)]">
+                  {w}
+                  <button type="button" onClick={() => handleDeleteStripWord(w)}
+                    className="text-[var(--color-muted)] hover:text-[var(--color-live)] transition-colors ml-0.5" title="Remove">
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <form onSubmit={handleAddStripWord} className="flex gap-2">
+            <Input placeholder="e.g. CANADA, USA, FHD…" value={newStripWord}
+              onChange={e => setNewStripWord(e.target.value)} className="text-xs flex-1" />
+            <Button type="submit" disabled={!newStripWord.trim()} className="shrink-0 h-9 px-4 text-xs">Add</Button>
+          </form>
+          <p className="text-xs text-[var(--color-muted)]">
+            Whole-word, case-insensitive. Use the Test Channel Name tool below to verify a match after adding words.
+          </p>
         </Card>
 
         {/* ── Channel Logos ─────────────────────────────────────────────────── */}
