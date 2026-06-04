@@ -17,23 +17,56 @@ function notify(data) {
   listeners.forEach(fn => fn(data))
 }
 
-// Watches the backend progress endpoint until loading is done, then re-fetches
-// the complete channel list and notifies all subscribers.
-async function startPolling(gen) {
+// Opens a Server-Sent Events connection to /api/channels/events and waits
+// for the backend to report loading=false, then re-fetches the full list
+// and notifies all subscribers.  Falls back to polling if SSE is unavailable.
+function startPolling(gen) {
   if (polling) return
+  polling = true
+
+  // Try SSE first (lower latency, no round-trips)
+  if (typeof EventSource !== 'undefined') {
+    const es = new EventSource('/api/channels/events')
+    es.onmessage = async (e) => {
+      if (gen !== generation) { es.close(); polling = false; return }
+      try {
+        const prog = JSON.parse(e.data)
+        if (!prog.loading) {
+          es.close()
+          const chRes = await getChannels()
+          if (gen !== generation) { polling = false; return }
+          if (chRes?.channels) {
+            cache = { ...cache, channels: chRes.channels, loading: false }
+            notify(cache)
+          }
+          polling = false
+        }
+      } catch { /* ignore parse errors */ }
+    }
+    es.onerror = () => {
+      es.close()
+      polling = false
+      // Fall back to a single delayed retry
+      setTimeout(() => _pollOnce(gen), 3000)
+    }
+    return
+  }
+
+  // Fallback: plain polling when EventSource is unavailable
+  _pollOnce(gen)
+}
+
+async function _pollOnce(gen) {
   polling = true
   try {
     while (true) {
       await new Promise(r => setTimeout(r, 1500))
-      if (gen !== generation) break          // cache was invalidated — abort
-
+      if (gen !== generation) break
       const prog = await getChannelProgress()
-      if (gen !== generation) break          // invalidated while awaiting
-
+      if (gen !== generation) break
       if (!prog.loading) {
-        // Backend finished — fetch the final complete list
         const chRes = await getChannels()
-        if (gen !== generation) break        // invalidated while awaiting
+        if (gen !== generation) break
         if (chRes?.channels) {
           cache = { ...cache, channels: chRes.channels, loading: false }
           notify(cache)
@@ -41,9 +74,7 @@ async function startPolling(gen) {
         break
       }
     }
-  } catch {
-    // Polling is best-effort; if it fails the component keeps whatever it has
-  } finally {
+  } catch { /* best-effort */ } finally {
     polling = false
   }
 }
