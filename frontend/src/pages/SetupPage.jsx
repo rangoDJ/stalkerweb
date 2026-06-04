@@ -451,26 +451,26 @@ export default function SetupPage() {
 
   async function handleEpgToggle(val) {
     setEpg(val); setEpgEnabled(val)
-    try { await saveSettings({ epg_enabled: val }) } catch (_e) { /* non-critical */ }
+    try { await saveSettings({ epg_enabled: val }) } catch { /* non-critical */ }
   }
   async function handleAdultToggle(val) {
     setShowAdult(val)
-    try { await saveSettings({ show_adult: val }) } catch (_e) { /* non-critical */ }
+    try { await saveSettings({ show_adult: val }) } catch { /* non-critical */ }
   }
   async function handleToggleGenre(genreName) {
     const next = new Set(disabledGenres)
     next.has(genreName) ? next.delete(genreName) : next.add(genreName)
     setDisabledGenres(next)
-    try { await saveSettings({ disabled_genres: [...next] }) } catch (_e) { /* non-critical */ }
+    try { await saveSettings({ disabled_genres: [...next] }) } catch { /* non-critical */ }
   }
   async function handleEnableAllGenres() {
     setDisabledGenres(new Set())
-    try { await saveSettings({ disabled_genres: [] }) } catch (_e) { /* non-critical */ }
+    try { await saveSettings({ disabled_genres: [] }) } catch { /* non-critical */ }
   }
   async function handleDisableAllGenres() {
     const all = new Set(allGenres.map(g => g.name))
     setDisabledGenres(all)
-    try { await saveSettings({ disabled_genres: [...all] }) } catch (_e) { /* non-critical */ }
+    try { await saveSettings({ disabled_genres: [...all] }) } catch { /* non-critical */ }
   }
   async function handleStbEmuSave(e) {
     e.preventDefault(); setStbEmuSaving(true); setStbEmuNotice(null)
