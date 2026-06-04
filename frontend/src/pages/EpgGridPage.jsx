@@ -5,7 +5,6 @@ import { cn } from '@/lib/utils'
 import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 import { getChannelEpg, getProxiedLogoUrl } from '../stalkerApi'
 import { useReminders } from '@/lib/useReminders'
-import { addReminder, removeReminder, getReminders } from '@/lib/epgReminders'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const CHANNEL_COL_WIDTH = 180   // px — fixed left column
@@ -49,7 +48,7 @@ function clampWidth(startPx, endPx, gridWidth) {
 }
 
 // ── Programme block ───────────────────────────────────────────────────────────
-function ProgrammeBlock({ prog, gridStartMs, gridEndMs, gridWidthPx, onSelect, hasReminder, onToggleReminder }) {
+function ProgrammeBlock({ prog, gridStartMs, gridWidthPx, onSelect }) {
   const startPx = pxFromTimestamp(prog.startTime, gridStartMs)
   const endPx   = pxFromTimestamp(prog.endTime,   gridStartMs)
   const left     = Math.max(0, startPx)
@@ -164,60 +163,6 @@ function ProgrammePopup({ prog, channel, onClose, navigate, onToggleReminder, ha
             Close
           </button>
         </div>
-      </div>
-    </div>
-  )
-}
-
-// ── Channel row ───────────────────────────────────────────────────────────────
-function ChannelRow({ channel, logoUrl, epgData, loading, gridStartMs, gridEndMs, gridWidthPx, onSelectProg, reminders }) {
-  const events = epgData?.events || []
-  const reminderKey = (prog) => `${channel.uniqueId}_${prog.startTime}`
-
-  return (
-    <div
-      className="flex border-b border-[var(--color-border)]"
-      style={{ height: ROW_HEIGHT }}
-    >
-      {/* Channel label — rendered here for accessibility but the sticky positioning is handled by parent */}
-      <div
-        className="shrink-0 flex items-center gap-2 px-3 border-r border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden"
-        style={{ width: CHANNEL_COL_WIDTH }}
-      >
-        <div className="h-8 w-8 shrink-0 flex items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
-          {logoUrl
-            ? <img src={logoUrl} alt={channel.name} loading="lazy" className="h-full w-full object-contain p-0.5" onError={e => { e.target.style.display = 'none' }} />
-            : <Tv2 size={15} className="text-[var(--color-muted)]" />
-          }
-        </div>
-        <span className="text-xs font-medium text-[var(--color-text)] truncate leading-tight">{channel.name}</span>
-      </div>
-
-      {/* Programme track */}
-      <div className="relative flex-1 overflow-hidden bg-[var(--color-bg)]" style={{ width: gridWidthPx }}>
-        {loading ? (
-          <div className="flex items-center h-full px-4 gap-2">
-            <div className="h-6 rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] animate-pulse flex-1 max-w-xs" />
-            <div className="h-6 rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] animate-pulse w-24" />
-          </div>
-        ) : events.length === 0 ? (
-          <div className="flex items-center h-full px-4">
-            <span className="text-xs text-[var(--color-muted)] opacity-40">No EPG data</span>
-          </div>
-        ) : (
-          events.map((prog, i) => (
-            <ProgrammeBlock
-              key={i}
-              prog={prog}
-              gridStartMs={gridStartMs}
-              gridEndMs={gridEndMs}
-              gridWidthPx={gridWidthPx}
-              onSelect={onSelectProg}
-              hasReminder={reminders.some(r => r.channelId === channel.uniqueId && r.startTime === prog.startTime)}
-              onToggleReminder={() => {}}
-            />
-          ))
-        )}
       </div>
     </div>
   )
@@ -369,7 +314,7 @@ export default function EpgGridPage() {
     const targetScroll = Math.max(0, nowPx - 80)
     bodyScrollRef.current.scrollLeft = targetScroll
     if (headerScrollRef.current) headerScrollRef.current.scrollLeft = targetScroll
-  }, [nowPx]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [nowPx])
 
   // ── Render ────────────────────────────────────────────────────────────────
   if (loadingChannels) {
@@ -508,42 +453,15 @@ export default function EpgGridPage() {
                       <span className="text-xs text-[var(--color-muted)] opacity-30">No EPG data</span>
                     </div>
                   ) : (
-                    events.map((prog, i) => {
-                      const startPx = pxFromTimestamp(prog.startTime, gridStartMs)
-                      const endPx   = pxFromTimestamp(prog.endTime,   gridStartMs)
-                      if (endPx <= 0 || startPx >= gridWidthPx) return null
-                      const left  = Math.max(0, startPx)
-                      const width = Math.max(1, clampWidth(startPx, endPx, gridWidthPx) - 2)
-                      const live  = isNow(prog.startTime, prog.endTime)
-                      const past  = isPast(prog.endTime)
-                      const future = prog.startTime * 1000 > Date.now()
-
-                      return (
-                        <div
-                          key={i}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => handleSelectProg(prog, ch)}
-                          onKeyDown={e => e.key === 'Enter' && handleSelectProg(prog, ch)}
-                          title={prog.title}
-                          style={{ left, width, height: ROW_HEIGHT - 4, top: 2 }}
-                          className={cn(
-                            'absolute flex items-center overflow-hidden cursor-pointer select-none',
-                            'rounded-[var(--radius-sm)] border px-2 text-xs transition-colors',
-                            live  && 'bg-[var(--color-primary)]/25 border-[var(--color-primary)]/60 border-l-[3px] border-l-[var(--color-primary)]',
-                            past  && !live && 'bg-[var(--color-surface)] border-[var(--color-border)] opacity-50',
-                            future && !live && 'bg-[var(--color-surface-2)] border-[var(--color-border)] hover:border-[var(--color-primary)]/50'
-                          )}
-                        >
-                          <span className={cn(
-                            'truncate font-medium leading-tight',
-                            live ? 'text-[var(--color-primary-light)]' : 'text-[var(--color-text)]'
-                          )}>
-                            {prog.title}
-                          </span>
-                        </div>
-                      )
-                    })
+                    events.map((prog, i) => (
+                      <ProgrammeBlock
+                        key={i}
+                        prog={prog}
+                        gridStartMs={gridStartMs}
+                        gridWidthPx={gridWidthPx}
+                        onSelect={p => handleSelectProg(p, ch)}
+                      />
+                    ))
                   )}
                 </div>
               )

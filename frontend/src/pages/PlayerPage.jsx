@@ -4,7 +4,7 @@ import Hls from 'hls.js'
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   List, Search, Loader2, AlertCircle, Tv2, Heart, ChevronDown,
-  PictureInPicture2, Subtitles, Music,
+  PictureInPicture2,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
