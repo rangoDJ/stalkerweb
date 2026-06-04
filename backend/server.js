@@ -6,6 +6,12 @@
 if (process.stdout._handle?.setBlocking) process.stdout._handle.setBlocking(true);
 if (process.stderr._handle?.setBlocking) process.stderr._handle.setBlocking(true);
 
+// Prefer IPv4 when resolving hostnames. Many logo/stream CDNs publish AAAA
+// records that are unroutable from inside a Docker container, causing a
+// multi-second connect hang then failure. ipv4first makes Node try the A
+// record first. (Node 18+.)
+try { require('dns').setDefaultResultOrder('ipv4first'); } catch { /* older Node */ }
+
 require('express-async-errors');
 const express = require('express');
 const cors = require('cors');
