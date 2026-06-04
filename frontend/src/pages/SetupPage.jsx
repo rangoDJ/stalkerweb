@@ -16,6 +16,7 @@ import {
   downloadStbEmuBackup, getChannels, getLogoMap, getProxiedLogoUrl, getGroups,
   getLogoStripWords, addLogoStripWord, deleteLogoStripWord,
 } from '../stalkerApi'
+import { invalidateChannelCache } from '../lib/channelCache'
 import { useApp } from '@/lib/appContext'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -299,8 +300,9 @@ export default function SetupPage() {
   const [testResult, setTestResult]   = useState(null)
   const [deviceProfile, setDeviceProfile] = useState(null)
   const [unmatchedChannels, setUnmatchedChannels] = useState([])
-  const [stripWords, setStripWords]   = useState([])
-  const [newStripWord, setNewStripWord] = useState('')
+  const [stripWords, setStripWords]       = useState([])
+  const [newStripWord, setNewStripWord]   = useState('')
+  const [stripApplying, setStripApplying] = useState(false)
   const [allGenres, setAllGenres]     = useState([])
   const [genresLoading, setGenresLoading] = useState(false)
 
@@ -427,22 +429,45 @@ export default function SetupPage() {
   }
 
   // ── Strip word handlers ───────────────────────────────────────────────────
+  // After any strip-word change, re-fetch logo stats (to show the updated
+  // matched-channel count) and invalidate the channel cache so ChannelsPage
+  // and PlayerPage pick up the new logo map on their next render.
+  async function _applyStripChange(apiCall) {
+    setStripApplying(true)
+    setLogoNotice(null)
+    try {
+      const r = await apiCall()
+      setStripWords(r.stripWords)
+
+      // Re-fetch logo stats — getLogo() applies strip words dynamically,
+      // so a fresh /api/logos call gives the updated matched-channel count
+      // without needing to re-download the iptv-org database.
+      const logos = await getLogos()
+      if (logos.stats) setLogoStats(logos.stats)
+
+      // Invalidate channel cache so logo map refreshes on next page visit
+      invalidateChannelCache()
+
+      const matched = logos.stats?.matched_channels ?? '?'
+      const total   = logos.stats?.total_channels   ?? '?'
+      setLogoNotice({ type: 'success', msg: `Applied — ${matched} of ${total} channels now matched. Logo map will refresh on next visit.` })
+    } catch (err) {
+      setLogoNotice({ type: 'error', msg: err.message })
+    } finally {
+      setStripApplying(false)
+    }
+  }
+
   async function handleAddStripWord(e) {
     e.preventDefault()
     const w = newStripWord.trim()
     if (!w) return
-    try {
-      const r = await addLogoStripWord(w)
-      setStripWords(r.stripWords)
-      setNewStripWord('')
-    } catch (err) { setLogoNotice({ type: 'error', msg: err.message }) }
+    setNewStripWord('')
+    await _applyStripChange(() => addLogoStripWord(w))
   }
 
   async function handleDeleteStripWord(word) {
-    try {
-      const r = await deleteLogoStripWord(word)
-      setStripWords(r.stripWords)
-    } catch (err) { setLogoNotice({ type: 'error', msg: err.message }) }
+    await _applyStripChange(() => deleteLogoStripWord(word))
   }
 
   // ── Other handlers ────────────────────────────────────────────────────────
@@ -679,26 +704,50 @@ export default function SetupPage() {
 
         {/* ── Logo Strip Words ─────────────────────────────────────────────── */}
         <Card title="Logo Strip Words" description="Words removed from channel names before logo matching. Useful when your portal adds country or quality suffixes — e.g. add 'CANADA' so 'BBC CANADA' matches the 'BBC' logo.">
+
+          {/* Feedback notice shared with logo overrides section */}
+          {logoNotice && (
+            <div className={cn('flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs',
+              logoNotice.type === 'success'
+                ? 'bg-[var(--color-success)]/10 text-[var(--color-success)] border border-[var(--color-success)]/25'
+                : 'bg-[var(--color-live)]/10 text-[var(--color-live)] border border-[var(--color-live)]/25'
+            )}>
+              {logoNotice.type === 'success' ? <CheckCircle2 size={13} className="shrink-0" /> : <XCircle size={13} className="shrink-0" />}
+              {logoNotice.msg}
+            </div>
+          )}
+
+          {/* Current strip words as dismissible pill chips */}
           {stripWords.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {stripWords.map(w => (
                 <span key={w} className="flex items-center gap-1 rounded-full bg-[var(--color-surface-2)] border border-[var(--color-border)] pl-3 pr-1.5 py-1 text-xs text-[var(--color-text)]">
                   {w}
-                  <button type="button" onClick={() => handleDeleteStripWord(w)}
-                    className="text-[var(--color-muted)] hover:text-[var(--color-live)] transition-colors ml-0.5" title="Remove">
+                  <button type="button" onClick={() => handleDeleteStripWord(w)} disabled={stripApplying}
+                    className="text-[var(--color-muted)] hover:text-[var(--color-live)] transition-colors ml-0.5 disabled:opacity-40" title="Remove">
                     <X size={11} />
                   </button>
                 </span>
               ))}
             </div>
           )}
+
+          {stripWords.length === 0 && !stripApplying && (
+            <p className="text-xs text-[var(--color-muted)]">No strip words configured yet.</p>
+          )}
+
           <form onSubmit={handleAddStripWord} className="flex gap-2">
             <Input placeholder="e.g. CANADA, USA, FHD…" value={newStripWord}
-              onChange={e => setNewStripWord(e.target.value)} className="text-xs flex-1" />
-            <Button type="submit" disabled={!newStripWord.trim()} className="shrink-0 h-9 px-4 text-xs">Add</Button>
+              onChange={e => setNewStripWord(e.target.value)} className="text-xs flex-1"
+              disabled={stripApplying} />
+            <Button type="submit" disabled={!newStripWord.trim() || stripApplying} className="shrink-0 h-9 px-4 text-xs gap-1.5">
+              {stripApplying ? <Loader2 size={12} className="animate-spin" /> : null}
+              Add
+            </Button>
           </form>
           <p className="text-xs text-[var(--color-muted)]">
-            Whole-word, case-insensitive. Use the Test Channel Name tool below to verify a match after adding words.
+            Whole-word, case-insensitive. After adding a word the logo match count updates automatically
+            and all channel pages refresh their logos on the next visit.
           </p>
         </Card>
 
