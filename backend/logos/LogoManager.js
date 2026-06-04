@@ -205,12 +205,16 @@ class LogoManager {
     } catch (err) {
       const status = err.response?.status;
       // Only cache permanent failures (404, 403, 410).
-      // Transient errors (network timeout, 5xx) are not cached so they retry.
+      // Transient errors (network timeout, DNS, TLS, 5xx) are not cached so
+      // they retry on the next request.
       if (status === 404 || status === 403 || status === 410) {
         this._recordFailure(url);
         log.debug(TAG, `logo ${status} — skipping future requests: ${url}`);
       } else {
-        log.warn(TAG, `failed to download ${url}: ${err.message}`);
+        // Surface the underlying cause — an empty err.message usually means a
+        // connection-level failure (DNS/IPv6/TLS), not an HTTP status error.
+        const detail = err.code || err.cause?.code || err.message || 'unknown error';
+        log.warn(TAG, `failed to download ${url}: ${detail}${status ? ` (HTTP ${status})` : ''}`);
       }
       return null;
     }
