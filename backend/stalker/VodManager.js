@@ -185,6 +185,15 @@ class VodManager {
   }
 
   _normalizeItem(item) {
+    // Log ALL fields on the first few items so we can spot portal-specific
+    // stream URL fields (e.g. stream_url, link, direct_links) that STBEmu
+    // might use but that we're currently discarding.
+    if (this._loggedItems === undefined) this._loggedItems = 0;
+    if (this._loggedItems < 3) {
+      log.debug(TAG, `raw VOD item fields: ${JSON.stringify(Object.keys(item))} sample=${JSON.stringify(item).slice(0, 400)}`);
+      this._loggedItems++;
+    }
+
     return {
       id:          String(item.id || ''),
       name:        item.name || item.title || '',
@@ -196,10 +205,11 @@ class VodManager {
       durationMin: parseInt(item.time || '0', 10) || 0,
       isHD:        !!item.hd,
       isFav:       !!(item.fav),
-      // Non-empty array → item has episodes (is a series/season)
-      episodes:     Array.isArray(item.series) ? item.series : [],
+      episodes:    Array.isArray(item.series) ? item.series : [],
       screenshotUri: item.screenshot_uri || null,
       cmd:          item.cmd || '',
+      // Preserve any extra streaming URL fields the portal may include
+      streamUrl:    item.stream_url || item.link || item.url || null,
       added:        item.added || '',
       categoryId:   String(item.category_id || ''),
     };
