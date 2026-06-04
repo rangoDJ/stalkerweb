@@ -1,0 +1,24 @@
+{
+  "name": "StalkerWeb",
+  "short_name": "StalkerWeb",
+  "description": "Stalker IPTV Portal Web UI — live TV, VOD, EPG guide",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0a0a0a",
+  "theme_color": "#6d28d9",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%236d28d9'/><text y='.9em' font-size='80' x='10'>📺</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    { "name": "Channels",  "url": "/channels",  "description": "Browse live channels" },
+    { "name": "VOD",       "url": "/vod",       "description": "Video on demand" },
+    { "name": "EPG Guide", "url": "/epg-grid",  "description": "TV programme guide" }
+  ],
+  "categories": ["entertainment", "video"]
+}

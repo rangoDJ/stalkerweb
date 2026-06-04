@@ -4,6 +4,7 @@ import Hls from 'hls.js'
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   List, Search, Loader2, AlertCircle, Tv2, Heart, ChevronDown,
+  PictureInPicture2, Subtitles, Music,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
@@ -17,7 +18,12 @@ import { useFavorites } from '@/lib/useFavorites'
 import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 
 // ── Controls bar ──────────────────────────────────────────────────────────
-function Controls({ playing, muted, volume, isFullscreen, channelName, jumpDigits, onPlayPause, onMute, onVolume, onFullscreen, onToggleList }) {
+function Controls({
+  playing, muted, volume, isFullscreen, isPiP, channelName, jumpDigits,
+  audioTracks, activeAudio, subtitleTracks, activeSub,
+  onPlayPause, onMute, onVolume, onFullscreen, onToggleList, onTogglePiP,
+  onAudioTrack, onSubtitleTrack,
+}) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/80 to-transparent">
       <div className="flex items-center gap-2">
@@ -43,10 +49,48 @@ function Controls({ playing, muted, volume, isFullscreen, channelName, jumpDigit
         </div>
       ) : (
         <div className="flex items-center gap-1 text-xs text-white/50 mr-2 hidden sm:block">
-          Space·F·M·↑↓·0-9
+          Space·F·M·P·↑↓·0-9
         </div>
       )}
       <div className="flex items-center gap-1">
+        {/* Audio track picker */}
+        {audioTracks.length > 1 && (
+          <select
+            value={activeAudio}
+            onChange={e => onAudioTrack(Number(e.target.value))}
+            className="bg-black/60 text-white/80 text-xs rounded px-1 py-0.5 border border-white/20 cursor-pointer"
+            title="Audio track"
+          >
+            {audioTracks.map((t, i) => (
+              <option key={i} value={i}>{t.name || t.lang || `Audio ${i + 1}`}</option>
+            ))}
+          </select>
+        )}
+        {/* Subtitle track picker */}
+        {subtitleTracks.length > 0 && (
+          <select
+            value={activeSub}
+            onChange={e => onSubtitleTrack(Number(e.target.value))}
+            className="bg-black/60 text-white/80 text-xs rounded px-1 py-0.5 border border-white/20 cursor-pointer"
+            title="Subtitles"
+          >
+            <option value={-1}>Off</option>
+            {subtitleTracks.map((t, i) => (
+              <option key={i} value={i}>{t.name || t.lang || `Sub ${i + 1}`}</option>
+            ))}
+          </select>
+        )}
+        {/* PiP button — only shown when browser supports it */}
+        {document.pictureInPictureEnabled && (
+          <button
+            onClick={onTogglePiP}
+            className={cn('p-1.5 rounded transition-colors', isPiP ? 'text-[var(--color-primary-light)] bg-white/10' : 'text-white/80 hover:text-white hover:bg-white/10')}
+            aria-label={isPiP ? 'Exit Picture-in-Picture' : 'Picture-in-Picture'}
+            title="Picture-in-Picture (P)"
+          >
+            <PictureInPicture2 size={18} />
+          </button>
+        )}
         <button onClick={onToggleList} className="text-white/80 hover:text-white transition-colors p-1.5 rounded hover:bg-white/10" aria-label="Toggle channel list">
           <List size={18} />
         </button>
@@ -315,6 +359,11 @@ export default function PlayerPage() {
   const [showList, setShowList]     = useState(prefs.showList ?? true)
   const [playing, setPlaying]       = useState(false)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isPiP, setIsPiP]           = useState(false)
+  const [audioTracks, setAudioTracks]     = useState([])
+  const [activeAudio, setActiveAudio]     = useState(0)
+  const [subtitleTracks, setSubtitleTracks] = useState([])
+  const [activeSub, setActiveSub]         = useState(-1)
 
   // Channel number jump
   const [jumpDigits, setJumpDigits] = useState('')
@@ -396,6 +445,8 @@ export default function PlayerPage() {
     const video = videoRef.current
 
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+    // Reset tracks on every new stream
+    setAudioTracks([]); setActiveAudio(0); setSubtitleTracks([]); setActiveSub(-1)
 
     const tryPlay = () =>
       video.play()
@@ -432,6 +483,9 @@ export default function PlayerPage() {
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         video.volume = volumeRef.current / 100
         video.muted = mutedRef.current
+        // Populate audio & subtitle track selectors
+        if (hls.audioTracks?.length > 1) { setAudioTracks(hls.audioTracks); setActiveAudio(hls.audioTrack) }
+        if (hls.subtitleTracks?.length > 0) { setSubtitleTracks(hls.subtitleTracks); setActiveSub(hls.subtitleTrack) }
         tryPlay()
       })
       hls.on(Hls.Events.ERROR, (_e, data) => {
@@ -477,6 +531,17 @@ export default function PlayerPage() {
     const handler = () => setIsFullscreen(!!document.fullscreenElement)
     document.addEventListener('fullscreenchange', handler)
     return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  // PiP sync
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const enter = () => setIsPiP(true)
+    const leave = () => setIsPiP(false)
+    v.addEventListener('enterpictureinpicture', enter)
+    v.addEventListener('leavepictureinpicture', leave)
+    return () => { v.removeEventListener('enterpictureinpicture', enter); v.removeEventListener('leavepictureinpicture', leave) }
   }, [])
 
   // Keepalive — ping backend every 10 minutes while playing to prevent idle disconnect.
@@ -528,6 +593,10 @@ export default function PlayerPage() {
           e.preventDefault()
           setMuted(m => !m)
           break
+        case 'KeyP':
+          e.preventDefault()
+          togglePiP()
+          break
         case 'ArrowUp':
         case 'ArrowDown': {
           e.preventDefault()
@@ -570,6 +639,24 @@ export default function PlayerPage() {
   function toggleFullscreen() {
     if (!document.fullscreenElement) containerRef.current?.requestFullscreen()
     else document.exitFullscreen()
+  }
+
+  async function togglePiP() {
+    if (!videoRef.current) return
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture()
+      else await videoRef.current.requestPictureInPicture()
+    } catch { /* PiP not supported or denied */ }
+  }
+
+  function setAudioTrack(idx) {
+    setActiveAudio(idx)
+    if (hlsRef.current) hlsRef.current.audioTrack = idx
+  }
+
+  function setSubtitleTrack(idx) {
+    setActiveSub(idx)
+    if (hlsRef.current) hlsRef.current.subtitleTrack = idx
   }
 
   function selectChannel(ch) {
@@ -632,14 +719,19 @@ export default function PlayerPage() {
           onClick={e => e.stopPropagation()}
         >
           <Controls
-            playing={playing} muted={muted} volume={volume} isFullscreen={isFullscreen}
+            playing={playing} muted={muted} volume={volume} isFullscreen={isFullscreen} isPiP={isPiP}
             channelName={activeChannel?.name || initChannelName || 'No channel selected'}
             jumpDigits={jumpDigits}
+            audioTracks={audioTracks} activeAudio={activeAudio}
+            subtitleTracks={subtitleTracks} activeSub={activeSub}
             onPlayPause={togglePlayPause}
             onMute={() => setMuted(m => !m)}
             onVolume={(v) => { setVolume(v); setMuted(false) }}
             onFullscreen={toggleFullscreen}
             onToggleList={() => setShowList(v => !v)}
+            onTogglePiP={togglePiP}
+            onAudioTrack={setAudioTrack}
+            onSubtitleTrack={setSubtitleTrack}
           />
         </div>
       </div>
