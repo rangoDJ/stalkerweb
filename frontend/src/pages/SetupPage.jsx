@@ -18,35 +18,16 @@ import {
 } from '../stalkerApi'
 import { invalidateChannelCache } from '../lib/channelCache'
 import { useApp } from '@/lib/appContext'
+import {
+  loadProfiles, saveProfiles, uid, normalizePortal, DEFAULT_FORM,
+  setActiveProfileId, setProfileGenres, getActiveProfileId,
+} from '@/lib/profiles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
   return r.ok ? r.json() : null
-}
-
-function uid() { return `prof_${Date.now()}_${Math.random().toString(36).slice(2, 7)}` }
-
-const PROFILES_KEY = 'stalkerweb_profiles'
-
-function loadProfiles() {
-  try { return JSON.parse(localStorage.getItem(PROFILES_KEY) || '[]') } catch { return [] }
-}
-function saveProfiles(arr) {
-  localStorage.setItem(PROFILES_KEY, JSON.stringify(arr))
-}
-
-const DEFAULT_FORM = {
-  name: '',
-  portal: '', mac: '', timezone: 'Europe/London', lang: 'en',
-  login: '', password: '', token: '', serial_number: '0000000000000',
-  device_id: '', device_id2: '', signature: '', portal_signature: '',
-  connection_timeout: 10,
-}
-
-function normalizePortal(url) {
-  return String(url).trim().replace(/\/c\/?$/, '').replace(/\/?$/, '') + '/c/'
 }
 
 // ── Shared UI primitives ─────────────────────────────────────────────────────
@@ -328,15 +309,26 @@ export default function SetupPage() {
         setConnectedPortal({ portal: status.portal, mac: status.mac })
       }
 
-      // Import backend-saved config as a profile if it doesn't exist yet
+      // Import backend-saved config as a profile if it doesn't exist yet.
+      // Seed the imported profile's genre filters from the backend's old
+      // global disabled_genres list (one-time migration to per-profile).
       if (cfg?.portal && cfg?.mac) {
         const existing = loadProfiles()
-        const already  = existing.some(p => p.portal === cfg.portal && p.mac === cfg.mac)
-        if (!already) {
-          const imported = { ...DEFAULT_FORM, ...cfg, id: uid(), name: '' }
+        const match    = existing.find(p => p.portal === cfg.portal && p.mac === cfg.mac)
+        if (!match) {
+          const imported = {
+            ...DEFAULT_FORM, ...cfg, id: uid(), name: '',
+            disabledGenres: Array.isArray(s?.disabled_genres) ? s.disabled_genres : [],
+          }
           const updated  = [imported, ...existing]
           saveProfiles(updated)
           setProfiles(updated)
+          // If this imported profile is the one currently connected, mark active
+          if (status?.connected && status?.portal === cfg.portal && status?.mac === cfg.mac) {
+            setActiveProfileId(imported.id)
+          }
+        } else if (status?.connected && status?.portal === cfg.portal && status?.mac === cfg.mac && !getActiveProfileId()) {
+          setActiveProfileId(match.id)
         }
       }
 
@@ -400,6 +392,14 @@ export default function SetupPage() {
       await connect(profile)
       setConnected(true)
       setConnectedPortal({ portal: profile.portal, mac: profile.mac })
+
+      // Mark this profile active and load ITS genre filters into the app
+      // context so ChannelsPage / PlayerPage filter by the right list.
+      setActiveProfileId(profile.id)
+      setDisabledGenres(new Set(
+        Array.isArray(profile.disabledGenres) ? profile.disabledGenres : []
+      ))
+
       setNotice({ type: 'success', msg: `Connected to ${profile.name || profile.portal}` })
       setTimeout(() => navigate('/channels'), 900)
     } catch (err) {
@@ -414,6 +414,7 @@ export default function SetupPage() {
       await disconnect()
       setConnected(false)
       setConnectedPortal(null)
+      setActiveProfileId(null)
       setLastPingAt(null)
       setIdleInfo(null)
       setNotice({ type: 'success', msg: 'Disconnected.' })
@@ -506,20 +507,28 @@ export default function SetupPage() {
     setShowAdult(val)
     try { await saveSettings({ show_adult: val }) } catch { /* non-critical */ }
   }
-  async function handleToggleGenre(genreName) {
+  // Genre filters are stored per-profile in localStorage. Persist to the
+  // active profile and update the app context; the channel cache is
+  // invalidated so the channel/player pages re-filter on next visit.
+  function persistGenres(set) {
+    setDisabledGenres(set)
+    const activeId = getActiveProfileId()
+    if (activeId) {
+      const updated = setProfileGenres(activeId, [...set])
+      setProfiles(updated)
+    }
+    invalidateChannelCache()
+  }
+  function handleToggleGenre(genreName) {
     const next = new Set(disabledGenres)
     next.has(genreName) ? next.delete(genreName) : next.add(genreName)
-    setDisabledGenres(next)
-    try { await saveSettings({ disabled_genres: [...next] }) } catch { /* non-critical */ }
+    persistGenres(next)
   }
-  async function handleEnableAllGenres() {
-    setDisabledGenres(new Set())
-    try { await saveSettings({ disabled_genres: [] }) } catch { /* non-critical */ }
+  function handleEnableAllGenres() {
+    persistGenres(new Set())
   }
-  async function handleDisableAllGenres() {
-    const all = new Set(allGenres.map(g => g.name))
-    setDisabledGenres(all)
-    try { await saveSettings({ disabled_genres: [...all] }) } catch { /* non-critical */ }
+  function handleDisableAllGenres() {
+    persistGenres(new Set(allGenres.map(g => g.name)))
   }
   async function handleStbEmuSave(e) {
     e.preventDefault(); setStbEmuSaving(true); setStbEmuNotice(null)
@@ -613,7 +622,7 @@ export default function SetupPage() {
         </Card>
 
         {/* ── Genre Filters ────────────────────────────────────────────────── */}
-        <Card title="Genre Filters" description="Choose which genres appear in your channel browser. Disabled genres are hidden everywhere.">
+        <Card title="Genre Filters" description="Choose which genres appear in your channel browser. These filters are saved per-profile — each portal connection keeps its own list.">
           {!connected ? (
             <p className="text-sm text-[var(--color-muted)]">Connect to a portal to manage genre filters.</p>
           ) : genresLoading ? (

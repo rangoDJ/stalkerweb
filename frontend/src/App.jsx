@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
 import { getStatus, getSettings } from './stalkerApi'
+import { getActiveProfileId, getProfileGenres } from '@/lib/profiles'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastHost } from '@/components/ToastHost'
 import { ReminderBell } from '@/components/ReminderBell'
@@ -162,7 +163,13 @@ function AppInner() {
         setConnected(status.connected)
         setEpgEnabled(settings.epg_enabled !== false)
         setShowAdult(!!settings.show_adult)
-        setDisabledGenres(new Set(settings.disabled_genres ?? []))
+        // Genre filters are per-profile (localStorage). Fall back to the
+        // backend's global list only if the active profile has none set yet.
+        const activeId = getActiveProfileId()
+        const profileGenres = activeId ? getProfileGenres(activeId) : null
+        setDisabledGenres(new Set(
+          profileGenres && profileGenres.length ? profileGenres : (settings.disabled_genres ?? [])
+        ))
         if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)
         if (status.lastActivityAt) setIdleInfo({ lastActivityAt: status.lastActivityAt, idleTimeoutMs: status.idleTimeoutMs })
       } catch {
