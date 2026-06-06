@@ -73,6 +73,12 @@ android {
         compose = true
         buildConfig = true
     }
+
+    lint {
+        // False positive on Compose apps using registerForActivityResult on ComponentActivity
+        // without Fragments. The Fragment version constraint doesn't apply here.
+        disable += "InvalidFragmentVersionForActivityResult"
+    }
 }
 
 dependencies {
