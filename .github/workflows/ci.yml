@@ -83,6 +83,36 @@ jobs:
           path: android/app/build/outputs/apk/tv/debug/app-tv-debug.apk
           retention-days: 7
 
+  # ── Auto-tag on main after all checks pass ──────────────────────────────
+  auto-tag:
+    needs: [backend-check, frontend-check, build-apk, build-docker]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump patch version and push tag
+        run: |
+          git fetch --tags
+          LATEST=$(git tag -l 'v[0-9]*' | sort -V | tail -1)
+          if [ -z "$LATEST" ]; then
+            NEW_TAG="v0.1.0"
+          else
+            VERSION="${LATEST#v}"
+            MAJOR=$(echo "$VERSION" | cut -d. -f1)
+            MINOR=$(echo "$VERSION" | cut -d. -f2)
+            PATCH=$(echo "$VERSION" | cut -d. -f3)
+            NEW_TAG="v${MAJOR}.${MINOR}.$((PATCH + 1))"
+          fi
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config user.name "github-actions[bot]"
+          git tag "$NEW_TAG"
+          git push origin "$NEW_TAG"
+
   # ── Build & push Docker image ────────────────────────────────────────────
   build-docker:
     runs-on: ubuntu-latest
