@@ -15,22 +15,22 @@
     "audit": "npm audit --audit-level=moderate"
   },
   "dependencies": {
-    "axios": "^1.7.2",
+    "axios": "^1.17.0",
     "axios-cookiejar-support": "^7.0.0",
     "cors": "^2.8.5",
-    "express": "^4.19.2",
+    "express": "^5.2.1",
     "express-async-errors": "^3.1.1",
-    "express-rate-limit": "^7.5.0",
+    "express-rate-limit": "^8.5.2",
     "express-validator": "^7.3.2",
     "helmet": "^8.2.0",
-    "morgan": "^1.10.1",
+    "morgan": "^1.11.0",
     "tough-cookie": "^6.0.1"
   },
   "devDependencies": {
-    "@eslint/js": "^9.24.0",
-    "eslint": "^9.24.0",
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.4.1",
     "prettier": "^3.5.0",
-    "vitest": "^3.1.0"
+    "vitest": "^4.1.8"
   },
   "engines": {
     "node": ">=20"
