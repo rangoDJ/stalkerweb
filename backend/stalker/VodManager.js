@@ -214,7 +214,7 @@ class VodManager {
     // might use but that we're currently discarding.
     if (this._loggedItems === undefined) this._loggedItems = 0;
     if (this._loggedItems < 3) {
-      log.debug(TAG, `raw VOD item fields: ${JSON.stringify(Object.keys(item))} sample=${JSON.stringify(item).slice(0, 400)}`);
+      log.info(TAG, `raw VOD item fields: ${JSON.stringify(Object.keys(item))} sample=${JSON.stringify(item).slice(0, 400)}`);
       this._loggedItems++;
     }
 
