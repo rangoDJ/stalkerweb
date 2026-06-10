@@ -90,7 +90,11 @@ class VodManager {
   //   Fallbacks: listing cmd as a direct URL → legacy movie_id probe →
   //              constructed basePath + cmd path.
   async getStreamUrl(videoId, cmd, series = 0) {
-    const seriesStr = String(series);
+    // Only a real episode number is sent as `series`. For a movie this must be
+    // omitted entirely — sending series=0 makes Ministra portals look for
+    // "episode 0" of a series and answer nothing_to_play (STBemu omits it too).
+    const seriesNum = parseInt(series, 10) || 0;
+    const seriesParam = seriesNum > 0 ? { series: String(seriesNum) } : {};
 
     // Build a list of candidate cmd strings to feed create_link, most
     // specific (from the portal listing) first.
@@ -117,7 +121,7 @@ class VodManager {
           type:   'vod',
           action: 'create_link',
           cmd:    candidate,
-          series: seriesStr,
+          ...seriesParam,
         });
         log.debug(TAG, `create_link js: ${JSON.stringify(r?.js)?.slice(0, 400)}`);
         let url = this._resolveCreateLink(r?.js);
@@ -128,7 +132,7 @@ class VodManager {
             type:   'vod',
             action: 'create_link',
             cmd:    candidate,
-            series: seriesStr,
+            ...seriesParam,
             forced_storage: '',
             disable_ad: '0',
           });
