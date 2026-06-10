@@ -81,51 +81,19 @@ class VodManager {
 
   // ── Stream URL resolution ──────────────────────────────────────────────────
 
-  // Mirrors api.py get_vod_stream_url():
-  //   Primary:  create_link with /media/{videoId}.mpg
-  //   Fallback: create_link with cmd string from listing
-  //   Last resort: use cmd directly if it is already a playable URL
+  // Mirrors api.py get_vod_stream_url() + stalkerhek's parseCreateLinkVOD:
+  //   Primary: create_link (type=vod) → resolve the response, which may be a
+  //            direct URL (js.url / js.cmd) OR an id + play_token pair that
+  //            must be assembled into a play/movie.php URL (common movie-portal
+  //            form). Many portals return ONLY the token form, so handling it is
+  //            required for VOD to play at all.
+  //   Fallbacks: listing cmd as a direct URL → legacy movie_id probe →
+  //              constructed basePath + cmd path.
   async getStreamUrl(videoId, cmd, series = 0) {
     const seriesStr = String(series);
 
-    // ── Attempt 0: Resolve directly via play/movie.php (Standard Portal VOD gateway) ──
-    try {
-      const playUrl = `${this.client.basePath}play/movie.php?movie_id=${videoId}`;
-      log.info(TAG, `Attempting VOD stream resolution via play/movie.php: ${playUrl}`);
-      const response = await this.client.http.get(playUrl, {
-        headers: this.client._buildHeaders(),
-        timeout: 10000,
-        maxRedirects: 10,
-        validateStatus: (status) => status < 400
-      });
-
-      // Look for redirected location (responseUrl) or direct URL in JSON/String response data
-      const resolvedUrl = response.request?.res?.responseUrl || response.headers['location'];
-      if (resolvedUrl && resolvedUrl !== playUrl && resolvedUrl.startsWith('http')) {
-        log.info(TAG, `VOD stream resolved via play/movie.php redirect: ${resolvedUrl.slice(0, 80)}…`);
-        return resolvedUrl;
-      }
-
-      // Check if response contains direct URL/command string
-      const data = response.data;
-      if (data) {
-        let extracted = null;
-        if (typeof data === 'string') {
-          extracted = this._extractUrl(data);
-        } else if (data.cmd || data.url) {
-          extracted = this._extractUrl(data.cmd || data.url);
-        }
-        if (extracted) {
-          log.info(TAG, `VOD stream resolved via play/movie.php data: ${extracted.slice(0, 80)}…`);
-          return extracted;
-        }
-      }
-    } catch (e) {
-      log.warn(TAG, `Resolution via play/movie.php failed: ${e.message}`);
-    }
-
-    // We will build a list of candidate commands to try resolving via create_link.
-    // Specific commands from the portal listing go first:
+    // Build a list of candidate cmd strings to feed create_link, most
+    // specific (from the portal listing) first.
     const candidates = [];
     if (cmd) {
       candidates.push(cmd);
@@ -134,24 +102,22 @@ class VodManager {
       }
     }
     candidates.push(`/media/${videoId}.mpg`);
-
-    // Deduplicate candidates
     const uniqueCandidates = [...new Set(candidates)];
 
-    // Try each candidate with and without forced_storage fallback
+    // ── Primary: create_link, then assemble a playable URL from the response ──
     for (const candidate of uniqueCandidates) {
       try {
-        log.info(TAG, `Attempting VOD create_link for candidate: ${candidate}`);
+        log.info(TAG, `VOD create_link for candidate: ${candidate}`);
         let r = await this.client._stalkerCall({
           type:   'vod',
           action: 'create_link',
           cmd:    candidate,
           series: seriesStr,
         });
-        let url = this._extractCmdUrl(r?.js);
+        let url = this._resolveCreateLink(r?.js);
 
         if (!url) {
-          log.debug(TAG, `create_link without forced_storage failed for "${candidate}", trying fallback with forced_storage=undefined…`);
+          log.debug(TAG, `create_link empty for "${candidate}", retrying with forced_storage…`);
           r = await this.client._stalkerCall({
             type:   'vod',
             action: 'create_link',
@@ -160,11 +126,11 @@ class VodManager {
             forced_storage: 'undefined',
             disable_ad: '0',
           });
-          url = this._extractCmdUrl(r?.js);
+          url = this._resolveCreateLink(r?.js);
         }
 
         if (url) {
-          log.info(TAG, `VOD stream resolved successfully for candidate "${candidate}": ${url.slice(0, 80)}…`);
+          log.info(TAG, `VOD stream resolved for "${candidate}": ${url.slice(0, 80)}…`);
           return url;
         }
       } catch (e) {
@@ -172,23 +138,56 @@ class VodManager {
       }
     }
 
-    // ── Attempt 3: cmd from listing is already a playable URL ──
+    // ── Fallback 1: listing cmd is already a playable URL ──
     if (cmd) {
       const direct = this._extractUrl(cmd);
       if (direct) {
-        log.info(TAG, `stream resolved (direct listing url): ${direct.slice(0, 80)}…`);
+        log.info(TAG, `VOD stream resolved (direct listing url): ${direct.slice(0, 80)}…`);
         return direct;
       }
     }
 
-    // ── Attempt 4: construct absolute URL from portal basePath + cmd ──
+    // ── Fallback 2: legacy play/movie.php?movie_id probe (older portals) ──
+    // Demoted below create_link so it no longer adds a 10s timeout to every
+    // successful play — only runs when create_link yields nothing.
+    try {
+      const playUrl = `${this.client.basePath}play/movie.php?movie_id=${videoId}`;
+      log.info(TAG, `VOD legacy probe via play/movie.php?movie_id: ${playUrl}`);
+      const response = await this.client.http.get(playUrl, {
+        headers: this.client._buildHeaders(),
+        timeout: 10000,
+        maxRedirects: 10,
+        validateStatus: (status) => status < 400,
+      });
+
+      const resolvedUrl = response.request?.res?.responseUrl || response.headers['location'];
+      if (resolvedUrl && resolvedUrl !== playUrl && resolvedUrl.startsWith('http')) {
+        log.info(TAG, `VOD resolved via movie_id redirect: ${resolvedUrl.slice(0, 80)}…`);
+        return resolvedUrl;
+      }
+
+      const data = response.data;
+      if (data) {
+        const extracted = typeof data === 'string'
+          ? this._extractUrl(data)
+          : this._extractUrl(data.cmd || data.url);
+        if (extracted) {
+          log.info(TAG, `VOD resolved via movie_id data: ${extracted.slice(0, 80)}…`);
+          return extracted;
+        }
+      }
+    } catch (e) {
+      log.warn(TAG, `legacy movie_id probe failed: ${e.message}`);
+    }
+
+    // ── Fallback 3: construct absolute URL from portal basePath + cmd ──
     // Some portals return "nothing_to_play" for create_link but serve the
     // /media/{id}.mpg path directly (authenticated via session cookies).
     const relCmd = cmd || `/media/${videoId}.mpg`;
     const base   = (this.client?.basePath || '').replace(/\/$/, '');
     if (base.startsWith('http')) {
       const constructed = base + '/' + relCmd.replace(/^\//, '');
-      log.info(TAG, `stream resolved (constructed basePath+cmd): ${constructed.slice(0, 80)}…`);
+      log.info(TAG, `VOD stream resolved (constructed basePath+cmd): ${constructed.slice(0, 80)}…`);
       return constructed;
     }
 
@@ -205,15 +204,47 @@ class VodManager {
     return base + '/' + uri.replace(/^\//, '');
   }
 
-  // Extract the playable URL from a create_link js response.
-  // Mirrors ChannelManager.getStreamUrl() which handles three portal variants:
-  //   js.cmd  — most common ("ffrt2 http://..." or plain "http://...")
-  //   js.url  — alternative field name used by some portals
-  //   js      — some portals return the cmd as a bare string
-  _extractCmdUrl(js) {
+  // Resolve a playable URL from a create_link js response.
+  // Handles the three portal variants, matching stalkerhek's parseCreateLinkVOD:
+  //   1. js.url / js.cmd / bare-string js — a direct http(s) URL
+  //   2. js.id + js.play_token — assemble a play/movie.php URL (the common
+  //      movie-portal form, where cmd carries no playable URL)
+  _resolveCreateLink(js) {
     if (!js) return null;
-    const raw = js.cmd || js.url || (typeof js === 'string' ? js : null);
-    return raw ? this._extractUrl(raw) : null;
+
+    // Bare string response — treat as a cmd.
+    if (typeof js === 'string') return this._extractUrl(js);
+
+    // 1. Direct URL in js.url or js.cmd.
+    const direct = this._extractUrl(js.url) || this._extractUrl(js.cmd);
+    if (direct) return direct;
+
+    // 2. id + play_token → play/movie.php gateway URL.
+    return this._buildMoviePhpUrl(js);
+  }
+
+  // Build a play/movie.php URL from a create_link response's id + play_token.
+  // Mirrors stalkerhek's buildMoviePlayURL():
+  //   {basePath}play/movie.php?mac=<mac>&stream=<id|+.mp4>&play_token=<token>&type=vod
+  _buildMoviePhpUrl(js) {
+    const mac   = this.client?.identity?.mac;
+    const token = js.play_token != null ? String(js.play_token).trim() : '';
+    let stream  = js.id != null ? String(js.id).trim() : '';
+    if (!mac || !token || !stream) return null;
+
+    // Portal expects a filename; append .mp4 when the id has no extension.
+    if (!stream.includes('.')) stream += '.mp4';
+
+    const base = (this.client?.basePath || '').replace(/\/$/, '');
+    if (!base.startsWith('http')) return null;
+
+    const params = new URLSearchParams({
+      mac,
+      stream,
+      play_token: token,
+      type: 'vod',
+    });
+    return `${base}/play/movie.php?${params.toString()}`;
   }
 
   // Strip the "ffrt<n> " or "ffmpeg " prefix that Stalker portals prepend to
