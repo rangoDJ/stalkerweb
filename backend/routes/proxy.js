@@ -175,7 +175,7 @@ module.exports = function proxyModule(appState) {
     // and unauthenticated requests are rejected consistently with other proxy routes.
     if (!requireSession(res)) return;
 
-    const { vodManager, client } = appState;  // snapshot before any await to avoid race
+    const { vodManager } = appState;  // snapshot before any await to avoid race
     if (!vodManager) return res.status(503).send('VOD not available');
 
     appState.attachStreamHeartbeat?.(req, res);   // keep idle timer alive for the whole pipe
