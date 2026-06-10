@@ -178,7 +178,7 @@ module.exports = function proxyModule(appState) {
     const { vodManager, client } = appState;  // snapshot before any await to avoid race
     if (!vodManager) return res.status(503).send('VOD not available');
 
-    appState.touchActivity?.();
+    appState.attachStreamHeartbeat?.(req, res);   // keep idle timer alive for the whole pipe
 
     const { videoId, series = '0' } = req.query;
     const cmd = req.query.cmd || '';
@@ -285,7 +285,7 @@ module.exports = function proxyModule(appState) {
   // ── GET /proxy/stream/:channelId ──────────────────────────────────────────
   router.get('/stream/:channelId', channelIdRules, async (req, res) => {
     if (!requireSession(res)) return;
-    appState.touchActivity?.();   // keep idle-disconnect timer alive on every master-playlist fetch
+    appState.attachStreamHeartbeat?.(req, res);   // covers both finite playlists and single long-lived pipes
 
     const { channelManager } = appState;
     const uniqueId = req.params.channelId;
@@ -322,7 +322,7 @@ module.exports = function proxyModule(appState) {
   // ── GET /proxy/hls?url=<encoded> — sub-playlist proxy ────────────────────
   router.get('/hls', hlsUrlRules, async (req, res) => {
     if (!requireSession(res)) return;
-    appState.touchActivity?.();
+    appState.attachStreamHeartbeat?.(req, res);
 
     const encoded = req.query.url;
     if (!encoded) return res.status(400).send('Missing url parameter');
@@ -345,7 +345,7 @@ module.exports = function proxyModule(appState) {
   // regardless of the actual container (FFmpeg detects format from content bytes).
   router.get('/hls/seg/:encoded', async (req, res) => {
     if (!requireSession(res)) return;
-    appState.touchActivity?.();
+    appState.attachStreamHeartbeat?.(req, res);
 
     // Strip the .ts (or any other) extension we appended for FFmpeg compatibility
     let encoded = req.params.encoded.replace(/\.[^.]+$/, '');
