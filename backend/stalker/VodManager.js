@@ -88,68 +88,51 @@ class VodManager {
   async getStreamUrl(videoId, cmd, series = 0) {
     const seriesStr = String(series);
 
-    // ── Attempt 1: create_link with /media/{id}.mpg (standard primary path) ──
-    // Note: no forced_storage — Kodi plugin omits it for VOD and some portals
-    // reject the request with "nothing_to_play" when it is present.
-    try {
-      let r = await this.client._stalkerCall({
-        type:   'vod',
-        action: 'create_link',
-        cmd:    `/media/${videoId}.mpg`,
-        series: seriesStr,
-      });
-      let url = this._extractCmdUrl(r?.js);
-      if (!url) {
-        log.warn(TAG, `primary create_link without forced_storage yielded no URL, trying fallback with forced_storage=undefined…`);
-        r = await this.client._stalkerCall({
-          type:   'vod',
-          action: 'create_link',
-          cmd:    `/media/${videoId}.mpg`,
-          series: seriesStr,
-          forced_storage: 'undefined',
-          disable_ad: '0',
-        });
-        url = this._extractCmdUrl(r?.js);
+    // We will build a list of candidate commands to try resolving via create_link.
+    // Specific commands from the portal listing go first:
+    const candidates = [];
+    if (cmd) {
+      candidates.push(cmd);
+      if (!cmd.startsWith('/') && !cmd.startsWith('http')) {
+        candidates.push(`/media/${cmd}`);
       }
-      if (url) {
-        log.info(TAG, `stream resolved (primary): ${url.slice(0, 80)}…`);
-        return url;
-      }
-      log.warn(TAG, `primary create_link: no url  js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
-    } catch (e) {
-      log.warn(TAG, `primary create_link failed for ${videoId}: ${e.message}`);
     }
+    candidates.push(`/media/${videoId}.mpg`);
 
-    // ── Attempt 2: create_link with cmd from listing (only if different) ──
-    const listingCmd = cmd && cmd !== `/media/${videoId}.mpg` ? cmd : null;
-    if (listingCmd) {
+    // Deduplicate candidates
+    const uniqueCandidates = [...new Set(candidates)];
+
+    // Try each candidate with and without forced_storage fallback
+    for (const candidate of uniqueCandidates) {
       try {
+        log.info(TAG, `Attempting VOD create_link for candidate: ${candidate}`);
         let r = await this.client._stalkerCall({
           type:   'vod',
           action: 'create_link',
-          cmd:    listingCmd,
+          cmd:    candidate,
           series: seriesStr,
         });
         let url = this._extractCmdUrl(r?.js);
+
         if (!url) {
-          log.warn(TAG, `listing-cmd create_link without forced_storage yielded no URL, trying fallback with forced_storage=undefined…`);
+          log.debug(TAG, `create_link without forced_storage failed for "${candidate}", trying fallback with forced_storage=undefined…`);
           r = await this.client._stalkerCall({
             type:   'vod',
             action: 'create_link',
-            cmd:    listingCmd,
+            cmd:    candidate,
             series: seriesStr,
             forced_storage: 'undefined',
             disable_ad: '0',
           });
           url = this._extractCmdUrl(r?.js);
         }
+
         if (url) {
-          log.info(TAG, `stream resolved (listing cmd): ${url.slice(0, 80)}…`);
+          log.info(TAG, `VOD stream resolved successfully for candidate "${candidate}": ${url.slice(0, 80)}…`);
           return url;
         }
-        log.warn(TAG, `listing-cmd create_link: no url  js=${JSON.stringify(r?.js)?.slice(0, 200)}`);
       } catch (e) {
-        log.warn(TAG, `listing-cmd create_link failed: ${e.message}`);
+        log.warn(TAG, `create_link failed for candidate "${candidate}": ${e.message}`);
       }
     }
 
@@ -214,7 +197,7 @@ class VodManager {
     // might use but that we're currently discarding.
     if (this._loggedItems === undefined) this._loggedItems = 0;
     if (this._loggedItems < 3) {
-      log.info(TAG, `raw VOD item fields: ${JSON.stringify(Object.keys(item))} sample=${JSON.stringify(item).slice(0, 400)}`);
+      log.debug(TAG, `raw VOD item fields: ${JSON.stringify(Object.keys(item))} sample=${JSON.stringify(item).slice(0, 400)}`);
       this._loggedItems++;
     }
 
@@ -231,7 +214,7 @@ class VodManager {
       isFav:       !!(item.fav),
       episodes:    Array.isArray(item.series) ? item.series : [],
       screenshotUri: item.screenshot_uri || null,
-      cmd:          item.cmd || '',
+      cmd:          item.cmd || item.path || '',
       // Preserve any extra streaming URL fields the portal may include
       streamUrl:    item.stream_url || item.link || item.url || null,
       added:        item.added || '',
