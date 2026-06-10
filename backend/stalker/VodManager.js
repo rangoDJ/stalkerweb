@@ -114,6 +114,7 @@ class VodManager {
           cmd:    candidate,
           series: seriesStr,
         });
+        log.info(TAG, `create_link raw js: ${JSON.stringify(r?.js)?.slice(0, 500)}`);
         let url = this._resolveCreateLink(r?.js);
 
         if (!url) {
@@ -126,6 +127,7 @@ class VodManager {
             forced_storage: 'undefined',
             disable_ad: '0',
           });
+          log.info(TAG, `create_link raw js (forced_storage): ${JSON.stringify(r?.js)?.slice(0, 500)}`);
           url = this._resolveCreateLink(r?.js);
         }
 
