@@ -93,6 +93,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Downcase IMAGE_NAME
+        run: |
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+        env:
+          IMAGE_NAME: ${{ github.repository }}
+
       - uses: docker/setup-qemu-action@v3
 
       - uses: docker/setup-buildx-action@v3
@@ -139,6 +145,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+
+      - name: Downcase IMAGE_NAME
+        run: |
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
+        env:
+          IMAGE_NAME: ${{ github.repository }}
 
       - name: Compute next version
         id: version
@@ -213,7 +225,7 @@ jobs:
             ## Docker image
 
             ```
-            docker pull ghcr.io/${{ github.repository }}:${{ steps.version.outputs.tag }}
+            docker pull ghcr.io/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.tag }}
             ```
 
             ## Android APKs
