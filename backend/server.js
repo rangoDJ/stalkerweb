@@ -86,6 +86,13 @@ const IDLE_TIMEOUT_MS = parseInt(process.env.IDLE_TIMEOUT_MINUTES || '30', 10) *
 
 function destroySession() {
   if (!appState.sessionManager) return;
+  // Never tear down while a stream connection is still open — playback is live.
+  // Defer the check by one idle interval so the timer resumes once it closes.
+  if (appState.activeStreams > 0) {
+    log.debug('server', `idle timeout reached but ${appState.activeStreams} stream(s) active — deferring disconnect`);
+    appState._idleTimer = setTimeout(destroySession, IDLE_TIMEOUT_MS);
+    return;
+  }
   log.info('server', `idle timeout (${IDLE_TIMEOUT_MS / 60000}m) — auto-disconnecting session`);
   appState.sessionManager.destroy();
   appState.sessionManager = null;
@@ -98,6 +105,7 @@ function destroySession() {
 appState.idleTimeoutMs   = IDLE_TIMEOUT_MS;
 appState.lastActivityAt  = null;
 appState._idleTimer      = null;
+appState.activeStreams   = 0;      // open proxy stream connections (playback in progress)
 appState._reconnecting   = null;   // serialise concurrent auto-reconnects
 appState.connectPortal   = connectPortal;
 
@@ -105,6 +113,28 @@ appState.touchActivity = function touchActivity() {
   appState.lastActivityAt = new Date().toISOString();
   clearTimeout(appState._idleTimer);
   appState._idleTimer = setTimeout(destroySession, IDLE_TIMEOUT_MS);
+};
+
+// Attach a heartbeat to a long-lived proxy response so the idle-disconnect timer
+// keeps resetting for as long as playback is actually flowing — independent of
+// the player (web, Kodi, Jellyfin, VLC). Touches immediately, then every 60s
+// while the connection is open, and once more on close so the 30-min grace
+// window starts from the moment the last viewer leaves.
+const STREAM_HEARTBEAT_MS = 60 * 1000;
+appState.attachStreamHeartbeat = function attachStreamHeartbeat(req, res) {
+  appState.activeStreams++;
+  appState.touchActivity();
+  const hb = setInterval(() => appState.touchActivity(), STREAM_HEARTBEAT_MS);
+  let ended = false;
+  const end = () => {
+    if (ended) return;
+    ended = true;
+    clearInterval(hb);
+    appState.activeStreams = Math.max(0, appState.activeStreams - 1);
+    appState.touchActivity();
+  };
+  res.on('close', end);
+  res.on('finish', end);
 };
 
 const vodRoutes    = require('./routes/vod')(appState);
