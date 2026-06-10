@@ -72,8 +72,18 @@ module.exports = function vodRoutes(appState) {
     if (cmd)                        p.set('cmd', cmd);
     if (series && series !== '0')   p.set('series', series);
 
+    // Extract file extension from the command URL or default to .mp4
+    let ext = '.mp4';
+    if (cmd) {
+      const pathname = cmd.split('?')[0].split('#')[0];
+      const m = pathname.match(/\.([a-z0-9]+)$/i);
+      if (m) {
+        ext = '.' + m[1].toLowerCase();
+      }
+    }
+
     appState.touchActivity?.();
-    res.json({ streamUrl: `/proxy/vod/stream?${p}`, videoId });
+    res.json({ streamUrl: `/proxy/vod/stream${ext}?${p}`, videoId });
   });
 
   return router;
