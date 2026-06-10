@@ -170,7 +170,7 @@ module.exports = function proxyModule(appState) {
   // Resolves a VOD stream URL via VodManager (auth + all fallbacks), then
   // either proxies an HLS playlist (rewriting sub-URLs) or pipes a direct
   // video stream with Range-request pass-through for seeking.
-  router.get('/vod/stream', async (req, res) => {
+  router.get('/vod/stream*', async (req, res) => {
     // Fix: use requireSession (not just !client) so channelManager is also checked,
     // and unauthenticated requests are rejected consistently with other proxy routes.
     if (!requireSession(res)) return;
@@ -200,86 +200,17 @@ module.exports = function proxyModule(appState) {
 
     log.info(TAG, `VOD proxy: videoId=${videoId} → ${streamUrl.slice(0, 80)}…`);
 
-    const http          = client.getHttpClient();
-    const streamHeaders = { ...client.getStreamHeaders() };
-    if (req.headers['range']) streamHeaders['Range'] = req.headers['range'];
-
     // HLS playlist URL (extension-based fast path) — servePlaylist handles buffering + rewrite
     // trusted=true: URL came from portal's own getStreamUrl(), not user-supplied
     if (isPlaylistUrl(streamUrl)) {
       return servePlaylist(req, res, streamUrl, true);
     }
 
-    // For non-playlist URLs, stream the response to avoid loading large files into memory.
-    // Peek the first 512 bytes to detect portals that serve m3u8 with non-.m3u8 extensions.
-    let response;
-    try {
-      response = await http.get(streamUrl, {
-        headers:        streamHeaders,
-        responseType:   'stream',
-        timeout:        30_000,
-        validateStatus: () => true,
-      });
-    } catch (e) {
-      log.error(TAG, `VOD proxy: fetch failed: ${e.message}`);
-      return res.status(502).send(`Fetch failed: ${e.message}`);
-    }
-
-    if (response.status >= 400) {
-      response.data.destroy();
-      log.warn(TAG, `VOD proxy: portal returned ${response.status} for ${streamUrl}`);
-      return res.status(502).send(`Portal returned HTTP ${response.status}`);
-    }
-
-    // Collect the first 512 bytes synchronously (before any await) to sniff for m3u8
-    const SNIFF = 512;
-    const firstChunk = await new Promise((resolve, reject) => {
-      const chunks = [];
-      let size = 0;
-      const stream = response.data;
-      const done = (buf) => {
-        stream.off('data', onData); stream.off('end', onEnd); stream.off('error', onError);
-        resolve(buf);
-      };
-      const onData  = (chunk) => { chunks.push(chunk); size += chunk.length; if (size >= SNIFF) { stream.pause(); done(Buffer.concat(chunks)); } };
-      const onEnd   = () => done(Buffer.concat(chunks));
-      const onError = (e) => reject(e);
-      stream.on('data', onData).once('end', onEnd).once('error', onError);
-    });
-
-    const head = firstChunk.toString('utf8', 0, 128);
-
-    if (isM3u8Body(head)) {
-      // Portal served an HLS playlist — buffer the rest (playlists are tiny text files)
-      log.info(TAG, `VOD proxy: videoId=${videoId} → m3u8 body detected, buffering for URL rewrite`);
-      const allChunks = [firstChunk];
-      response.data.resume();
-      await new Promise((resolve, reject) => {
-        response.data.on('data', c => allChunks.push(c));
-        response.data.on('end', resolve);
-        response.data.on('error', reject);
-      });
-      const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-      const rewritten   = rewriteM3u8(Buffer.concat(allChunks).toString('utf8'), streamUrl, proxyOrigin);
-      res.set('Content-Type', 'application/vnd.apple.mpegurl');
-      res.set('Cache-Control', 'no-cache, no-store');
-      res.set('Access-Control-Allow-Origin', '*');
-      return res.send(rewritten);
-    }
-
-    // Binary video — pipe directly so large files (MP4, MPEG) never land in Node heap.
-    // Content-Length deliberately omitted: we cannot guarantee the advertised portal
-    // length matches the piped bytes after sniffing and potential early portal close.
-    const ct = response.headers['content-type'] || 'video/mpeg';
-    log.info(TAG, `VOD proxy: videoId=${videoId} → piping binary ${ct}`);
-    res.status(response.status);
-    res.set('Content-Type', ct);
-    res.set('Access-Control-Allow-Origin', '*');
-    if (response.headers['content-range']) res.set('Content-Range', response.headers['content-range']);
-    res.write(firstChunk);
-    response.data.resume();
-    response.data.on('error', err => { log.error(TAG, `VOD proxy: pipe error: ${err.message}`); res.destroy(); });
-    response.data.pipe(res);
+    // For non-playlist binary video URLs, redirect directly to the CDN stream URL.
+    // This allows the media player to stream directly from the CDN with native support
+    // for seeking, Range requests, and high bandwidth, matching stalkerhek's approach.
+    log.info(TAG, `VOD proxy: redirecting to resolved stream URL: ${streamUrl}`);
+    return res.redirect(302, streamUrl);
   });
 
   // ── GET /proxy/stream/:channelId ──────────────────────────────────────────
