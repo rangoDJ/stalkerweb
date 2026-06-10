@@ -92,13 +92,25 @@ class VodManager {
     // Note: no forced_storage — Kodi plugin omits it for VOD and some portals
     // reject the request with "nothing_to_play" when it is present.
     try {
-      const r = await this.client._stalkerCall({
+      let r = await this.client._stalkerCall({
         type:   'vod',
         action: 'create_link',
         cmd:    `/media/${videoId}.mpg`,
         series: seriesStr,
       });
-      const url = this._extractCmdUrl(r?.js);
+      let url = this._extractCmdUrl(r?.js);
+      if (!url) {
+        log.warn(TAG, `primary create_link without forced_storage yielded no URL, trying fallback with forced_storage=undefined…`);
+        r = await this.client._stalkerCall({
+          type:   'vod',
+          action: 'create_link',
+          cmd:    `/media/${videoId}.mpg`,
+          series: seriesStr,
+          forced_storage: 'undefined',
+          disable_ad: '0',
+        });
+        url = this._extractCmdUrl(r?.js);
+      }
       if (url) {
         log.info(TAG, `stream resolved (primary): ${url.slice(0, 80)}…`);
         return url;
@@ -112,13 +124,25 @@ class VodManager {
     const listingCmd = cmd && cmd !== `/media/${videoId}.mpg` ? cmd : null;
     if (listingCmd) {
       try {
-        const r = await this.client._stalkerCall({
+        let r = await this.client._stalkerCall({
           type:   'vod',
           action: 'create_link',
           cmd:    listingCmd,
           series: seriesStr,
         });
-        const url = this._extractCmdUrl(r?.js);
+        let url = this._extractCmdUrl(r?.js);
+        if (!url) {
+          log.warn(TAG, `listing-cmd create_link without forced_storage yielded no URL, trying fallback with forced_storage=undefined…`);
+          r = await this.client._stalkerCall({
+            type:   'vod',
+            action: 'create_link',
+            cmd:    listingCmd,
+            series: seriesStr,
+            forced_storage: 'undefined',
+            disable_ad: '0',
+          });
+          url = this._extractCmdUrl(r?.js);
+        }
         if (url) {
           log.info(TAG, `stream resolved (listing cmd): ${url.slice(0, 80)}…`);
           return url;
