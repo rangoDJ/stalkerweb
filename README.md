@@ -9,7 +9,7 @@ Self-hosted IPTV web app that replicates [Kodi's pvr.stalker](https://github.com
 
 ## Features
 
-- 🔌 **Full Stalker Middleware protocol** — handshake, token auth, keep-alive watchdog, idle session timeout.
+- 🔌 **Full Stalker Middleware protocol** — handshake, token auth, keep-alive watchdog, idle session timeout that auto-renews while playback is streaming.
 - 📺 **Dynamic Channel Grid** — with multi-line genre filtering, search, and keyboard number-jump.
 - ❤️ **Favorites** — star channels, organize into custom drag-and-drop groups, with inline group editor.
 - 📅 **EPG Guide** — with scrollable timeline, configurable lookahead (6h–48h), and built-in player integration.
@@ -41,6 +41,10 @@ services:
       # Optional: pre-seed portal credentials
       # - PORTAL_URL=http://your-portal.example.com/c/
       # - PORTAL_MAC=00:1A:79:XX:XX:XX
+      # Optional: minutes of inactivity before the portal session is torn
+      # down (default 30). The timer is held off while a stream is playing,
+      # so this is only the grace window after the last viewer disconnects.
+      # - IDLE_TIMEOUT_MINUTES=30
 ```
 
 ```bash
@@ -79,6 +83,12 @@ StalkerWeb includes a built-in HLS proxy that forwards stream requests to the po
 | `GET /proxy/stream/:channelId` | Proxy the master HLS playlist for a channel |
 | `GET /proxy/hls?url=<encoded>` | Proxy an HLS sub-playlist |
 | `GET /proxy/hls/seg/<encoded>.ts` | Proxy an HLS segment |
+
+While any of these connections is open, the backend renews the idle-disconnect
+timer on a 60-second heartbeat, so playback through **any** client (web,
+Jellyfin, Kodi, VLC) keeps the portal session alive — including single,
+long-lived stream pipes — and the session only tears down `IDLE_TIMEOUT_MINUTES`
+after the last viewer disconnects.
 
 ---
 
@@ -146,6 +156,7 @@ npm run audit       # Security audit
 | `GET` | `/api/epg/:channelId` | EPG for a channel (`?period=24`) |
 | `GET` | `/api/epg/now` | Current + next programme for all channels |
 | `GET` | `/api/stream/:channelId` | Resolve stream URL |
+| `GET` | `/api/stream/keepalive` | Renew the idle timer while a stream plays |
 | `GET` | `/api/favorites` | Get favorites (channels + groups) |
 | `GET` | `/api/m3u` | M3U playlist for external clients |
 | `GET` | `/api/xmltv` | XMLTV guide feed |
