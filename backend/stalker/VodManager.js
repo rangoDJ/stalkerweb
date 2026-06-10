@@ -104,31 +104,37 @@ class VodManager {
     candidates.push(`/media/${videoId}.mpg`);
     const uniqueCandidates = [...new Set(candidates)];
 
+    // Explicit error the portal returned from create_link (e.g. "nothing_to_play").
+    // When present, the portal has no playable file — we must NOT fabricate a
+    // /media/<id>.mpg URL, since that only yields a misleading 404.
+    let portalError = null;
+
     // ── Primary: create_link, then assemble a playable URL from the response ──
     for (const candidate of uniqueCandidates) {
       try {
-        log.info(TAG, `VOD create_link for candidate: ${candidate}`);
+        log.debug(TAG, `VOD create_link for candidate: ${candidate}`);
         let r = await this.client._stalkerCall({
           type:   'vod',
           action: 'create_link',
           cmd:    candidate,
           series: seriesStr,
         });
-        log.info(TAG, `create_link raw js: ${JSON.stringify(r?.js)?.slice(0, 500)}`);
+        log.debug(TAG, `create_link js: ${JSON.stringify(r?.js)?.slice(0, 400)}`);
         let url = this._resolveCreateLink(r?.js);
+        if (!url && r?.js?.error) portalError = r.js.error;
 
         if (!url) {
-          log.debug(TAG, `create_link empty for "${candidate}", retrying with forced_storage…`);
           r = await this.client._stalkerCall({
             type:   'vod',
             action: 'create_link',
             cmd:    candidate,
             series: seriesStr,
-            forced_storage: 'undefined',
+            forced_storage: '',
             disable_ad: '0',
           });
-          log.info(TAG, `create_link raw js (forced_storage): ${JSON.stringify(r?.js)?.slice(0, 500)}`);
+          log.debug(TAG, `create_link js (forced_storage): ${JSON.stringify(r?.js)?.slice(0, 400)}`);
           url = this._resolveCreateLink(r?.js);
+          if (!url && r?.js?.error) portalError = r.js.error;
         }
 
         if (url) {
@@ -147,6 +153,15 @@ class VodManager {
         log.info(TAG, `VOD stream resolved (direct listing url): ${direct.slice(0, 80)}…`);
         return direct;
       }
+    }
+
+    // The portal explicitly refused to create a link — the title has no
+    // playable file on its storage. Surface that instead of fabricating a URL.
+    if (portalError) {
+      throw new Error(
+        `Portal could not create a stream link (${portalError}). ` +
+        `This title has no playable file on the portal's storage.`
+      );
     }
 
     // ── Fallback 2: legacy play/movie.php?movie_id probe (older portals) ──
@@ -266,7 +281,7 @@ class VodManager {
     // might use but that we're currently discarding.
     if (this._loggedItems === undefined) this._loggedItems = 0;
     if (this._loggedItems < 2) {
-      log.info(TAG, `raw VOD item: ${JSON.stringify(item)}`);
+      log.debug(TAG, `raw VOD item: ${JSON.stringify(item)}`);
       this._loggedItems++;
     }
 
