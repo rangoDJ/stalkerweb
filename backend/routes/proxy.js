@@ -122,12 +122,28 @@ module.exports = function proxyModule(appState) {
     }
   }
 
+  function getHeadersForUrl(realUrl) {
+    const { client } = appState;
+    if (!client) return {};
+    const basePath = client.getBasePath();
+    const isInternal = realUrl.startsWith(basePath) || isAllowedUrl(realUrl, basePath);
+
+    if (isInternal) {
+      const headers = { ...client._buildHeaders() };
+      delete headers['X-Requested-With'];
+      delete headers['Accept'];
+      return headers;
+    } else {
+      return { ...client.getStreamHeaders() };
+    }
+  }
+
   // trusted=true skips the SSRF hostname check — use when realUrl came from
   // the portal's own create_link / stream-resolution API (not user-supplied).
   async function servePlaylist(req, res, realUrl, trusted = false) {
     const { client } = appState;
     const http = client.getHttpClient();
-    const headers = client.getStreamHeaders();
+    const headers = getHeadersForUrl(realUrl);
 
     const setCors = () => res.set('Access-Control-Allow-Origin', '*');
 
@@ -215,7 +231,7 @@ module.exports = function proxyModule(appState) {
     if (isInternal) {
       log.info(TAG, `VOD proxy: internal link detected, proxying stream: ${streamUrl}`);
       const http          = client.getHttpClient();
-      const streamHeaders = { ...client.getStreamHeaders() };
+      const streamHeaders = getHeadersForUrl(streamUrl);
       if (req.headers['range']) streamHeaders['Range'] = req.headers['range'];
 
       let response;
@@ -369,7 +385,7 @@ module.exports = function proxyModule(appState) {
 
     const { client } = appState;
     const http = client.getHttpClient();
-    const headers = client.getStreamHeaders();
+    const headers = getHeadersForUrl(realUrl);
 
     let response;
     try {
