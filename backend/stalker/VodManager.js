@@ -79,6 +79,46 @@ class VodManager {
     return data.map(s => this._normalizeItem(s));
   }
 
+  // ── File record lookup ─────────────────────────────────────────────────────
+
+  // Fetch a movie's concrete file record the way STBemu does before playback:
+  // get_ordered_list with movie_id set returns js.data[] of files. Each file's
+  // `id` (distinct from `video_id`) is what create_link needs as
+  // /media/file_<id>.mpg; the row often also carries a direct `url`. For a
+  // series, pick the entry matching the requested episode.
+  async _getMovieFile(videoId, seriesNum = 0) {
+    try {
+      const r = await this.client._stalkerCall({
+        type:       'vod',
+        action:     'get_ordered_list',
+        movie_id:   String(videoId),
+        season_id:  '0',
+        episode_id: '0',
+        sortby:     'added',
+        p:          '1',
+      });
+      const data = Array.isArray(r?.js?.data) ? r.js.data : [];
+      if (!data.length) return null;
+
+      let entry = data[0];
+      if (seriesNum > 0) {
+        const match = data.find(d =>
+          Number(d.series_number ?? d.episode ?? d.episode_number) === seriesNum);
+        if (match) entry = match;
+      }
+
+      const fileId = entry?.id != null ? String(entry.id).trim() : '';
+      log.debug(TAG, `movie_id=${videoId} → fileId=${fileId} protocol=${entry?.protocol || ''}`);
+      return {
+        fileId,
+        url: this._extractUrl(entry?.url) || this._extractUrl(entry?.cmd),
+      };
+    } catch (e) {
+      log.warn(TAG, `movie file lookup (get_ordered_list movie_id) failed: ${e.message}`);
+      return null;
+    }
+  }
+
   // ── Stream URL resolution ──────────────────────────────────────────────────
 
   // Mirrors api.py get_vod_stream_url() + stalkerhek's parseCreateLinkVOD:
@@ -96,9 +136,16 @@ class VodManager {
     const seriesNum = parseInt(series, 10) || 0;
     const seriesParam = seriesNum > 0 ? { series: String(seriesNum) } : {};
 
-    // Build a list of candidate cmd strings to feed create_link, most
-    // specific (from the portal listing) first.
+    // Resolve the movie's concrete file record the way STBemu does: fetch
+    // get_ordered_list?movie_id=<id>, whose js.data[] carries the FILE id
+    // (distinct from the video id) and often a direct stream url. create_link
+    // needs /media/file_<fileId>.mpg — the /media/<videoId>.mpg form the
+    // listing advertises returns nothing_to_play on Ministra portals.
+    const fileInfo = await this._getMovieFile(videoId, seriesNum);
+
+    // Build candidate cmd strings for create_link, most likely to work first.
     const candidates = [];
+    if (fileInfo?.fileId) candidates.push(`/media/file_${fileInfo.fileId}.mpg`);
     if (cmd) {
       candidates.push(cmd);
       if (!cmd.startsWith('/') && !cmd.startsWith('http')) {
@@ -113,44 +160,39 @@ class VodManager {
     // /media/<id>.mpg URL, since that only yields a misleading 404.
     let portalError = null;
 
-    // ── Primary: create_link, then assemble a playable URL from the response ──
+    // ── Primary: create_link (params mirror STBemu), resolve the response ──
     for (const candidate of uniqueCandidates) {
       try {
         log.debug(TAG, `VOD create_link for candidate: ${candidate}`);
-        let r = await this.client._stalkerCall({
-          type:   'vod',
-          action: 'create_link',
-          cmd:    candidate,
+        const r = await this.client._stalkerCall({
+          type:                'vod',
+          action:              'create_link',
+          cmd:                 candidate,
           ...seriesParam,
+          forced_storage:      '',
+          disable_ad:          '0',
+          download:            '0',
+          force_ch_link_check: '0',
         });
         log.debug(TAG, `create_link js: ${JSON.stringify(r?.js)?.slice(0, 400)}`);
-        let url = this._resolveCreateLink(r?.js);
-        if (!url && r?.js?.error) portalError = r.js.error;
-
-        if (!url) {
-          r = await this.client._stalkerCall({
-            type:   'vod',
-            action: 'create_link',
-            cmd:    candidate,
-            ...seriesParam,
-            forced_storage: '',
-            disable_ad: '0',
-          });
-          log.debug(TAG, `create_link js (forced_storage): ${JSON.stringify(r?.js)?.slice(0, 400)}`);
-          url = this._resolveCreateLink(r?.js);
-          if (!url && r?.js?.error) portalError = r.js.error;
-        }
-
+        const url = this._resolveCreateLink(r?.js);
         if (url) {
           log.info(TAG, `VOD stream resolved for "${candidate}": ${url.slice(0, 80)}…`);
           return url;
         }
+        if (r?.js?.error) portalError = r.js.error;
       } catch (e) {
         log.warn(TAG, `create_link failed for candidate "${candidate}": ${e.message}`);
       }
     }
 
-    // ── Fallback 1: listing cmd is already a playable URL ──
+    // ── Fallback 1: the movie_id file record carried a direct playable URL ──
+    if (fileInfo?.url) {
+      log.info(TAG, `VOD stream resolved (movie_id file url): ${fileInfo.url.slice(0, 80)}…`);
+      return fileInfo.url;
+    }
+
+    // ── Fallback 2: listing cmd is already a playable URL ──
     if (cmd) {
       const direct = this._extractUrl(cmd);
       if (direct) {
