@@ -88,6 +88,42 @@ class VodManager {
   async getStreamUrl(videoId, cmd, series = 0) {
     const seriesStr = String(series);
 
+    // ── Attempt 0: Resolve directly via play/movie.php (Standard Portal VOD gateway) ──
+    try {
+      const playUrl = `${this.client.basePath}play/movie.php?movie_id=${videoId}`;
+      log.info(TAG, `Attempting VOD stream resolution via play/movie.php: ${playUrl}`);
+      const response = await this.client.http.get(playUrl, {
+        headers: this.client._buildHeaders(),
+        timeout: 10000,
+        maxRedirects: 10,
+        validateStatus: (status) => status < 400
+      });
+
+      // Look for redirected location (responseUrl) or direct URL in JSON/String response data
+      const resolvedUrl = response.request?.res?.responseUrl || response.headers['location'];
+      if (resolvedUrl && resolvedUrl !== playUrl && resolvedUrl.startsWith('http')) {
+        log.info(TAG, `VOD stream resolved via play/movie.php redirect: ${resolvedUrl.slice(0, 80)}…`);
+        return resolvedUrl;
+      }
+
+      // Check if response contains direct URL/command string
+      const data = response.data;
+      if (data) {
+        let extracted = null;
+        if (typeof data === 'string') {
+          extracted = this._extractUrl(data);
+        } else if (data.cmd || data.url) {
+          extracted = this._extractUrl(data.cmd || data.url);
+        }
+        if (extracted) {
+          log.info(TAG, `VOD stream resolved via play/movie.php data: ${extracted.slice(0, 80)}…`);
+          return extracted;
+        }
+      }
+    } catch (e) {
+      log.warn(TAG, `Resolution via play/movie.php failed: ${e.message}`);
+    }
+
     // We will build a list of candidate commands to try resolving via create_link.
     // Specific commands from the portal listing go first:
     const candidates = [];
