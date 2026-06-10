@@ -265,8 +265,8 @@ class VodManager {
     // stream URL fields (e.g. stream_url, link, direct_links) that STBEmu
     // might use but that we're currently discarding.
     if (this._loggedItems === undefined) this._loggedItems = 0;
-    if (this._loggedItems < 3) {
-      log.debug(TAG, `raw VOD item fields: ${JSON.stringify(Object.keys(item))} sample=${JSON.stringify(item).slice(0, 400)}`);
+    if (this._loggedItems < 2) {
+      log.info(TAG, `raw VOD item: ${JSON.stringify(item)}`);
       this._loggedItems++;
     }
 
