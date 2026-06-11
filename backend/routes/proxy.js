@@ -13,19 +13,9 @@
 'use strict';
 
 const express = require('express');
-const http  = require('http');
-const https = require('https');
 const log = require('../logger');
 const { channelIdRules, hlsUrlRules } = require('../middleware/validate');
 const TAG = 'proxy';
-
-// Dedicated agents for CDN stream/segment fetches with keep-alive DISABLED.
-// Node 19+ enables keep-alive on the global agent by default; some Stalker VOD
-// CDNs advertise `Connection: Keep-Alive` but silently drop the socket after a
-// response. Reusing that dead socket for the very next fetch (e.g. master →
-// media playlist) hangs until the timeout. A fresh socket per request avoids it.
-const streamHttpAgent  = new http.Agent({ keepAlive: false });
-const streamHttpsAgent = new https.Agent({ keepAlive: false });
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 
@@ -91,8 +81,6 @@ async function fetchFromPortal(httpClient, headers, url, timeoutMs = 15_000) {
     headers,
     responseType: 'arraybuffer',
     timeout: timeoutMs,
-    httpAgent:  streamHttpAgent,
-    httpsAgent: streamHttpsAgent,
     validateStatus: () => true,
   });
 }
@@ -252,8 +240,6 @@ module.exports = function proxyModule(appState) {
           headers:        streamHeaders,
           responseType:   'stream',
           timeout:        30_000,
-          httpAgent:      streamHttpAgent,
-          httpsAgent:     streamHttpsAgent,
           validateStatus: () => true,
         });
       } catch (e) {
