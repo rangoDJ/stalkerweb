@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -137,7 +138,7 @@ fun VodScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalArrangement   = Arrangement.spacedBy(8.dp),
                     ) {
-                        androidx.compose.foundation.lazy.grid.items(state.items, key = { it.id }) { item ->
+                        gridItems(state.items, key = { it.id }) { item ->
                             VodCard(item) {
                                 if (item.isSeries) viewModel.openSeries(item) else onPlayMovie(item)
                             }
