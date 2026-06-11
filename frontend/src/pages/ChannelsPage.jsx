@@ -322,6 +322,7 @@ export default function ChannelsPage() {
             >{g.name}</button>
           ))}
       </div>
+      </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6">
