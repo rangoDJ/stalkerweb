@@ -126,6 +126,27 @@ class VodManager {
     }
   }
 
+  // ── Play-event log ─────────────────────────────────────────────────────────
+
+  // Fire-and-forget play notification, mirroring STBemu's call right after
+  // create_link: `type=stb&action=log&real_action=play&content_id=<fileId>
+  // &tmp_type=2&id=<videoId>&cmd=<url>`. Not required for playback — it feeds
+  // the portal's watch history / "currently watching" state and any
+  // concurrent-stream accounting. Never awaited and never fatal.
+  _logPlay(videoId, fileId, cmd) {
+    this.client._stalkerCall({
+      type:        'stb',
+      action:      'log',
+      real_action: 'play',
+      content_id:  String(fileId || ''),
+      tmp_type:    '2',
+      id:          String(videoId),
+      cmd:         cmd || '',
+    })
+      .then(() => log.debug(TAG, `play logged: id=${videoId} content_id=${fileId || ''}`))
+      .catch(e => log.debug(TAG, `play log failed (non-fatal): ${e.message}`));
+  }
+
   // ── Stream URL resolution ──────────────────────────────────────────────────
 
   // Mirrors api.py get_vod_stream_url() + stalkerhek's parseCreateLinkVOD:
@@ -201,6 +222,7 @@ class VodManager {
         const url = this._resolveCreateLink(r?.js);
         if (url) {
           log.info(TAG, `VOD stream resolved for "${candidate}": ${url.slice(0, 80)}…`);
+          this._logPlay(videoId, fileInfo?.fileId, url);
           return url;
         }
         if (r?.js?.error) portalError = r.js.error;
