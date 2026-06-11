@@ -7,9 +7,16 @@
 const log = require('../logger');
 const TAG = 'VodManager';
 
+// Resolved VOD links carry a long-lived token (valid for the whole movie), but
+// resolution is slow/fragile on some portals (multiple round-trips, occasional
+// timeouts). Cache the resolved URL briefly so player reloads/seeks/recovery
+// don't re-resolve — which previously fell into the nothing_to_play fallback.
+const VOD_LINK_TTL_MS = 5 * 60 * 1000;
+
 class VodManager {
   constructor(client) {
     this.client = client;
+    this._linkCache = new Map(); // `${videoId}:${series}` → { url, ts }
   }
 
   // ── Categories ─────────────────────────────────────────────────────────────
@@ -129,7 +136,23 @@ class VodManager {
   //            required for VOD to play at all.
   //   Fallbacks: listing cmd as a direct URL → legacy movie_id probe →
   //              constructed basePath + cmd path.
+  //
+  // Cached briefly: repeated calls for the same title (player reload, seek,
+  // hls.js error-recovery) reuse the resolved URL instead of re-resolving
+  // through the slow portal and risking the nothing_to_play fallback.
   async getStreamUrl(videoId, cmd, series = 0) {
+    const key = `${videoId}:${parseInt(series, 10) || 0}`;
+    const hit = this._linkCache.get(key);
+    if (hit && Date.now() - hit.ts < VOD_LINK_TTL_MS) {
+      log.debug(TAG, `VOD link cache hit for ${key}`);
+      return hit.url;
+    }
+    const url = await this._resolveStreamUrl(videoId, cmd, series);
+    this._linkCache.set(key, { url, ts: Date.now() });
+    return url;
+  }
+
+  async _resolveStreamUrl(videoId, cmd, series = 0) {
     // Only a real episode number is sent as `series`. For a movie this must be
     // omitted entirely — sending series=0 makes Ministra portals look for
     // "episode 0" of a series and answer nothing_to_play (STBemu omits it too).
