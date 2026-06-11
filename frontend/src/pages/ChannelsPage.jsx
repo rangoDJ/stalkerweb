@@ -397,39 +397,39 @@ export default function ChannelsPage() {
             ))}
           </div>
         )}
-      </div>
 
-      {/* Logo assignment modal */}
-      {logoChannel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLogoChannel(null)}>
-          <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl w-full max-w-md mx-4 p-5" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-[var(--color-text)]">Set Logo — {logoChannel.name}</h3>
-              <button onClick={() => setLogoChannel(null)} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">
-                <X size={16} />
-              </button>
-            </div>
-            <p className="text-xs text-[var(--color-muted)] mb-3">Paste a direct URL to the channel logo image (png, jpg, svg…)</p>
-            <div className="flex gap-2">
-              <Input
-                placeholder="https://example.com/logo.png"
-                value={logoUrl}
-                onChange={e => setLogoUrl(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') handleSaveLogo() }}
-                className="text-xs flex-1"
-                autoFocus
-              />
-              <Button
-                onClick={handleSaveLogo}
-                disabled={!logoUrl.trim() || logoSaving}
-                className="shrink-0 h-9 px-4 text-xs"
-              >
-                {logoSaving ? <RefreshCw size={14} className="animate-spin" /> : 'Save'}
-              </Button>
+        {/* Logo assignment modal */}
+        {logoChannel && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLogoChannel(null)}>
+            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl w-full max-w-md mx-4 p-5" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-[var(--color-text)]">Set Logo — {logoChannel.name}</h3>
+                <button onClick={() => setLogoChannel(null)} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">
+                  <X size={16} />
+                </button>
+              </div>
+              <p className="text-xs text-[var(--color-muted)] mb-3">Paste a direct URL to the channel logo image (png, jpg, svg…)</p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://example.com/logo.png"
+                  value={logoUrl}
+                  onChange={e => setLogoUrl(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSaveLogo() }}
+                  className="text-xs flex-1"
+                  autoFocus
+                />
+                <Button
+                  onClick={handleSaveLogo}
+                  disabled={!logoUrl.trim() || logoSaving}
+                  className="shrink-0 h-9 px-4 text-xs"
+                >
+                  {logoSaving ? <RefreshCw size={14} className="animate-spin" /> : 'Save'}
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   )
 }
