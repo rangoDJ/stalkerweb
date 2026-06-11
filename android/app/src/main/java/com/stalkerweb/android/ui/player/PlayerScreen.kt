@@ -544,15 +544,12 @@ private fun CastButton(castManager: com.stalkerweb.android.cast.CastManager) {
         factory = { ctx ->
             // MediaRouteButton's constructor requires a Theme.AppCompat-descendant
             // context; the app's host theme is a framework Material theme, so it
-            // would throw and crash the player on open. Wrap ctx in an AppCompat
-            // theme, and guard the whole creation so any Cast/theme failure falls
-            // back to an empty view instead of crashing.
+            // throws and would crash the player on open. Guard the whole creation
+            // so any Cast/theme failure falls back to an empty view instead of
+            // crashing (the cast button simply won't render in that case).
             runCatching {
-                val themed = android.view.ContextThemeWrapper(
-                    ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight,
-                )
-                MediaRouteButton(themed).also { btn ->
-                    CastButtonFactory.setUpMediaRouteButton(themed, btn)
+                MediaRouteButton(ctx).also { btn ->
+                    CastButtonFactory.setUpMediaRouteButton(ctx, btn)
                 }
             }.getOrElse { android.view.View(ctx) }
         },
