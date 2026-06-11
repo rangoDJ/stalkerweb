@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Film, Tv2, ChevronLeft, ChevronRight, Clock, X, Loader2, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isAdult } from '@/lib/adultFilter'
+import { useApp } from '@/lib/appContext'
 import { getVodCategories, getVodItems, getVodSeasons, getVodEpisodes } from '../stalkerApi'
 
 // ── Thumbnail component ───────────────────────────────────────────────────
@@ -219,6 +221,7 @@ function buildPlayerParams(item, extra = {}) {
 // ── Main VOD page ─────────────────────────────────────────────────────────
 export default function VodPage() {
   const navigate  = useNavigate()
+  const { showAdult } = useApp()
 
   const [vodType, setVodType]         = useState('vod')
   const [categories, setCategories]   = useState([])
@@ -247,9 +250,14 @@ export default function VodPage() {
     setSelectedCategory(null)
     setItems([])
     getVodCategories(vodType)
-      .then(r => { setCategories(r.categories || []); setCatsLoading(false) })
+      .then(r => {
+        let cats = r.categories || []
+        if (!showAdult) cats = cats.filter(c => !isAdult(c.name))
+        setCategories(cats)
+        setCatsLoading(false)
+      })
       .catch(e => { setCatsError(e.message); setCatsLoading(false) })
-  }, [vodType])
+  }, [vodType, showAdult])
 
   // Load items when category / search changes
   const loadItems = useCallback(async (catId, q, page) => {

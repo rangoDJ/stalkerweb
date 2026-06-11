@@ -5,6 +5,8 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { isAdult } from '@/lib/adultFilter'
+import { useApp } from '@/lib/appContext'
 import { getChannelEpg } from '../stalkerApi'
 import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 
@@ -28,6 +30,7 @@ function isNow(startTime, endTime) {
 
 export default function GuidePage() {
   const navigate = useNavigate()
+  const { showAdult } = useApp()
   const [channels, setChannels] = useState([])
   const [activeChannel, setActiveChannel] = useState(null)
   const [epg, setEpg] = useState([])
@@ -40,11 +43,17 @@ export default function GuidePage() {
     let cancelled = false
     const hasInit = { current: false }
 
+    function filterChannels(ch) {
+      if (showAdult) return ch
+      return ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+    }
+
     getCachedChannelData()
       .then(({ channels: ch }) => {
         if (cancelled) return
-        setChannels(ch)
-        if (ch.length && !hasInit.current) { hasInit.current = true; setActiveChannel(ch[0]) }
+        const filtered = filterChannels(ch)
+        setChannels(filtered)
+        if (filtered.length && !hasInit.current) { hasInit.current = true; setActiveChannel(filtered[0]) }
         setLoadingChannels(false)
       })
       .catch(e => { if (!cancelled) { setError(e.message); setLoadingChannels(false) } })
@@ -52,13 +61,14 @@ export default function GuidePage() {
     // Subscribe so the sidebar populates automatically when loading completes
     const unsub = subscribeChannelUpdates(({ channels: ch }) => {
       if (cancelled) return
-      setChannels(ch)
-      if (ch.length && !hasInit.current) { hasInit.current = true; setActiveChannel(ch[0]) }
+      const filtered = filterChannels(ch)
+      setChannels(filtered)
+      if (filtered.length && !hasInit.current) { hasInit.current = true; setActiveChannel(filtered[0]) }
       setLoadingChannels(false)
     })
 
     return () => { cancelled = true; unsub() }
-  }, [])
+  }, [showAdult])
 
   useEffect(() => {
     if (!activeChannel?.uniqueId) return

@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Play, X, Bell, BellOff, Tv2, Loader2, AlertCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { isAdult } from '@/lib/adultFilter'
+import { useApp } from '@/lib/appContext'
 import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 import { getChannelEpg, getProxiedLogoUrl } from '../stalkerApi'
 import { useReminders } from '@/lib/useReminders'
@@ -171,6 +173,7 @@ function ProgrammePopup({ prog, channel, onClose, navigate, onToggleReminder, ha
 // ── Main component ────────────────────────────────────────────────────────────
 export default function EpgGridPage() {
   const navigate = useNavigate()
+  const { showAdult } = useApp()
 
   // ── Grid time window ──────────────────────────────────────────────────────
   const gridStartMs = useMemo(() => {
@@ -203,7 +206,8 @@ export default function EpgGridPage() {
     getCachedChannelData()
       .then(({ channels: ch, logoMap: lm }) => {
         if (cancelled) return
-        setChannels(ch)
+        const filtered = showAdult ? ch : ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+        setChannels(filtered)
         setLogoMap(lm || {})
         setLoadingChannels(false)
       })
@@ -211,11 +215,12 @@ export default function EpgGridPage() {
 
     const unsub = subscribeChannelUpdates(({ channels: ch, logoMap: lm }) => {
       if (cancelled) return
-      setChannels(ch)
+      const filtered = showAdult ? ch : ch.filter(c => !isAdult(c.genre) && !isAdult(c.name))
+      setChannels(filtered)
       setLogoMap(lm || {})
     })
     return () => { cancelled = true; unsub() }
-  }, [])
+  }, [showAdult])
 
   // ── EPG data (lazy load by visibility) ───────────────────────────────────
   const [epgMap, setEpgMap]   = useState({})      // { [uniqueId]: { events } }
