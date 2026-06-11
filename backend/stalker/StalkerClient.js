@@ -214,10 +214,17 @@ class StalkerClient {
   // sends it (captured: `User-Agent: Lavf53.32.100`, no Referer/X-User-Agent).
   // Sending the portal MAG UA + Referer makes some VOD CDNs hold the connection
   // open until it times out. Portal API calls use _buildHeaders() — unaffected.
+  //
+  // `Connection: close` forces a fresh socket per request. Node 19+ keeps the
+  // global agent's sockets alive by default, but some VOD CDNs advertise
+  // Keep-Alive then silently drop the socket — reusing it for the next fetch
+  // (e.g. master → media playlist) hangs until the timeout. (A custom keepAlive
+  // agent can't be used here: the cookie-jar wrapper rejects foreign agents.)
   getStreamHeaders() {
     return {
       'User-Agent':      'Lavf53.32.100',
       'Accept-Encoding': 'gzip',
+      'Connection':      'close',
     };
   }
 
