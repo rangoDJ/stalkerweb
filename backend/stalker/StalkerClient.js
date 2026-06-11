@@ -7,6 +7,7 @@
 'use strict';
 
 const axios = require('axios');
+const crypto = require('crypto');
 const { wrapper } = require('axios-cookiejar-support');
 const { CookieJar, Cookie } = require('tough-cookie');
 const { STB_VERSION_STRING } = require('./identity');
@@ -15,10 +16,19 @@ const TAG = 'StalkerClient';
 
 // The STB user-agent is critical — portals detect it to decide whether
 // to return their browser HTML UI or the JSON API responses.
-// This exact string comes from pvr.stalker / libstalkerclient.
+// This exact string is what STBemu's MAG250 profile sends (captured from a
+// live STBemu session against a Stalker portal).
 const STB_USER_AGENT =
   'Mozilla/5.0 (QtEmbedded; U; Linux; C) AppleWebKit/533.3 (KHTML, like Gecko) ' +
-  'MAG200 stb mergotv/4.2.16.40 Safari/533.3';
+  'MAG200 stbapp ver: 2 rev: 250 Safari/533.3';
+
+// Stable hex digest derived from device identity — used to fill the STBemu
+// fingerprint fields (adid/prehash/hw_version_2/metrics random) when the user
+// hasn't supplied the real values. Deterministic so the same device always
+// presents the same fingerprint across sessions.
+function deriveHex(algo, ...parts) {
+  return crypto.createHash(algo).update(parts.join('|')).digest('hex');
+}
 
 class StalkerClient {
   constructor() {
@@ -43,17 +53,10 @@ class StalkerClient {
     this.timeout = seconds * 1000;
   }
 
-  updateTokenCookie(token) {
-    if (!this.basePath) return;
-    try {
-      const uri = new URL(this.basePath);
-      const domainUrl = `${uri.protocol}//${uri.host}`;
-      const cookie = new Cookie({ key: 'token', value: token });
-      this.jar.setCookieSync(cookie, domainUrl, { ignoreError: true });
-    } catch (e) {
-      log.warn(TAG, `Failed to set token cookie: ${e.message}`);
-    }
-  }
+  // No-op: STBemu never puts the token in a cookie — it sends it only as
+  // `Authorization: Bearer <token>` (built in _buildHeaders from identity.token).
+  // Kept for call-site compatibility with SessionManager.
+  updateTokenCookie(_token) { /* token rides in the Authorization header */ }
 
   async initialize(url) {
     let server = url.trim();
@@ -65,28 +68,30 @@ class StalkerClient {
     this.jar = new CookieJar();
     this.http = wrapper(axios.create({ jar: this.jar, withCredentials: true, maxRedirects: 10 }));
 
-    // Set initial raw cookies
-    // Note: We don't URL encode these as per C# reference.
+    // Seed the identity cookies into the jar. STBemu sends ONLY these four on
+    // every portal call — mac, stb_lang, timezone, adid — with mac and timezone
+    // URL-encoded (e.g. mac=00%3A1A%3A79...). It does NOT cookie sn/device_id/
+    // signature (those ride in the get_profile query) and does NOT cookie the
+    // token (that rides in the Authorization header). The captured portal sets
+    // no PHPSESSID at all — auth is purely mac-cookie + Bearer token.
     const id = this.identity;
     const uri = new URL(server);
     const domainUrl = `${uri.protocol}//${uri.host}`;
-    
-    const setRawCookie = (key, value, targetDomain = domainUrl) => {
-      if (value !== undefined && value !== null) {
+
+    const setCookie = (key, value, targetDomain = domainUrl) => {
+      if (value !== undefined && value !== null && value !== '') {
         const cookie = new Cookie({ key, value: String(value) });
         this.jar.setCookieSync(cookie, targetDomain, { ignoreError: true });
       }
     };
+    const seedIdentityCookies = (targetDomain) => {
+      setCookie('mac', encodeURIComponent(id.mac), targetDomain);
+      setCookie('stb_lang', id.lang || 'en', targetDomain);
+      setCookie('timezone', encodeURIComponent(id.time_zone || 'America/New_York'), targetDomain);
+      setCookie('adid', this.getAdid(), targetDomain);
+    };
 
-    setRawCookie('mac', id.mac);
-    setRawCookie('stb_lang', id.lang || 'en');
-    setRawCookie('timezone', id.time_zone || 'America/New_York');
-    if (id.serial_number) setRawCookie('sn', id.serial_number);
-    if (id.device_id) setRawCookie('device_id', id.device_id);
-    if (id.device_id2) setRawCookie('device_id2', id.device_id2);
-    // Use portal_signature if provided (portal-issued), else fall back to device signature
-    const initialSig = id.portal_signature || id.signature;
-    if (initialSig) setRawCookie('sig', initialSig);
+    seedIdentityCookies();
 
     try {
       const resp = await this.http.get(server, { 
@@ -100,16 +105,10 @@ class StalkerClient {
         log.info(TAG, `Redirect discovered. Effective URL: ${effectiveUrl}`);
         server = effectiveUrl;
         
-        // Copy cookies to new domain
+        // Copy identity cookies to the new domain
         const newUri = new URL(server);
         const newDomainUrl = `${newUri.protocol}//${newUri.host}`;
-        setRawCookie('mac', id.mac, newDomainUrl);
-        setRawCookie('stb_lang', id.lang || 'en', newDomainUrl);
-        setRawCookie('timezone', id.time_zone || 'America/New_York', newDomainUrl);
-        if (id.serial_number) setRawCookie('sn', id.serial_number, newDomainUrl);
-        if (id.device_id) setRawCookie('device_id', id.device_id, newDomainUrl);
-        if (id.device_id2) setRawCookie('device_id2', id.device_id2, newDomainUrl);
-        if (initialSig) setRawCookie('sig', initialSig, newDomainUrl);
+        seedIdentityCookies(newDomainUrl);
       }
     } catch (e) {
       log.warn(TAG, `Could not discover redirects (non-fatal): ${e.message}`);
@@ -203,8 +202,32 @@ class StalkerClient {
     return this.basePath;
   }
 
+  // ── STBemu fingerprint helpers ─────────────────────────────────────────────
+  // STBemu sends a handful of device-derived hashes (adid, prehash, hw_version_2,
+  // metrics "random"). They're computed by the STB firmware from stable device
+  // data, so we reproduce stable values from mac/serial when the user hasn't
+  // supplied the real ones. Configure identity.{adid,prehash,hw_version_2,
+  // metrics_random} for byte-exact mimicry of a specific box.
+  getAdid() {
+    const id = this.identity;
+    return id.adid || deriveHex('md5', id.mac, id.serial_number);          // 32 hex
+  }
+  getPrehash() {
+    const id = this.identity;
+    return id.prehash || deriveHex('sha1', id.mac, id.serial_number);      // 40 hex
+  }
+  getHwVersion2() {
+    const id = this.identity;
+    return id.hw_version_2 || deriveHex('sha1', id.serial_number, id.mac); // 40 hex
+  }
+  getMetricsRandom() {
+    const id = this.identity;
+    return id.metrics_random || deriveHex('sha1', id.mac, 'metrics');      // 40 hex
+  }
+
   // Returns the authenticated axios instance for use by the HLS proxy.
-  // The cookie jar (PHPSESSID, mac, token, etc.) is already attached.
+  // The cookie jar (mac, stb_lang, timezone, adid + any portal-set cookies) is
+  // already attached. The token is NOT a cookie — it rides in Authorization.
   getHttpClient() {
     return this.http;
   }
@@ -225,36 +248,26 @@ class StalkerClient {
   }
 
   // ── Header building ────────────────────────────────────────────────────────
-  // Mirrors sc_request_build_headers() in request.c + SAPI::StalkerCall() extras
+  // Reproduces the exact header set STBemu sends on every load.php call
+  // (captured from a live session). Cookies are NOT set here — they live in the
+  // cookie jar (seeded in initialize() with mac/stb_lang/timezone/adid, the only
+  // cookies STBemu sends) and are injected by axios-cookiejar-support. The token
+  // rides solely in the Authorization header, never in a cookie.
   //
-  // Identity cookies (mac, stb_lang, timezone, etc.) are set explicitly in the
-  // Cookie header — raw, no URL encoding — matching request.c behaviour.
-  // The cookie jar (via http-cookie-agent) merges in PHPSESSID on top of these.
+  // Notable STBemu quirks reproduced: a misspelled `Referrer` header sent IN
+  // ADDITION to `Referer`, `Accept: */*` (not application/json), an explicit
+  // `Cache-Control: no-cache`, and NO `X-Requested-With`.
   _buildHeaders(isHandshake = false) {
     const id = this.identity;
 
-    // Build raw cookie string — mirrors sc_request_build_headers() in request.c
-    const cookieParts = [
-      `mac=${id.mac}`,
-      `stb_lang=${id.lang || 'en'}`,
-      `timezone=${id.time_zone || 'America/New_York'}`,
-    ];
-    if (id.serial_number) cookieParts.push(`sn=${id.serial_number}`);
-    if (id.device_id)     cookieParts.push(`device_id=${id.device_id}`);
-    if (id.device_id2)    cookieParts.push(`device_id2=${id.device_id2}`);
-    // Use portal_signature (returned by portal after auth) if available,
-    // otherwise fall back to the user-configured device signature.
-    const sig = id.portal_signature || id.signature;
-    if (sig) cookieParts.push(`sig=${sig}`);
-    if (!isHandshake && id.token) cookieParts.push(`token=${id.token}`);
-
     const headers = {
-      'Cookie':            cookieParts.join('; '),
-      'User-Agent':        STB_USER_AGENT,
-      'Referer':           this.referer,
-      'X-User-Agent':      'Model: MAG250; Link: WiFi',
-      'X-Requested-With':  'XMLHttpRequest',
-      'Accept':            'application/json, text/javascript, */*; q=0.01',
+      'User-Agent':      STB_USER_AGENT,
+      'Referrer':        this.referer,            // STBemu sends both spellings
+      'X-User-Agent':    'Model: MAG250; Link: WiFi',
+      'Referer':         this.referer,
+      'Accept':          '*/*',
+      'Cache-Control':   'no-cache',
+      'Accept-Encoding': 'gzip',
     };
 
     if (!isHandshake && id.token) {
@@ -375,9 +388,10 @@ class StalkerClient {
   // Mirrors SAPI::STBHandshake() + stb.c sc_stb_handshake_defaults()
   async stbHandshake() {
     const params = {
-      type:   'stb',
-      action: 'handshake',
-      token:  this.identity.token || '',
+      type:    'stb',
+      action:  'handshake',
+      token:   this.identity.token || '',
+      prehash: this.getPrehash(),   // STBemu sends prehash on handshake too
     };
     return this._stalkerCall(params, /* isHandshake= */ true);
   }
@@ -386,18 +400,39 @@ class StalkerClient {
   // Mirrors SAPI::STBGetProfile() + stb.c sc_stb_get_profile_defaults()
   async stbGetProfile(authSecondStep = false) {
     const id = this.identity;
+    const sn  = id.serial_number || '0000000000000';
+    const uid = id.device_id || id.device_id2 || '';
+
+    // metrics JSON — STBemu sends mac with RAW colons inside this blob (unlike
+    // the URL-encoded mac cookie). uid mirrors device_id; random is a stable hash.
+    const metrics = JSON.stringify({
+      mac:    id.mac,
+      sn,
+      model:  'MAG250',
+      type:   'STB',
+      uid,
+      random: this.getMetricsRandom(),
+    });
+
     const params = {
       type:             'stb',
       action:           'get_profile',
-      stb_type:         'MAG250',
-      sn:               id.serial_number || '0000000000000',
+      hd:               '1',
       ver:              STB_VERSION_STRING,
+      num_banks:        '2',          // STBemu sends 2
+      sn,
+      stb_type:         'MAG250',
+      client_type:      'STB',
+      image_version:    '216',
+      video_out:        'hdmi',
+      hw_version:       '1.7-BD-00',
       not_valid_token:  id.valid_token ? '0' : '1',
       auth_second_step: authSecondStep ? '1' : '0',
-      hd:               '1',
-      num_banks:        '1',
-      image_version:    '216',
-      hw_version:       '1.7-BD-00',
+      metrics,
+      hw_version_2:     this.getHwVersion2(),
+      timestamp:        String(Math.floor(Date.now() / 1000)),
+      api_signature:    '262',
+      prehash:          this.getPrehash(),
     };
 
     if (id.device_id)  params.device_id  = id.device_id;
@@ -443,11 +478,14 @@ class StalkerClient {
   // ── ITV: create_link ──────────────────────────────────────────────────────
   async itvCreateLink(cmd) {
     return this._stalkerCall({
-      type:            'itv',
-      action:          'create_link',
+      type:                'itv',
+      action:              'create_link',
       cmd,
-      forced_storage:  'undefined',
-      disable_ad:      '0',
+      series:              '',
+      forced_storage:      '0',
+      disable_ad:          '0',
+      download:            '0',
+      force_ch_link_check: '0',
     });
   }
 

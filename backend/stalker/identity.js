@@ -23,6 +23,14 @@ function createIdentity(overrides = {}) {
     device_id2: '',
     signature: '',        // user-configured device signature (sent on first auth)
     portal_signature: '', // signature returned by the portal (used after first auth)
+    // Extra STBemu fingerprint fields (sent to mimic the MAG250 STB exactly).
+    // All optional — when blank, StalkerClient derives a stable value from
+    // mac/serial so the request *shape* still matches STBemu. Set these to the
+    // values from your real STB/STBemu profile for byte-exact mimicry.
+    adid: '',             // advertising id — cookie on every portal call
+    prehash: '',          // sent on handshake + get_profile (anti-clone hash)
+    hw_version_2: '',     // secondary hw hash sent on get_profile
+    metrics_random: '',   // "random" field inside the get_profile metrics JSON
     ...overrides,
   };
 }
@@ -31,12 +39,14 @@ function createIdentity(overrides = {}) {
  * Default STB version string sent in get_profile requests.
  * Mirrors the hardcoded string in stb.c > sc_stb_get_profile_defaults().
  */
+// Matches the `ver` parameter STBemu (MAG250 profile) sends in get_profile,
+// captured from a live STBemu session.
 const STB_VERSION_STRING =
-  'ImageDescription: 0.2.16-250; ' +
-  'ImageDate: 18 Mar 2013 19:56:53 GMT+0200; ' +
-  'PORTAL version: 4.9.9; ' +
-  'API Version: JS API version: 328; ' +
-  'STB API version: 134; ' +
-  'Player Engine version: 0x566';
+  'ImageDescription: 0.2.16-234; ' +
+  'ImageDate: Fri Jan 15 15:20:44 EET 2016; ' +
+  'PORTAL version: 5.6.1; ' +
+  'API Version: JS API version: 343; ' +
+  'STB API version: 146; ' +
+  'Player Engine version: 0x588';
 
 module.exports = { createIdentity, STB_VERSION_STRING };

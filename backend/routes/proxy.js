@@ -409,6 +409,9 @@ module.exports = function proxyModule(appState) {
     const { client } = appState;
     const http = client.getHttpClient();
     const headers = getHeadersForUrl(realUrl);
+    // STBemu requests media segments with Accept-Encoding: identity (it only
+    // uses gzip for the playlists). Match that exactly for .ts/.aac/.m4s fetches.
+    headers['Accept-Encoding'] = 'identity';
 
     let response;
     try {
