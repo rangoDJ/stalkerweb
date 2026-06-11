@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X, Image } from 'lucide-react'
+import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X, Image, Check } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -125,6 +125,8 @@ export default function ChannelsPage() {
   const [logoChannel, setLogoChannel] = useState(null)
   const [logoUrl, setLogoUrl]         = useState('')
   const [logoSaving, setLogoSaving]   = useState(false)
+  const [logoSearch, setLogoSearch]   = useState('')
+  const [logoResult, setLogoResult]   = useState(null)
 
   // Channel number jump
   const [jumpDigits, setJumpDigits]   = useState('')
@@ -247,9 +249,24 @@ export default function ChannelsPage() {
       const map = await getLogoMap()
       setLogoMap(map)
       setLogoChannel(null)
-      setLogoUrl('')
+      setLogoUrl(''); setLogoSearch(''); setLogoResult(null)
     } catch { /* best effort */ }
     setLogoSaving(false)
+  }
+
+  const logoSearchTimer = useRef(null)
+  function onLogoSearchChange(val) {
+    setLogoSearch(val)
+    setLogoResult(null)
+    clearTimeout(logoSearchTimer.current)
+    if (!val.trim()) return
+    logoSearchTimer.current = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/logos/check?name=${encodeURIComponent(val.trim())}`)
+        const data = await r.json()
+        setLogoResult(data)
+      } catch { /* ignore */ }
+    }, 400)
   }
 
   const filtered = useMemo(() => {
@@ -304,7 +321,6 @@ export default function ChannelsPage() {
                 activeGroup === String(g.id) ? 'bg-[var(--color-primary)] text-white ring-2 ring-[var(--color-primary)] ring-offset-2 ring-offset-[var(--color-bg)]' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
             >{g.name}</button>
           ))}
-        </div>
       </div>
 
       {/* Content */}
@@ -326,7 +342,7 @@ export default function ChannelsPage() {
                     isFavorite={favoriteIds.has(String(r.uniqueId))}
                     onToggleFavorite={ch => toggleFavorite(ch)}
                     onClick={openChannel}
-                    onSetLogo={ch => { setLogoChannel(ch); setLogoUrl('') }}
+                    onSetLogo={ch => { setLogoChannel(ch); setLogoUrl(''); setLogoSearch(ch.name); setLogoResult(null) }}
                     compact
                   />
                   <button
@@ -391,45 +407,79 @@ export default function ChannelsPage() {
                 isFavorite={favoriteIds.has(String(ch.uniqueId))}
                 onToggleFavorite={toggleFavorite}
                 onClick={openChannel}
-                onSetLogo={ch => { setLogoChannel(ch); setLogoUrl('') }}
+                onSetLogo={ch => { setLogoChannel(ch); setLogoUrl(''); setLogoSearch(ch.name); setLogoResult(null) }}
                 nowNext={nowNext[String(ch.uniqueId)]}
               />
             ))}
           </div>
         )}
+      </div>
 
-        {/* Logo assignment modal */}
-        {logoChannel && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLogoChannel(null)}>
-            <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl w-full max-w-md mx-4 p-5" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between mb-4">
-                <h3 className="text-sm font-semibold text-[var(--color-text)]">Set Logo — {logoChannel.name}</h3>
-                <button onClick={() => setLogoChannel(null)} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">
-                  <X size={16} />
-                </button>
-              </div>
-              <p className="text-xs text-[var(--color-muted)] mb-3">Paste a direct URL to the channel logo image (png, jpg, svg…)</p>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="https://example.com/logo.png"
-                  value={logoUrl}
-                  onChange={e => setLogoUrl(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSaveLogo() }}
-                  className="text-xs flex-1"
-                  autoFocus
-                />
-                <Button
-                  onClick={handleSaveLogo}
-                  disabled={!logoUrl.trim() || logoSaving}
-                  className="shrink-0 h-9 px-4 text-xs"
-                >
-                  {logoSaving ? <RefreshCw size={14} className="animate-spin" /> : 'Save'}
-                </Button>
-              </div>
+      {/* Logo assignment modal */}
+      {logoChannel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLogoChannel(null)}>
+          <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl w-full max-w-sm mx-4 p-5" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-[var(--color-text)]">Set Logo — {logoChannel.name}</h3>
+              <button onClick={() => setLogoChannel(null)} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Search by channel name */}
+            <div className="mb-3">
+              <p className="text-xs text-[var(--color-muted)] mb-1.5">Search by channel name</p>
+              <Input
+                placeholder={logoChannel.name}
+                value={logoSearch}
+                onChange={e => onLogoSearchChange(e.target.value)}
+                className="text-xs"
+                autoFocus
+              />
+            </div>
+
+            {/* Resolved logo from iptv-org */}
+            {logoResult?.logo && (
+              <button
+                type="button"
+                onClick={() => setLogoUrl(logoResult.logo)}
+                className={cn(
+                  'w-full flex items-center gap-3 p-2.5 rounded-lg border text-left transition-all mb-3',
+                  logoUrl === logoResult.logo
+                    ? 'border-[var(--color-primary)] bg-[var(--color-primary)]/10'
+                    : 'border-[var(--color-border)] hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)]'
+                )}
+              >
+                <img src={logoResult.logo} alt="" className="h-10 w-10 rounded object-contain bg-[var(--color-surface-2)] p-1" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-[var(--color-text)] truncate">{logoResult.name}</p>
+                  <p className="text-[10px] text-[var(--color-muted)] truncate">{logoResult.logo}</p>
+                </div>
+                {logoUrl === logoResult.logo && <Check size={14} className="text-[var(--color-primary)] shrink-0" />}
+              </button>
+            )}
+
+            {/* Manual URL input */}
+            <div className="flex gap-2">
+              <Input
+                placeholder="Or paste a logo URL"
+                value={logoUrl}
+                onChange={e => setLogoUrl(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveLogo() }}
+                className="text-xs flex-1"
+              />
+              <Button
+                onClick={handleSaveLogo}
+                disabled={!logoUrl.trim() || logoSaving}
+                className="shrink-0 h-9 px-4 text-xs"
+              >
+                {logoSaving ? <RefreshCw size={14} className="animate-spin" /> : 'Save'}
+              </Button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
+
     </div>
   )
 }
