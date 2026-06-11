@@ -77,7 +77,7 @@ module.exports = function exportModule(config) {
       device_id:       pick(body.device_id,       saved.device_id),
       device_id2:      pick(body.device_id2,      saved.device_id2),
       signature:       pick(body.signature,       saved.signature),
-      profile_name:    pick(body.stbemu_profile_name, saved.stbemu_profile_name),
+      profile_name:    pick(body.stbemu_profile_name || body.name, saved.stbemu_profile_name),
       stb_model:       pick(body.stb_model,       saved.stbemu_stb_model),
       firmware:        pick(body.firmware,        saved.stbemu_firmware),
       custom_firmware: pick(body.custom_firmware, saved.stbemu_custom_firmware),
