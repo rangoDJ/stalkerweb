@@ -542,9 +542,19 @@ private fun ExoPlayerSurface(player: Player?, modifier: Modifier) {
 private fun CastButton(castManager: com.stalkerweb.android.cast.CastManager) {
     AndroidView(
         factory = { ctx ->
-            MediaRouteButton(ctx).also { btn ->
-                runCatching { CastButtonFactory.setUpMediaRouteButton(ctx, btn) }
-            }
+            // MediaRouteButton's constructor requires a Theme.AppCompat-descendant
+            // context; the app's host theme is a framework Material theme, so it
+            // would throw and crash the player on open. Wrap ctx in an AppCompat
+            // theme, and guard the whole creation so any Cast/theme failure falls
+            // back to an empty view instead of crashing.
+            runCatching {
+                val themed = android.view.ContextThemeWrapper(
+                    ctx, androidx.appcompat.R.style.Theme_AppCompat_DayNight,
+                )
+                MediaRouteButton(themed).also { btn ->
+                    CastButtonFactory.setUpMediaRouteButton(themed, btn)
+                }
+            }.getOrElse { android.view.View(ctx) }
         },
         modifier = Modifier
             .size(44.dp)
