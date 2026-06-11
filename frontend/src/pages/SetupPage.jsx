@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle,
@@ -349,6 +349,9 @@ export default function SetupPage() {
   const [testResult, setTestResult]   = useState(null)
   const [deviceProfile, setDeviceProfile] = useState(null)
   const [unmatchedChannels, setUnmatchedChannels] = useState([])
+  const [logoSearchOpen, setLogoSearchOpen]       = useState(false)
+  const [logoSearchQuery, setLogoSearchQuery]     = useState('')
+  const logoSearchRef = useRef(null)
   const [stripWords, setStripWords]       = useState([])
   const [newStripWord, setNewStripWord]   = useState('')
   const [stripApplying, setStripApplying] = useState(false)
@@ -420,10 +423,19 @@ export default function SetupPage() {
     if (!connected) return
     Promise.all([getChannels(), getLogoMap()]).then(([chRes, logoMap]) => {
       const channels   = chRes.channels ?? []
-      const unmatched  = channels.filter(ch => !logoMap[String(ch.uniqueId)]).map(ch => ch.name).filter(Boolean).sort((a, b) => a.localeCompare(b))
+      const unmatched  = channels.filter(ch => !logoMap[String(ch.uniqueId)]).map(ch => ({ name: ch.name, number: ch.number })).filter(ch => ch.name).sort((a, b) => a.number - b.number)
       setUnmatchedChannels(unmatched)
     }).catch(() => {})
   }, [connected])
+
+  useEffect(() => {
+    if (!logoSearchOpen) return
+    const handleClickOutside = e => {
+      if (logoSearchRef.current && !logoSearchRef.current.contains(e.target)) setLogoSearchOpen(false)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [logoSearchOpen])
 
   // ── Profile CRUD ─────────────────────────────────────────────────────────
   function handleSaveProfile(form) {
@@ -549,7 +561,7 @@ export default function SetupPage() {
     try {
       await addLogoOverride(newLogoName.trim(), newLogoUrl.trim())
       setLogoOverrides(prev => ({ ...prev, [newLogoName.trim()]: newLogoUrl.trim() }))
-      setNewLogoName(''); setNewLogoUrl('')
+      setNewLogoName(''); setNewLogoUrl(''); setLogoSearchQuery(''); setLogoSearchOpen(false)
     } catch (err) { setLogoNotice({ type: 'error', msg: err.message }) }
   }
 
@@ -904,10 +916,36 @@ export default function SetupPage() {
           <form onSubmit={handleAddOverride} className="flex flex-col gap-2">
             <p className="text-xs font-medium text-[var(--color-muted)] uppercase tracking-wide">Add Override</p>
             <div className="flex gap-2">
-              <datalist id="unmatched-channels">
-                {unmatchedChannels.map(name => <option key={name} value={name} />)}
-              </datalist>
-              <Input list="unmatched-channels" placeholder="Channel name" value={newLogoName} onChange={e => setNewLogoName(e.target.value)} className="text-xs flex-1" />
+              <div ref={logoSearchRef} className="relative flex-1">
+                <Input
+                  placeholder="Channel name or number"
+                  value={newLogoName}
+                  onChange={e => { setNewLogoName(e.target.value); setLogoSearchQuery(e.target.value); setLogoSearchOpen(true) }}
+                  onFocus={() => { setLogoSearchQuery(newLogoName); setLogoSearchOpen(true) }}
+                  className="text-xs"
+                />
+                {logoSearchOpen && logoSearchQuery.trim() && (() => {
+                  const q = logoSearchQuery.toLowerCase()
+                  const matches = unmatchedChannels.filter(ch =>
+                    ch.name.toLowerCase().includes(q) ||
+                    String(ch.number).includes(q)
+                  ).slice(0, 20)
+                  if (!matches.length) return null
+                  return (
+                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-[var(--color-card)] border border-[var(--color-border)] rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      {matches.map(ch => (
+                        <button key={ch.name} type="button"
+                          onClick={() => { setNewLogoName(ch.name); setLogoSearchOpen(false) }}
+                          className="w-full text-left px-3 py-1.5 text-xs hover:bg-[var(--color-hover)] flex items-center gap-2"
+                        >
+                          <span className="text-[var(--color-muted)] shrink-0 w-10 text-right">Ch {ch.number}</span>
+                          <span className="truncate">{ch.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
               <Input placeholder="Logo URL" value={newLogoUrl} onChange={e => setNewLogoUrl(e.target.value)} className="text-xs flex-[2]" />
               <Button type="submit" disabled={!newLogoName.trim() || !newLogoUrl.trim()} className="shrink-0 h-9 px-4 text-xs">Add</Button>
             </div>
