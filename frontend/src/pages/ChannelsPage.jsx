@@ -1,19 +1,19 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X } from 'lucide-react'
+import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X, Image } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { SkeletonGrid } from '@/components/ui/skeleton'
-import { getChannelProgress, getProxiedLogoUrl, getNowNext } from '../stalkerApi'
+import { getChannelProgress, getProxiedLogoUrl, getNowNext, addLogoOverride, getLogoMap } from '../stalkerApi'
 import { getRecentlyWatched, removeRecentlyWatched } from '@/lib/recentlyWatched'
 import { useApp } from '@/lib/appContext'
 import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 import { useFavorites } from '@/lib/useFavorites'
 
 // ── Channel card ──────────────────────────────────────────────────────────
-function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, compact, nowNext }) {
+function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, onSetLogo, compact, nowNext }) {
   const [imgError, setImgError] = useState(false)
   const logo = logoUrl || getProxiedLogoUrl(channel.iconPath) || ''
 
@@ -28,10 +28,19 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
         onClick={() => onClick(channel)}
         className="group relative flex flex-col items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-2.5 text-left transition-all duration-200 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] cursor-pointer w-20 shrink-0"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
+        <div className="relative group/logo flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
           {logo && !imgError
             ? <img src={logo} alt={channel.name} loading="lazy" onError={() => setImgError(true)} className="h-full w-full object-contain p-0.5" />
             : <Tv2 size={18} className="text-[var(--color-muted)]" />}
+          {onSetLogo && (
+            <button
+              onClick={e => { e.stopPropagation(); onSetLogo(channel) }}
+              className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/logo:opacity-100 transition-opacity"
+              aria-label="Set logo"
+            >
+              <Image size={12} className="text-white" />
+            </button>
+          )}
         </div>
         <p className="text-[10px] font-medium text-[var(--color-text)] leading-tight text-center break-words line-clamp-2 w-full">{channel.name}</p>
       </button>
@@ -51,10 +60,19 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
       >
         <Heart size={14} fill={isFavorite ? 'currentColor' : 'none'} />
       </button>
-      <div className="flex h-16 w-16 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
+      <div className="relative group/logo flex h-16 w-16 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
         {logo && !imgError
           ? <img src={logo} alt={channel.name} loading="lazy" onError={() => setImgError(true)} className="h-full w-full object-contain p-1" />
           : <Tv2 size={28} className="text-[var(--color-muted)]" />}
+        {onSetLogo && (
+          <button
+            onClick={e => { e.stopPropagation(); onSetLogo(channel) }}
+            className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover/logo:opacity-100 transition-opacity"
+            aria-label="Set logo"
+          >
+            <Image size={16} className="text-white" />
+          </button>
+        )}
       </div>
       <div className="w-full text-center">
         <p className="text-xs text-[var(--color-muted)] mb-0.5">Ch {channel.number}</p>
@@ -102,6 +120,11 @@ export default function ChannelsPage() {
   const [progress, setProgress]       = useState(null) // { loading, page, totalPages, channelCount }
   const [recentlyWatched, setRecentlyWatched] = useState([])
   const [nowNext, setNowNext] = useState({})
+
+  // Logo assignment modal
+  const [logoChannel, setLogoChannel] = useState(null)
+  const [logoUrl, setLogoUrl]         = useState('')
+  const [logoSaving, setLogoSaving]   = useState(false)
 
   // Channel number jump
   const [jumpDigits, setJumpDigits]   = useState('')
@@ -216,6 +239,19 @@ export default function ChannelsPage() {
     setRecentlyWatched(prev => prev.filter(c => String(c.uniqueId) !== String(uniqueId)))
   }
 
+  async function handleSaveLogo() {
+    if (!logoChannel || !logoUrl.trim()) return
+    setLogoSaving(true)
+    try {
+      await addLogoOverride(logoChannel.name, logoUrl.trim())
+      const map = await getLogoMap()
+      setLogoMap(map)
+      setLogoChannel(null)
+      setLogoUrl('')
+    } catch { /* best effort */ }
+    setLogoSaving(false)
+  }
+
   const filtered = useMemo(() => {
     let result = channels
     if (activeGroup) result = result.filter(c => String(c.genreId ?? '') === String(activeGroup))
@@ -290,6 +326,7 @@ export default function ChannelsPage() {
                     isFavorite={favoriteIds.has(String(r.uniqueId))}
                     onToggleFavorite={ch => toggleFavorite(ch)}
                     onClick={openChannel}
+                    onSetLogo={ch => { setLogoChannel(ch); setLogoUrl('') }}
                     compact
                   />
                   <button
@@ -354,6 +391,7 @@ export default function ChannelsPage() {
                 isFavorite={favoriteIds.has(String(ch.uniqueId))}
                 onToggleFavorite={toggleFavorite}
                 onClick={openChannel}
+                onSetLogo={ch => { setLogoChannel(ch); setLogoUrl('') }}
                 nowNext={nowNext[String(ch.uniqueId)]}
               />
             ))}
@@ -361,5 +399,37 @@ export default function ChannelsPage() {
         )}
       </div>
     </div>
+
+    {/* Logo assignment modal */}
+    {logoChannel && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setLogoChannel(null)}>
+        <div className="bg-[var(--color-card)] border border-[var(--color-border)] rounded-xl shadow-xl w-full max-w-md mx-4 p-5" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-[var(--color-text)]">Set Logo — {logoChannel.name}</h3>
+            <button onClick={() => setLogoChannel(null)} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">
+              <X size={16} />
+            </button>
+          </div>
+          <p className="text-xs text-[var(--color-muted)] mb-3">Paste a direct URL to the channel logo image (png, jpg, svg…)</p>
+          <div className="flex gap-2">
+            <Input
+              placeholder="https://example.com/logo.png"
+              value={logoUrl}
+              onChange={e => setLogoUrl(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') handleSaveLogo() }}
+              className="text-xs flex-1"
+              autoFocus
+            />
+            <Button
+              onClick={handleSaveLogo}
+              disabled={!logoUrl.trim() || logoSaving}
+              className="shrink-0 h-9 px-4 text-xs"
+            >
+              {logoSaving ? <RefreshCw size={14} className="animate-spin" /> : 'Save'}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )}
   )
 }
