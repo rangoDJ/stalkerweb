@@ -356,10 +356,8 @@ export default function SetupPage() {
   const [genresLoading, setGenresLoading] = useState(false)
 
   // STBEmu export — the user picks ANY profile to export (connected or not).
-  // Model/firmware/device come from the chosen profile; the name is editable.
+  // Model/firmware/device come from the chosen profile.
   const [exportProfileId, setExportProfileId] = useState('')
-  const [stbEmuProfileName, setStbEmuProfileName] = useState('')
-  const [stbEmuSaving, setStbEmuSaving] = useState(false)
   const [stbEmuExporting, setStbEmuExporting] = useState(false)
   const [stbEmuNotice, setStbEmuNotice]   = useState(null)
 
@@ -593,12 +591,6 @@ export default function SetupPage() {
   function handleDisableAllGenres() {
     persistGenres(new Set(allGenres.map(g => g.name)))
   }
-  async function handleStbEmuSave(e) {
-    e.preventDefault(); setStbEmuSaving(true); setStbEmuNotice(null)
-    try { await saveSettings({ stbemu_profile_name: stbEmuProfileName }); setStbEmuNotice({ type: 'success', msg: 'Settings saved.' }) }
-    catch (err) { setStbEmuNotice({ type: 'error', msg: err.message }) }
-    finally { setStbEmuSaving(false) }
-  }
   async function handleStbEmuExport() {
     setStbEmuExporting(true); setStbEmuNotice(null)
     try {
@@ -753,8 +745,8 @@ export default function SetupPage() {
         </Card>
 
         {/* ── STBEmu Export ────────────────────────────────────────────────── */}
-        <Card title="STBEmu Export" description="Generate an STBEmu-compatible backup file you can restore directly in the app. Pick which profile to export — the STB model & firmware come from that profile's Advanced options.">
-          <form onSubmit={handleStbEmuSave} className="flex flex-col gap-4">
+        <Card title="STBEmu Export" description="Generate an STBEmu-compatible backup file you can restore directly in the app. Pick which profile to export — the STB model, firmware, and profile name come from that profile.">
+          <div className="flex flex-col gap-4">
             {stbEmuNotice && (
               <div className={cn('flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs',
                 stbEmuNotice.type === 'success'
@@ -765,14 +757,9 @@ export default function SetupPage() {
                 {stbEmuNotice.msg}
               </div>
             )}
-            <Field label="Profile to Export" id="stb-export-profile" hint="Select which profile to export. The STB model, firmware, and connection details come from the chosen profile.">
+            <Field label="Profile to Export" id="stb-export-profile" hint="Select which profile to export. The name, STB model, firmware, and connection details come from the chosen profile.">
               <select id="stb-export-profile" value={exportProfileId}
-                onChange={e => {
-                  const id = e.target.value
-                  setExportProfileId(id)
-                  const prof = profiles.find(p => p.id === id)
-                  if (prof) setStbEmuProfileName(prof.name || '')
-                }}
+                onChange={e => setExportProfileId(e.target.value)}
                 className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]">
                 <option value="">Current / Connected Config</option>
                 {profiles.map(p => (
@@ -782,20 +769,13 @@ export default function SetupPage() {
                 ))}
               </select>
             </Field>
-            <Field label="Profile Name" id="stb-prof-name" hint="Display name shown inside STBEmu for the restored profile.">
-              <Input id="stb-prof-name" placeholder="My IPTV Profile" value={stbEmuProfileName}
-                onChange={e => setStbEmuProfileName(e.target.value)} />
-            </Field>
             <div className="flex items-center gap-3 pt-1">
-              <Button type="submit" variant="outline" disabled={stbEmuSaving} className="h-9 px-4 text-sm">
-                {stbEmuSaving ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
-              </Button>
               <Button type="button" onClick={handleStbEmuExport} disabled={stbEmuExporting} className="h-9 px-4 text-sm gap-2">
                 {stbEmuExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                 Download Backup
               </Button>
             </div>
-          </form>
+          </div>
         </Card>
 
         {/* ── Logo Strip Words ─────────────────────────────────────────────── */}
