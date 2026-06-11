@@ -105,7 +105,6 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.androidx.mediarouter)
-    implementation(libs.androidx.appcompat)   // for MediaRouteButton's AppCompat-themed context
     implementation(libs.cast.framework)
 
     debugImplementation(libs.androidx.compose.ui.tooling)

@@ -14,7 +14,6 @@ coil = "2.7.0"
 coroutines = "1.9.0"
 mediarouter = "1.7.0"
 castFramework = "21.5.0"
-appcompat = "1.6.1"
 
 [libraries]
 androidx-core-ktx              = { group = "androidx.core",              name = "core-ktx",                      version.ref = "coreKtx" }
@@ -41,7 +40,6 @@ moshi-kotlin                   = { group = "com.squareup.moshi",         name = 
 coil-compose                   = { group = "io.coil-kt",                 name = "coil-compose",                  version.ref = "coil" }
 kotlinx-coroutines-android     = { group = "org.jetbrains.kotlinx",      name = "kotlinx-coroutines-android",    version.ref = "coroutines" }
 androidx-mediarouter           = { group = "androidx.mediarouter",       name = "mediarouter",                   version.ref = "mediarouter" }
-androidx-appcompat             = { group = "androidx.appcompat",         name = "appcompat",                     version.ref = "appcompat" }
 cast-framework                 = { group = "com.google.android.gms",     name = "play-services-cast-framework",  version.ref = "castFramework" }
 
 [plugins]
