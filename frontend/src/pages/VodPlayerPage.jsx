@@ -27,6 +27,8 @@ export default function VodPlayerPage() {
   const cmd          = searchParams.get('cmd') || ''
   const title        = searchParams.get('title') || 'Untitled'
   const seriesNo     = parseInt(searchParams.get('series') || '0', 10)
+  const seasonId     = searchParams.get('seasonId') || ''
+  const episodeId    = searchParams.get('episodeId') || ''
   const episodeTitle = searchParams.get('episodeTitle') || ''
 
   const displayTitle = episodeTitle ? `${title} · ${episodeTitle}` : title
@@ -59,7 +61,7 @@ export default function VodPlayerPage() {
     setStatus('loading')
     setErrorMsg('')
 
-    getVodStreamUrl({ videoId, cmd, series: seriesNo })
+    getVodStreamUrl({ videoId, cmd, series: seriesNo, seasonId, episodeId })
       .then(({ streamUrl }) => {
         if (!cancelled) loadStreamUrl(streamUrl)
       })
@@ -68,7 +70,7 @@ export default function VodPlayerPage() {
       })
 
     return () => { cancelled = true }
-  }, [videoId, cmd, seriesNo])
+  }, [videoId, cmd, seriesNo, seasonId, episodeId])
 
   function loadStreamUrl(url) {
     const video = videoRef.current

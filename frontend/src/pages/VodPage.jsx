@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, Film, Tv2, ChevronLeft, ChevronRight, Clock, X, Loader2, Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getVodCategories, getVodItems, getVodSeasons } from '../stalkerApi'
+import { getVodCategories, getVodItems, getVodSeasons, getVodEpisodes } from '../stalkerApi'
 
 // ── Thumbnail component ───────────────────────────────────────────────────
 function Thumb({ src, name, isHD }) {
@@ -64,21 +64,32 @@ function VodCard({ item, onClick }) {
 }
 
 // ── Seasons / Episodes sheet ──────────────────────────────────────────────
+// TV-show drill-down: show → seasons → episodes. Selecting a season fetches its
+// episodes; selecting an episode resolves and plays it (passing season/episode
+// ids so the backend can drill to the concrete file).
 function SeasonsSheet({ item, onClose, onPlayEpisode }) {
   const [seasons, setSeasons] = useState(null)
   const [selectedSeason, setSelectedSeason] = useState(null)
+  const [episodes, setEpisodes] = useState(null)
+  const [epLoading, setEpLoading] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
   useEffect(() => {
     setLoading(true)
     getVodSeasons(item.id)
-      .then(r => {
-        setSeasons(r.seasons || [])
-        setLoading(false)
-      })
+      .then(r => { setSeasons(r.seasons || []); setLoading(false) })
       .catch(e => { setError(e.message); setLoading(false) })
   }, [item.id])
+
+  function openSeason(season) {
+    setSelectedSeason(season)
+    setEpisodes(null)
+    setEpLoading(true)
+    getVodEpisodes(item.id, season.id)
+      .then(r => { setEpisodes(r.episodes || []); setEpLoading(false) })
+      .catch(e => { setError(e.message); setEpLoading(false) })
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -88,7 +99,7 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)]">
           {selectedSeason && (
-            <button onClick={() => setSelectedSeason(null)} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">
+            <button onClick={() => { setSelectedSeason(null); setEpisodes(null) }} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">
               <ChevronLeft size={18} />
             </button>
           )}
@@ -118,7 +129,7 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
                 {seasons.map((season, i) => (
                   <li key={season.id || i}>
                     <button
-                      onClick={() => setSelectedSeason(season)}
+                      onClick={() => openSeason(season)}
                       className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--color-surface-2)] transition-colors"
                     >
                       <div className="w-10 h-10 rounded bg-[var(--color-surface-2)] shrink-0 overflow-hidden">
@@ -132,7 +143,6 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-[var(--color-text)] truncate">{season.name}</p>
-                        <p className="text-xs text-[var(--color-muted)]">{season.episodes?.length || 0} episodes</p>
                       </div>
                       <ChevronRight size={16} className="text-[var(--color-muted)] shrink-0" />
                     </button>
@@ -140,13 +150,18 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
                 ))}
               </ul>
             ) : (
-              // No seasons returned — the item itself is a season with episodes
-              <EpisodeList item={item} onPlay={(ep) => onPlayEpisode(item, ep)} />
+              <p className="px-4 py-6 text-sm text-[var(--color-muted)] text-center">No seasons found.</p>
             )
           )}
 
           {!loading && !error && selectedSeason && (
-            <EpisodeList item={selectedSeason} onPlay={(ep) => onPlayEpisode(selectedSeason, ep)} />
+            epLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <Loader2 size={24} className="animate-spin text-[var(--color-primary-light)]" />
+              </div>
+            ) : (
+              <EpisodeList episodes={episodes} onPlay={(ep) => onPlayEpisode(item, selectedSeason, ep)} />
+            )
           )}
         </div>
       </div>
@@ -154,15 +169,14 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
   )
 }
 
-function EpisodeList({ item, onPlay }) {
-  const episodes = item.episodes || []
-  if (episodes.length === 0) {
+function EpisodeList({ episodes, onPlay }) {
+  if (!episodes || episodes.length === 0) {
     return <p className="px-4 py-6 text-sm text-[var(--color-muted)] text-center">No episodes found.</p>
   }
   return (
     <ul>
       {episodes.map((ep) => (
-        <li key={ep}>
+        <li key={ep.episodeId}>
           <button
             onClick={() => onPlay(ep)}
             className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--color-surface-2)] transition-colors group"
@@ -171,7 +185,7 @@ function EpisodeList({ item, onPlay }) {
               <Play size={14} className="text-[var(--color-muted)] group-hover:text-[var(--color-primary-light)] transition-colors" fill="currentColor" />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-sm text-[var(--color-text)]">Episode {ep}</p>
+              <p className="text-sm text-[var(--color-text)] truncate">{ep.name || `Episode ${ep.seriesNumber}`}</p>
             </div>
           </button>
         </li>
@@ -180,14 +194,18 @@ function EpisodeList({ item, onPlay }) {
   )
 }
 
-// Build URLSearchParams for the VOD player, including metadata for the sidebar
-function buildPlayerParams(item, seriesNo, episodeTitle) {
+// Build URLSearchParams for the VOD player, including metadata for the sidebar.
+// extra: { seriesNo, episodeTitle, seasonId, episodeId } for TV-show episodes.
+function buildPlayerParams(item, extra = {}) {
+  const { seriesNo = 0, episodeTitle = '', seasonId = '', episodeId = '' } = extra
   const p = new URLSearchParams({
     videoId: item.id,
     title:   item.name,
     cmd:     item.cmd || '',
     series:  String(seriesNo),
   })
+  if (seasonId)          p.set('seasonId', String(seasonId))
+  if (episodeId)         p.set('episodeId', String(episodeId))
   if (episodeTitle)      p.set('episodeTitle', episodeTitle)
   if (item.year)         p.set('year', item.year)
   if (item.durationMin)  p.set('durationMin', String(item.durationMin))
@@ -282,17 +300,23 @@ export default function VodPage() {
   }
 
   function handleItemClick(item) {
-    const hasSeries = item.episodes?.length > 0
+    const hasSeries = item.isSeries || item.episodes?.length > 0
     if (hasSeries) {
       setSeriesSheet(item)
     } else {
-      navigate(`/vod-player?${buildPlayerParams(item, 0, '')}`)
+      navigate(`/vod-player?${buildPlayerParams(item)}`)
     }
   }
 
-  function handlePlayEpisode(item, episodeNo) {
+  // show: the show item; season: { id, name }; ep: { episodeId, seriesNumber, name }
+  function handlePlayEpisode(show, season, ep) {
     setSeriesSheet(null)
-    navigate(`/vod-player?${buildPlayerParams(item, episodeNo, `Episode ${episodeNo}`)}`)
+    navigate(`/vod-player?${buildPlayerParams(show, {
+      seriesNo:     ep.seriesNumber,
+      seasonId:     season.id,
+      episodeId:    ep.episodeId,
+      episodeTitle: ep.name || `Episode ${ep.seriesNumber}`,
+    })}`)
   }
 
   return (

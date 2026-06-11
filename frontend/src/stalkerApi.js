@@ -146,13 +146,18 @@ export const getVodItems = ({ type = 'vod', category, page = 1, search = '', fav
   return _get(`/vod/items?${p}`)
 }
 
-export const getVodSeasons = (movieId) =>
-  _get(`/vod/seasons/${movieId}`)
+export const getVodSeasons = (showId) =>
+  _get(`/vod/seasons/${showId}`)
 
-export const getVodStreamUrl = ({ videoId, cmd = '', series = 0 }) => {
+export const getVodEpisodes = (showId, seasonId) =>
+  _get(`/vod/episodes/${showId}/${seasonId}`)
+
+export const getVodStreamUrl = ({ videoId, cmd = '', series = 0, seasonId = '', episodeId = '' }) => {
   const p = new URLSearchParams({ videoId: String(videoId) })
-  if (cmd)    p.set('cmd', cmd)
-  if (series) p.set('series', String(series))
+  if (cmd)       p.set('cmd', cmd)
+  if (series)    p.set('series', String(series))
+  if (seasonId)  p.set('seasonId', String(seasonId))
+  if (episodeId) p.set('episodeId', String(episodeId))
   return _get(`/vod/stream?${p}`)
 }
 

@@ -72,18 +72,79 @@ class VodManager {
     };
   }
 
-  // ── Seasons ────────────────────────────────────────────────────────────────
+  // ── Seasons / Episodes (TV-show drill-down) ─────────────────────────────────
+  //
+  // A TV show needs a 3-level walk, all via get_ordered_list?type=vod (captured
+  // from STBemu):
+  //   show:    movie_id=<showId> season_id=0  episode_id=0   → seasons
+  //   season:  movie_id=<showId> season_id=<s> episode_id=0  → episodes
+  //   episode: movie_id=<showId> season_id=<s> episode_id=<e>→ the file record
+  // create_link then uses /media/file_<fileId>.mpg with series=<series_number>.
 
-  async getSeasons(movieId) {
+  async getSeasons(showId) {
     const r = await this.client._stalkerCall({
-      type:     'series',
-      action:   'get_ordered_list',
-      movie_id: String(movieId),
-      sortby:   'added',
-      p:        '1',
+      type:       'vod',
+      action:     'get_ordered_list',
+      movie_id:   String(showId),
+      season_id:  '0',
+      episode_id: '0',
+      sortby:     'added',
+      p:          '1',
     });
     const data = Array.isArray(r?.js?.data) ? r.js.data : [];
-    return data.map(s => this._normalizeItem(s));
+    return data.map(s => ({
+      id:            String(s.id),
+      name:          s.season_name || s.name || s.o_name || `Season ${s.season_number || s.id}`,
+      seasonNumber:  s.season_number != null ? String(s.season_number) : '',
+      screenshotUri: s.screenshot_uri || null,
+    }));
+  }
+
+  async getEpisodes(showId, seasonId) {
+    const r = await this.client._stalkerCall({
+      type:       'vod',
+      action:     'get_ordered_list',
+      movie_id:   String(showId),
+      season_id:  String(seasonId),
+      episode_id: '0',
+      sortby:     'added',
+      p:          '1',
+    });
+    const data = Array.isArray(r?.js?.data) ? r.js.data : [];
+    return data.map(e => ({
+      episodeId:     String(e.id),
+      seriesNumber:  e.series_number != null ? String(e.series_number) : '',
+      name:          e.series_name || e.name || `Episode ${e.series_number || e.id}`,
+      screenshotUri: e.screenshot_uri || null,
+    }));
+  }
+
+  // Resolve a specific episode's concrete file record (id + direct url) via the
+  // episode_id drill-down. This file id is what create_link needs.
+  async _getEpisodeFile(showId, seasonId, episodeId) {
+    try {
+      const r = await this.client._stalkerCall({
+        type:       'vod',
+        action:     'get_ordered_list',
+        movie_id:   String(showId),
+        season_id:  String(seasonId || '0'),
+        episode_id: String(episodeId),
+        sortby:     'added',
+        p:          '1',
+      });
+      const data = Array.isArray(r?.js?.data) ? r.js.data : [];
+      if (!data.length) return null;
+      const entry  = data[0];
+      const fileId = entry?.id != null ? String(entry.id).trim() : '';
+      log.debug(TAG, `episode_id=${episodeId} → fileId=${fileId} protocol=${entry?.protocol || ''}`);
+      return {
+        fileId,
+        url: this._extractUrl(entry?.url) || this._extractUrl(entry?.cmd),
+      };
+    } catch (e) {
+      log.warn(TAG, `episode file lookup (episode_id=${episodeId}) failed: ${e.message}`);
+      return null;
+    }
   }
 
   // ── File record lookup ─────────────────────────────────────────────────────
@@ -161,31 +222,36 @@ class VodManager {
   // Cached briefly: repeated calls for the same title (player reload, seek,
   // hls.js error-recovery) reuse the resolved URL instead of re-resolving
   // through the slow portal and risking the nothing_to_play fallback.
-  async getStreamUrl(videoId, cmd, series = 0) {
-    const key = `${videoId}:${parseInt(series, 10) || 0}`;
+  // opts: { seasonId, episodeId } for TV-show episodes. For movies, omit them.
+  async getStreamUrl(videoId, cmd, series = 0, opts = {}) {
+    const { seasonId = '', episodeId = '' } = opts;
+    const key = `${videoId}:${parseInt(series, 10) || 0}:${episodeId || ''}`;
     const hit = this._linkCache.get(key);
     if (hit && Date.now() - hit.ts < VOD_LINK_TTL_MS) {
       log.debug(TAG, `VOD link cache hit for ${key}`);
       return hit.url;
     }
-    const url = await this._resolveStreamUrl(videoId, cmd, series);
+    const url = await this._resolveStreamUrl(videoId, cmd, series, { seasonId, episodeId });
     this._linkCache.set(key, { url, ts: Date.now() });
     return url;
   }
 
-  async _resolveStreamUrl(videoId, cmd, series = 0) {
-    // Only a real episode number is sent as `series`. For a movie this must be
-    // omitted entirely — sending series=0 makes Ministra portals look for
+  async _resolveStreamUrl(videoId, cmd, series = 0, opts = {}) {
+    const { seasonId = '', episodeId = '' } = opts;
+    // For a TV-show episode, `series` is the episode's series_number. For a movie
+    // it must be omitted entirely — series=0 makes Ministra portals look for
     // "episode 0" of a series and answer nothing_to_play (STBemu omits it too).
     const seriesNum = parseInt(series, 10) || 0;
     const seriesParam = seriesNum > 0 ? { series: String(seriesNum) } : {};
 
-    // Resolve the movie's concrete file record the way STBemu does: fetch
-    // get_ordered_list?movie_id=<id>, whose js.data[] carries the FILE id
-    // (distinct from the video id) and often a direct stream url. create_link
-    // needs /media/file_<fileId>.mpg — the /media/<videoId>.mpg form the
-    // listing advertises returns nothing_to_play on Ministra portals.
-    const fileInfo = await this._getMovieFile(videoId, seriesNum);
+    // Resolve the concrete file record the way STBemu does. For an episode this
+    // is the episode_id drill-down; for a movie it's the movie_id lookup. Both
+    // yield the FILE id (distinct from the video id) that create_link needs as
+    // /media/file_<fileId>.mpg — the /media/<videoId>.mpg form the listing
+    // advertises returns nothing_to_play on Ministra portals.
+    const fileInfo = episodeId
+      ? await this._getEpisodeFile(videoId, seasonId, episodeId)
+      : await this._getMovieFile(videoId, seriesNum);
 
     // Build candidate cmd strings for create_link, most likely to work first.
     const candidates = [];
@@ -387,6 +453,7 @@ class VodManager {
       durationMin: parseInt(item.time || '0', 10) || 0,
       isHD:        !!item.hd,
       isFav:       !!(item.fav),
+      isSeries:    !!Number(item.is_series),
       episodes:    Array.isArray(item.series) ? item.series : [],
       screenshotUri: item.screenshot_uri || null,
       cmd:          item.cmd || item.path || '',
