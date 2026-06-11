@@ -17,8 +17,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -41,6 +43,10 @@ import com.stalkerweb.android.ui.player.PlayerScreen
 import com.stalkerweb.android.ui.theme.StalkerTheme
 import com.stalkerweb.android.ui.update.UpdateDialog
 import com.stalkerweb.android.ui.update.UpdateViewModel
+import com.stalkerweb.android.ui.vod.VodPlayerScreen
+import com.stalkerweb.android.ui.vod.VodPlayerViewModel
+import com.stalkerweb.android.ui.vod.VodScreen
+import com.stalkerweb.android.ui.vod.VodViewModel
 import java.io.File
 
 class MainActivity : ComponentActivity() {
@@ -125,10 +131,31 @@ class MainActivity : ComponentActivity() {
                             UpdateViewModel(updateManager) as T
                     }
                 }
+                val vodVmFactory = remember {
+                    object : ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                            VodViewModel(repository) as T
+                    }
+                }
+                val vodPlayerVmFactory = remember {
+                    object : ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                            VodPlayerViewModel(application, repository) as T
+                    }
+                }
 
                 val channelViewModel: ChannelViewModel = viewModel<ChannelViewModel>(factory = channelVmFactory).also { this@MainActivity.channelViewModel = it }
                 val playerViewModel:  PlayerViewModel  = viewModel<PlayerViewModel>(factory = playerVmFactory)
                 val updateViewModel:  UpdateViewModel  = viewModel<UpdateViewModel>(factory = updateVmFactory)
+                val vodViewModel:     VodViewModel     = viewModel<VodViewModel>(factory = vodVmFactory)
+
+                // Whether the VOD section is enabled (controlled from the web Profiles page).
+                var vodEnabled by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    runCatching { repository.isVodEnabled() }.onSuccess { vodEnabled = it }
+                }
 
                 // Collect install events from the ViewModel and handle them here
                 // where we have a real Activity context and the result launcher.
@@ -161,6 +188,57 @@ class MainActivity : ComponentActivity() {
                             onSelectChannel = { channel ->
                                 navController.navigate(Screen.Player.go(channel.uniqueId, channel.name))
                             },
+                            vodEnabled      = vodEnabled,
+                            onOpenVod       = { navController.navigate(Screen.Vod.route) },
+                        )
+                    }
+
+                    composable(Screen.Vod.route) {
+                        VodScreen(
+                            viewModel   = vodViewModel,
+                            onBack      = { navController.popBackStack() },
+                            onPlayMovie = { item ->
+                                navController.navigate(
+                                    Screen.VodPlayer.go(videoId = item.id, cmd = item.cmd, title = item.name)
+                                )
+                            },
+                            onPlayEpisode = { show, season, episodeId, seriesNumber, title ->
+                                navController.navigate(
+                                    Screen.VodPlayer.go(
+                                        videoId   = show.id,
+                                        series    = seriesNumber,
+                                        seasonId  = season.id,
+                                        episodeId = episodeId,
+                                        title     = "${show.name} · $title",
+                                    )
+                                )
+                            },
+                        )
+                    }
+
+                    composable(
+                        route = Screen.VodPlayer.route,
+                        arguments = listOf(
+                            navArgument("videoId")   { type = NavType.StringType; defaultValue = "" },
+                            navArgument("cmd")       { type = NavType.StringType; defaultValue = "" },
+                            navArgument("series")    { type = NavType.StringType; defaultValue = "" },
+                            navArgument("seasonId")  { type = NavType.StringType; defaultValue = "" },
+                            navArgument("episodeId") { type = NavType.StringType; defaultValue = "" },
+                            navArgument("title")     { type = NavType.StringType; defaultValue = "" },
+                        ),
+                    ) { backStack ->
+                        val a = backStack.arguments
+                        // Scoped to this destination so each opened video gets a fresh VM.
+                        val vodPlayerViewModel: VodPlayerViewModel = viewModel(factory = vodPlayerVmFactory)
+                        VodPlayerScreen(
+                            videoId   = a?.getString("videoId") ?: "",
+                            cmd       = a?.getString("cmd") ?: "",
+                            series    = a?.getString("series") ?: "",
+                            seasonId  = a?.getString("seasonId") ?: "",
+                            episodeId = a?.getString("episodeId") ?: "",
+                            title     = a?.getString("title") ?: "",
+                            viewModel = vodPlayerViewModel,
+                            onBack    = { navController.popBackStack() },
                         )
                     }
 

@@ -6,6 +6,10 @@ import com.stalkerweb.android.data.api.Group
 import com.stalkerweb.android.data.api.NowNextEntry
 import com.stalkerweb.android.data.api.StalkerApi
 import com.stalkerweb.android.data.api.StatusResponse
+import com.stalkerweb.android.data.api.VodCategory
+import com.stalkerweb.android.data.api.VodEpisode
+import com.stalkerweb.android.data.api.VodItemsResponse
+import com.stalkerweb.android.data.api.VodSeason
 import com.stalkerweb.android.data.prefs.AppPrefs
 import com.stalkerweb.android.data.prefs.WatchedChannel
 
@@ -74,6 +78,40 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     suspend fun getNowNext(): Map<String, NowNextEntry> =
         runCatching { requireApi().getNowNext() }.getOrDefault(emptyMap())
+
+    // ── Settings ──────────────────────────────────────────────────────────────
+
+    /** Whether the VOD section should be shown (controlled from the web Profiles page). */
+    suspend fun isVodEnabled(): Boolean =
+        runCatching { requireApi().getSettings().vodEnabled }.getOrDefault(false)
+
+    // ── VOD ─────────────────────────────────────────────────────────────────────
+
+    suspend fun getVodCategories(type: String): List<VodCategory> =
+        runCatching { requireApi().getVodCategories(type).categories }.getOrDefault(emptyList())
+
+    suspend fun getVodItems(type: String, category: String, page: Int, search: String): VodItemsResponse =
+        requireApi().getVodItems(type, category, page, search)
+
+    suspend fun getVodSeasons(showId: String): List<VodSeason> =
+        runCatching { requireApi().getVodSeasons(showId).seasons }.getOrDefault(emptyList())
+
+    suspend fun getVodEpisodes(showId: String, seasonId: String): List<VodEpisode> =
+        runCatching { requireApi().getVodEpisodes(showId, seasonId).episodes }.getOrDefault(emptyList())
+
+    /** Resolves a VOD stream and returns the absolute, playable proxy URL. */
+    suspend fun resolveVodStreamUrl(
+        videoId: String,
+        cmd: String = "",
+        series: String = "",
+        seasonId: String = "",
+        episodeId: String = "",
+    ): String {
+        val resp = requireApi().getVodStream(videoId, cmd, series, seasonId, episodeId)
+        val base = prefs.serverUrl?.trimEnd('/') ?: ""
+        return if (resp.streamUrl.startsWith("http", ignoreCase = true)) resp.streamUrl
+               else "$base${resp.streamUrl}"
+    }
 
     // ── Watch history ─────────────────────────────────────────────────────────
 
