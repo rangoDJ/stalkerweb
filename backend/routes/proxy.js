@@ -13,9 +13,29 @@
 'use strict';
 
 const express = require('express');
+const axios = require('axios');
+const http  = require('http');
+const https = require('https');
 const log = require('../logger');
 const { channelIdRules, hlsUrlRules } = require('../middleware/validate');
 const TAG = 'proxy';
+
+// Dedicated HTTP client for CDN stream/segment fetches with a PERSISTENT
+// keep-alive connection. Captured STBemu traffic shows it serves a whole movie
+// (master playlist → media playlist → every segment) over a SINGLE TCP
+// connection; these VOD CDNs allow one connection per token and hang any extra
+// one. The portal's cookie-jar client (axios-cookiejar-support) creates a fresh
+// agent — i.e. a new connection — per request, so the master succeeded but the
+// very next fetch opened a second connection that the CDN stalled until timeout.
+// maxSockets:1 funnels all stream fetches through one reused socket, like a STB.
+// No cookie jar: stream CDNs are IP hosts and authenticate via the URL token, so
+// the jar never sent cookies to them anyway.
+const streamAgentOpts = { keepAlive: true, maxSockets: 1, maxFreeSockets: 1 };
+const streamHttp = axios.create({
+  httpAgent:  new http.Agent(streamAgentOpts),
+  httpsAgent: new https.Agent(streamAgentOpts),
+  maxRedirects: 5,
+});
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 
@@ -76,8 +96,11 @@ function isM3u8Body(text) {
 
 // ── Shared fetch helper ───────────────────────────────────────────────────────
 
-async function fetchFromPortal(httpClient, headers, url, timeoutMs = 15_000) {
-  return httpClient.get(url, {
+// Note: the first arg is kept for signature/test compatibility but ignored —
+// stream fetches always go through the persistent keep-alive streamHttp client,
+// never the portal's per-request cookie-jar client.
+async function fetchFromPortal(_httpClient, headers, url, timeoutMs = 15_000) {
+  return streamHttp.get(url, {
     headers,
     responseType: 'arraybuffer',
     timeout: timeoutMs,
@@ -230,13 +253,13 @@ module.exports = function proxyModule(appState) {
 
     if (isInternal) {
       log.info(TAG, `VOD proxy: internal link detected, proxying stream: ${streamUrl}`);
-      const http          = client.getHttpClient();
+      const portalHttp    = client.getHttpClient();   // internal links need session cookies → jar client
       const streamHeaders = getHeadersForUrl(streamUrl);
       if (req.headers['range']) streamHeaders['Range'] = req.headers['range'];
 
       let response;
       try {
-        response = await http.get(streamUrl, {
+        response = await portalHttp.get(streamUrl, {
           headers:        streamHeaders,
           responseType:   'stream',
           timeout:        30_000,
