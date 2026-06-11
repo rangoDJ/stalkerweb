@@ -61,12 +61,24 @@ module.exports = function vodRoutes(appState) {
     res.json({ seasons: normalized });
   });
 
-  // GET /api/vod/stream?videoId=X&cmd=<encoded>&series=0
+  // GET /api/vod/episodes/:showId/:seasonId — episodes within a season
+  router.get('/episodes/:showId/:seasonId', guard, async (req, res) => {
+    const { vodManager } = appState;
+    const episodes = await vodManager.getEpisodes(req.params.showId, req.params.seasonId);
+    const normalized = episodes.map(e => ({
+      ...e,
+      screenshotUrl: e.screenshotUri ? vodManager.resolveScreenshot(e.screenshotUri) : null,
+    }));
+    log.info(TAG, `episodes for show=${req.params.showId} season=${req.params.seasonId}: ${normalized.length}`);
+    res.json({ episodes: normalized });
+  });
+
+  // GET /api/vod/stream?videoId=X&cmd=<encoded>&series=0&seasonId=&episodeId=
   // Returns a /proxy/vod/stream URL so the browser never talks to the portal
   // directly — the proxy carries the session cookies and handles auth.
   router.get('/stream', guard, async (req, res) => {
     const { vodManager } = appState;
-    const { videoId, cmd = '', series = '0' } = req.query;
+    const { videoId, cmd = '', series = '0', seasonId = '', episodeId = '' } = req.query;
     if (!videoId) return res.status(400).json({ error: 'videoId is required' });
 
     // Resolve up front. The result is cached in VodManager, so the subsequent
@@ -78,7 +90,7 @@ module.exports = function vodRoutes(appState) {
     // element, which double-fetched the m3u8 and tripped the CDN.
     let resolved;
     try {
-      resolved = await vodManager.getStreamUrl(videoId, cmd || null, parseInt(series, 10) || 0);
+      resolved = await vodManager.getStreamUrl(videoId, cmd || null, parseInt(series, 10) || 0, { seasonId, episodeId });
     } catch (e) {
       log.warn(TAG, `stream resolve failed for videoId=${videoId}: ${e.message}`);
       return res.status(502).json({ error: e.message });
@@ -90,6 +102,8 @@ module.exports = function vodRoutes(appState) {
     const p = new URLSearchParams({ videoId });
     if (cmd)                        p.set('cmd', cmd);
     if (series && series !== '0')   p.set('series', series);
+    if (seasonId)                   p.set('seasonId', seasonId);
+    if (episodeId)                  p.set('episodeId', episodeId);
 
     // Extension drives the client's HLS-vs-native choice. Use .m3u8 for HLS so
     // the frontend routes it through hls.js; otherwise derive from the resolved

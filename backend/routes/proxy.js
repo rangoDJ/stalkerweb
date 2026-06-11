@@ -219,13 +219,13 @@ module.exports = function proxyModule(appState) {
 
     appState.attachStreamHeartbeat?.(req, res);   // keep idle timer alive for the whole pipe
 
-    const { videoId, series = '0' } = req.query;
+    const { videoId, series = '0', seasonId = '', episodeId = '' } = req.query;
     const cmd = req.query.cmd || '';
     if (!videoId) return res.status(400).send('videoId is required');
 
     let streamUrl;
     try {
-      streamUrl = await vodManager.getStreamUrl(videoId, cmd || null, parseInt(series, 10) || 0);
+      streamUrl = await vodManager.getStreamUrl(videoId, cmd || null, parseInt(series, 10) || 0, { seasonId, episodeId });
     } catch (e) {
       log.error(TAG, `VOD proxy: stream resolution failed: ${e.message}`);
       return res.status(502).send(`Stream resolution failed: ${e.message}`);
