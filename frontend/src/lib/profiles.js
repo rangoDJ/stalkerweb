@@ -13,6 +13,8 @@ export const DEFAULT_FORM = {
   portal: '', mac: '', timezone: 'Europe/London', lang: 'en',
   login: '', password: '', token: '', serial_number: '0000000000000',
   device_id: '', device_id2: '', signature: '', portal_signature: '',
+  // STBEmu device (per-profile) — used for the STBEmu backup export
+  stb_model: 'MAG250', firmware: '0.2.18-r14-pub-250', custom_firmware: '',
   connection_timeout: 10,
   disabledGenres: [],
 }

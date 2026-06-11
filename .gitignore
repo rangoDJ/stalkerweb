@@ -1,9 +1,7 @@
 node_modules/
 dist/
 .env
-data/
+data/cache/
+data/config.json
 *.log
-.DS_Store
-Thumbs.db
-*.swp
-*.swo
+.claude/

@@ -102,8 +102,14 @@ export const addChannelToGroup = (groupId, uniqueId) => _post(`/favorites/groups
 export const removeChannelFromGroup = (groupId, uniqueId) => _delete(`/favorites/groups/${groupId}/channels/${uniqueId}`)
 
 // ── STBEmu export ─────────────────────────────────────────────────────────
-export async function downloadStbEmuBackup() {
-  const r = await fetch('/api/export/stbemu')
+// Pass a profile object to export that specific profile (connected or not);
+// omit it to export the currently-connected/saved config.
+export async function downloadStbEmuBackup(profile) {
+  const r = await fetch('/api/export/stbemu', profile ? {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profile),
+  } : undefined)
   if (!r.ok) {
     const e = await r.json().catch(() => ({ error: r.statusText }))
     throw new Error(e.error || r.statusText)
