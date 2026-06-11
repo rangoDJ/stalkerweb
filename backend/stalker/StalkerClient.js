@@ -210,11 +210,14 @@ class StalkerClient {
   }
 
   // Minimal headers for direct stream/segment requests (not Stalker API calls).
+  // Stream CDNs expect the player's libavformat fingerprint, exactly as STBemu
+  // sends it (captured: `User-Agent: Lavf53.32.100`, no Referer/X-User-Agent).
+  // Sending the portal MAG UA + Referer makes some VOD CDNs hold the connection
+  // open until it times out. Portal API calls use _buildHeaders() — unaffected.
   getStreamHeaders() {
     return {
-      'User-Agent':   STB_USER_AGENT,
-      'Referer':      this.referer,
-      'X-User-Agent': 'Model: MAG250; Link: WiFi',
+      'User-Agent':      'Lavf53.32.100',
+      'Accept-Encoding': 'gzip',
     };
   }
 
