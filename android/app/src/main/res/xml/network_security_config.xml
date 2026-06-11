@@ -1,14 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Self-hosted IPTV client: the user's stalkerweb backend, the Stalker portal,
+  and the stream CDNs are typically plain HTTP on arbitrary, user-configured
+  hosts (LAN IPs, public IPs, or domains). Cleartext must therefore be permitted
+  globally — the previous LAN-only allowlist used CIDR notation, which Android's
+  <domain> element does not support, so it matched nothing and HTTP was blocked
+  ("CLEARTEXT communication not permitted"). System CAs are still used for any
+  HTTPS endpoints.
+-->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="true">localhost</domain>
-        <domain includeSubdomains="true">10.0.0.0/8</domain>
-        <domain includeSubdomains="true">172.16.0.0/12</domain>
-        <domain includeSubdomains="true">192.168.0.0/16</domain>
-    </domain-config>
 </network-security-config>
