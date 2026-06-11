@@ -81,8 +81,16 @@ class PlayerViewModel(
         val future = MediaController.Builder(getApplication(), token).buildAsync()
         controllerFuture = future
         future.addListener({
-            _player.value = future.get()
-            loadStream(channelId)
+            // future.get() runs on the main thread (directExecutor); if the
+            // PlaybackService connection fails it throws, which would otherwise
+            // crash the app on every channel open. Guard it.
+            val controller = runCatching { future.get() }
+                .onFailure { android.util.Log.e("PlayerViewModel", "MediaController connect failed", it) }
+                .getOrNull()
+            if (controller != null) {
+                _player.value = controller
+                loadStream(channelId)
+            }
         }, MoreExecutors.directExecutor())
 
         viewModelScope.launch {

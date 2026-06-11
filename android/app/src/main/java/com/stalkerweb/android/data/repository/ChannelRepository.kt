@@ -51,8 +51,16 @@ class ChannelRepository(private val prefs: AppPrefs) {
     suspend fun getGroups(): List<Group> =
         runCatching { requireApi().getGroups().groups }.getOrDefault(emptyList())
 
+    // The backend returns relative logo URLs (e.g. "/api/logos/render?url=…"),
+    // which work for the same-origin web UI but not for Coil in the app — it
+    // needs an absolute URL. Prefix them with the server base.
     suspend fun getLogoMap(): Map<String, String> =
-        runCatching { requireApi().getLogoMap() }.getOrDefault(emptyMap())
+        runCatching {
+            val base = prefs.serverUrl?.trimEnd('/') ?: ""
+            requireApi().getLogoMap().mapValues { (_, url) ->
+                if (url.startsWith("http", ignoreCase = true)) url else "$base$url"
+            }
+        }.getOrDefault(emptyMap())
 
     suspend fun getFavoriteIds(): Set<String> =
         runCatching { requireApi().getFavorites().channels.map { it.uniqueId }.toSet() }
