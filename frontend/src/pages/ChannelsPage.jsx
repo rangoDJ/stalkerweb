@@ -248,7 +248,7 @@ export default function ChannelsPage() {
       setLogoMap(map)
       setLogoChannel(null)
       setLogoUrl('')
-    } catch (_e) { /* best effort */ }
+    } catch { /* best effort */ }
     setLogoSaving(false)
   }
 
