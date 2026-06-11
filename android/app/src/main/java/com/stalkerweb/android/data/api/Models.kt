@@ -73,3 +73,80 @@ data class NowNextEntry(
     val now: NowInfo,
     val next: NextInfo? = null,
 )
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+@JsonClass(generateAdapter = false)
+data class SettingsResponse(
+    @Json(name = "epg_enabled") val epgEnabled: Boolean = true,
+    @Json(name = "vod_enabled") val vodEnabled: Boolean = true,
+    @Json(name = "show_adult")  val showAdult: Boolean = false,
+)
+
+// ── VOD ───────────────────────────────────────────────────────────────────────
+
+@JsonClass(generateAdapter = false)
+data class VodCategory(
+    val id: String,
+    val title: String,
+    val alias: String = "",
+)
+
+@JsonClass(generateAdapter = false)
+data class VodCategoriesResponse(
+    val categories: List<VodCategory> = emptyList(),
+)
+
+@JsonClass(generateAdapter = false)
+data class VodItem(
+    val id: String,
+    val name: String = "",
+    val description: String = "",
+    val year: String = "",
+    val durationMin: Int = 0,
+    val isHD: Boolean = false,
+    val isSeries: Boolean = false,
+    val screenshotUrl: String? = null,
+    val cmd: String = "",
+)
+
+@JsonClass(generateAdapter = false)
+data class VodItemsResponse(
+    val items: List<VodItem> = emptyList(),
+    val totalItems: Int = 0,
+    val totalPages: Int = 1,
+    val page: Int = 1,
+)
+
+@JsonClass(generateAdapter = false)
+data class VodSeason(
+    val id: String,
+    val name: String = "",
+    val seasonNumber: String = "",
+    val screenshotUrl: String? = null,
+)
+
+@JsonClass(generateAdapter = false)
+data class VodSeasonsResponse(
+    val seasons: List<VodSeason> = emptyList(),
+)
+
+@JsonClass(generateAdapter = false)
+data class VodEpisode(
+    val episodeId: String,
+    val seriesNumber: String = "",
+    val name: String = "",
+    val screenshotUrl: String? = null,
+)
+
+@JsonClass(generateAdapter = false)
+data class VodEpisodesResponse(
+    val episodes: List<VodEpisode> = emptyList(),
+)
+
+@JsonClass(generateAdapter = false)
+data class VodStreamResponse(
+    val streamUrl: String,
+    val videoId: String = "",
+    val isHls: Boolean = true,
+)

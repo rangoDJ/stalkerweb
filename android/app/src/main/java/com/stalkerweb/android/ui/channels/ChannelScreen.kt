@@ -36,6 +36,8 @@ import com.stalkerweb.android.ui.utils.rememberIsTV
 fun ChannelScreen(
     viewModel: ChannelViewModel,
     onSelectChannel: (Channel) -> Unit,
+    vodEnabled: Boolean = false,
+    onOpenVod: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isTV  = rememberIsTV()
@@ -59,6 +61,11 @@ fun ChannelScreen(
                         )
                     },
                     actions = {
+                        if (vodEnabled) {
+                            IconButton(onClick = onOpenVod) {
+                                Icon(Icons.Default.Movie, contentDescription = "On Demand")
+                            }
+                        }
                         IconButton(onClick = viewModel::load) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh")
                         }

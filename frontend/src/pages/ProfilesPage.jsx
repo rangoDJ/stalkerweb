@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { User, Plus, Trash2, Zap, Loader2, AlertCircle, Check, Server, Cpu } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getProfiles, saveProfile, activateProfile, deleteProfile, getConfig } from '../stalkerApi'
+import { getProfiles, saveProfile, activateProfile, deleteProfile, getConfig, getSettings, saveSettings } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
 import { showToast } from '@/lib/toast'
 
@@ -97,19 +97,38 @@ export default function ProfilesPage() {
   const [activatingName, setActivatingName] = useState(null)
   const [deletingName,   setDeletingName]   = useState(null)
 
+  const [vodEnabled, setVodEnabled] = useState(true)
+  const [vodSaving,  setVodSaving]  = useState(false)
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const [prof, cfg] = await Promise.all([getProfiles(), getConfig()])
+      const [prof, cfg, settings] = await Promise.all([getProfiles(), getConfig(), getSettings()])
       setProfiles(prof?.profiles || {})
       setCurrentConfig(cfg)
+      setVodEnabled(settings?.vod_enabled !== false)
     } catch (e) {
       setError(e.message)
     } finally {
       setLoading(false)
     }
   }, [])
+
+  // ── VOD visibility toggle (controls the Android app's VOD section) ──────────
+  const handleToggleVod = async (next) => {
+    setVodEnabled(next) // optimistic
+    setVodSaving(true)
+    try {
+      await saveSettings({ vod_enabled: next })
+      showToast(next ? 'VOD enabled' : 'VOD disabled', 'success')
+    } catch (e) {
+      setVodEnabled(!next) // revert
+      showToast(`Failed to update VOD setting: ${e.message}`, 'error')
+    } finally {
+      setVodSaving(false)
+    }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -211,6 +230,35 @@ export default function ProfilesPage() {
             No active connection to save. Connect to a portal first on the Settings page.
           </p>
         )}
+      </div>
+
+      {/* VOD visibility toggle */}
+      <div className="mb-8 p-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)]">
+        <div className="flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-[var(--color-text)]">Show VOD section</p>
+            <p className="mt-1 text-xs text-[var(--color-muted)]">
+              When off, the Android app hides the Movies / TV Shows (VOD) section.
+            </p>
+          </div>
+          <button
+            role="switch"
+            aria-checked={vodEnabled}
+            disabled={vodSaving}
+            onClick={() => handleToggleVod(!vodEnabled)}
+            className={cn(
+              'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50',
+              vodEnabled ? 'bg-[var(--color-primary)]' : 'bg-[var(--color-surface-2)] border border-[var(--color-border)]'
+            )}
+          >
+            <span
+              className={cn(
+                'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
+                vodEnabled ? 'translate-x-6' : 'translate-x-1'
+              )}
+            />
+          </button>
+        </div>
       </div>
 
       {/* Profile list */}

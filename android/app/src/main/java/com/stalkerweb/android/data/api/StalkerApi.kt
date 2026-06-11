@@ -35,6 +35,39 @@ interface StalkerApi {
     @GET("api/epg/now")
     suspend fun getNowNext(): Map<String, NowNextEntry>
 
+    @GET("api/settings")
+    suspend fun getSettings(): SettingsResponse
+
+    // ── VOD ───────────────────────────────────────────────────────────────────
+    @GET("api/vod/categories")
+    suspend fun getVodCategories(@Query("type") type: String): VodCategoriesResponse
+
+    @GET("api/vod/items")
+    suspend fun getVodItems(
+        @Query("type") type: String,
+        @Query("category") category: String,
+        @Query("page") page: Int = 1,
+        @Query("search") search: String = "",
+    ): VodItemsResponse
+
+    @GET("api/vod/seasons/{showId}")
+    suspend fun getVodSeasons(@Path("showId") showId: String): VodSeasonsResponse
+
+    @GET("api/vod/episodes/{showId}/{seasonId}")
+    suspend fun getVodEpisodes(
+        @Path("showId") showId: String,
+        @Path("seasonId") seasonId: String,
+    ): VodEpisodesResponse
+
+    @GET("api/vod/stream")
+    suspend fun getVodStream(
+        @Query("videoId") videoId: String,
+        @Query("cmd") cmd: String = "",
+        @Query("series") series: String = "",
+        @Query("seasonId") seasonId: String = "",
+        @Query("episodeId") episodeId: String = "",
+    ): VodStreamResponse
+
     companion object {
         fun create(baseUrl: String): StalkerApi {
             val moshi = Moshi.Builder()
