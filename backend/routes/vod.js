@@ -64,26 +64,46 @@ module.exports = function vodRoutes(appState) {
   // GET /api/vod/stream?videoId=X&cmd=<encoded>&series=0
   // Returns a /proxy/vod/stream URL so the browser never talks to the portal
   // directly — the proxy carries the session cookies and handles auth.
-  router.get('/stream', guard, (req, res) => {
+  router.get('/stream', guard, async (req, res) => {
+    const { vodManager } = appState;
     const { videoId, cmd = '', series = '0' } = req.query;
     if (!videoId) return res.status(400).json({ error: 'videoId is required' });
+
+    // Resolve up front. The result is cached in VodManager, so the subsequent
+    // /proxy/vod/stream fetch reuses it (no extra portal round-trip). Resolving
+    // here lets us (a) fail fast with the real portal error and (b) detect HLS
+    // so the client uses hls.js instead of native playback. Portal cmd
+    // extensions like ".mpg" lie — the actual delivery is usually HLS, and
+    // labelling the proxy URL ".mpg" made the player pick the native <video>
+    // element, which double-fetched the m3u8 and tripped the CDN.
+    let resolved;
+    try {
+      resolved = await vodManager.getStreamUrl(videoId, cmd || null, parseInt(series, 10) || 0);
+    } catch (e) {
+      log.warn(TAG, `stream resolve failed for videoId=${videoId}: ${e.message}`);
+      return res.status(502).json({ error: e.message });
+    }
+
+    const path  = resolved.split('?')[0].split('#')[0];
+    const isHls = /\.(m3u8?|m3u)$/i.test(path);
 
     const p = new URLSearchParams({ videoId });
     if (cmd)                        p.set('cmd', cmd);
     if (series && series !== '0')   p.set('series', series);
 
-    // Extract file extension from the command URL or default to .mp4
+    // Extension drives the client's HLS-vs-native choice. Use .m3u8 for HLS so
+    // the frontend routes it through hls.js; otherwise derive from the resolved
+    // URL (falling back to .mp4).
     let ext = '.mp4';
-    if (cmd) {
-      const pathname = cmd.split('?')[0].split('#')[0];
-      const m = pathname.match(/\.([a-z0-9]+)$/i);
-      if (m) {
-        ext = '.' + m[1].toLowerCase();
-      }
+    if (isHls) {
+      ext = '.m3u8';
+    } else {
+      const m = path.match(/\.([a-z0-9]+)$/i);
+      if (m) ext = '.' + m[1].toLowerCase();
     }
 
     appState.touchActivity?.();
-    res.json({ streamUrl: `/proxy/vod/stream${ext}?${p}`, videoId });
+    res.json({ streamUrl: `/proxy/vod/stream${ext}?${p}`, videoId, isHls });
   });
 
   return router;
