@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle,
   Trash2, RefreshCw, Image, Download, Plus, Pencil, Plug, PlugZap,
-  X, Wifi, WifiOff,
+  X, Wifi, WifiOff, Copy, Check, ExternalLink, ListVideo, CalendarDays,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input }  from '@/components/ui/input'
@@ -24,6 +24,10 @@ import {
 } from '@/lib/profiles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// STBEmu device options — kept in sync with backend routes/settings.js
+const STB_MODELS    = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
+const STB_FIRMWARES = ['0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic']
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -65,6 +69,51 @@ function Notice({ notice }) {
     )}>
       {notice.type === 'success' ? <CheckCircle2 size={16} className="shrink-0" /> : <XCircle size={16} className="shrink-0" />}
       {notice.msg}
+    </div>
+  )
+}
+
+// ── Copyable link row (M3U / XMLTV export URLs) ───────────────────────────────
+
+function LinkRow({ label, url, hint, icon: Icon }) {
+  const [copied, setCopied] = useState(false)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(url)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+    } catch { /* clipboard blocked — user can still select the field manually */ }
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2">
+        <Icon size={14} className="text-[var(--color-muted)] shrink-0" />
+        <span className="text-sm font-medium text-[var(--color-text)]">{label}</span>
+      </div>
+      <div className="flex gap-2">
+        <Input
+          readOnly
+          value={url}
+          onFocus={e => e.target.select()}
+          className="font-mono text-xs flex-1"
+        />
+        <Button type="button" variant="outline" onClick={copy} className="shrink-0 h-9 px-3 text-xs gap-1.5">
+          {copied ? <Check size={13} className="text-[var(--color-success)]" /> : <Copy size={13} />}
+          {copied ? 'Copied' : 'Copy'}
+        </Button>
+        <a
+          href={url}
+          target="_blank"
+          rel="noreferrer"
+          title="Open in new tab"
+          className="shrink-0 inline-flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] border border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)] transition-colors"
+        >
+          <ExternalLink size={13} />
+        </a>
+      </div>
+      {hint && <p className="text-xs text-[var(--color-muted)]">{hint}</p>}
     </div>
   )
 }
@@ -148,9 +197,6 @@ function ProfileSheet({ initial, onSave, onClose }) {
                   <Input id="prof-pw" type="password" value={form.password} onChange={set('password')} />
                 </Field>
               </div>
-              <Field label="Token" id="prof-token">
-                <Input id="prof-token" value={form.token || ''} onChange={set('token')} className="font-mono text-xs" />
-              </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Serial Number" id="prof-sn">
                   <Input id="prof-sn" value={form.serial_number} onChange={set('serial_number')} className="font-mono text-xs" />
@@ -168,6 +214,28 @@ function ProfileSheet({ initial, onSave, onClose }) {
               <Field label="Signature" id="prof-sig">
                 <Input id="prof-sig" value={form.signature || ''} onChange={set('signature')} className="font-mono text-xs" />
               </Field>
+
+              {/* STBEmu device — used when exporting an STBEmu backup for this profile */}
+              <div className="grid grid-cols-2 gap-3 pt-1 border-t border-[var(--color-border)]">
+                <Field label="STB Model" id="prof-stb-model">
+                  <select id="prof-stb-model" value={form.stb_model || 'MAG250'} onChange={set('stb_model')}
+                    className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]">
+                    {STB_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </Field>
+                <Field label="Firmware" id="prof-stb-fw">
+                  <select id="prof-stb-fw" value={form.firmware || '0.2.18-r14-pub-250'} onChange={set('firmware')}
+                    className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]">
+                    {STB_FIRMWARES.map(f => <option key={f} value={f}>{f}</option>)}
+                  </select>
+                </Field>
+              </div>
+              {form.stb_model === 'CUSTOM' && (
+                <Field label="Custom Firmware String" id="prof-custom-fw" hint="e.g. mag-custom-2.20.02-pub-000">
+                  <Input id="prof-custom-fw" placeholder="mag-xxx-2.20.02-pub-xxx" value={form.custom_firmware || ''}
+                    onChange={set('custom_firmware')} className="font-mono text-xs" />
+                </Field>
+              )}
             </div>
           )}
 
@@ -287,10 +355,11 @@ export default function SetupPage() {
   const [allGenres, setAllGenres]     = useState([])
   const [genresLoading, setGenresLoading] = useState(false)
 
-  const STB_MODELS    = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
-  const STB_FIRMWARES = ['0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic']
-  const [stbEmu, setStbEmu]           = useState({ stbemu_profile_name: '', stbemu_stb_model: 'MAG250', stbemu_custom_firmware: '', stbemu_firmware: '0.2.18-r14-pub-250' })
-  const [stbEmuSaving, setStbEmuSaving]   = useState(false)
+  // STBEmu export — the user picks ANY profile to export (connected or not).
+  // Model/firmware/device come from the chosen profile; the name is editable.
+  const [exportProfileId, setExportProfileId] = useState('')
+  const [stbEmuProfileName, setStbEmuProfileName] = useState('')
+  const [stbEmuSaving, setStbEmuSaving] = useState(false)
   const [stbEmuExporting, setStbEmuExporting] = useState(false)
   const [stbEmuNotice, setStbEmuNotice]   = useState(null)
 
@@ -334,12 +403,6 @@ export default function SetupPage() {
 
       if (s) {
         setEpg(s.epg_enabled !== false)
-        setStbEmu({
-          stbemu_profile_name:    s.stbemu_profile_name    || '',
-          stbemu_stb_model:       s.stbemu_stb_model       || 'MAG250',
-          stbemu_custom_firmware: s.stbemu_custom_firmware || '',
-          stbemu_firmware:        s.stbemu_firmware        || '0.2.18-r14-pub-250',
-        })
       }
       if (logos) { setLogoOverrides(logos.overrides || {}); setLogoStats(logos.stats || null) }
       if (status?.device) setDeviceProfile(status.device)
@@ -532,14 +595,18 @@ export default function SetupPage() {
   }
   async function handleStbEmuSave(e) {
     e.preventDefault(); setStbEmuSaving(true); setStbEmuNotice(null)
-    try { await saveSettings(stbEmu); setStbEmuNotice({ type: 'success', msg: 'Settings saved.' }) }
+    try { await saveSettings({ stbemu_profile_name: stbEmuProfileName }); setStbEmuNotice({ type: 'success', msg: 'Settings saved.' }) }
     catch (err) { setStbEmuNotice({ type: 'error', msg: err.message }) }
     finally { setStbEmuSaving(false) }
   }
   async function handleStbEmuExport() {
     setStbEmuExporting(true); setStbEmuNotice(null)
-    try { await downloadStbEmuBackup() }
-    catch (err) { setStbEmuNotice({ type: 'error', msg: err.message }) }
+    try {
+      // If a profile is selected, export that profile; otherwise export the
+      // currently-connected/saved config (GET fallback).
+      const prof = exportProfileId ? profiles.find(p => p.id === exportProfileId) : null
+      await downloadStbEmuBackup(prof || undefined)
+    } catch (err) { setStbEmuNotice({ type: 'error', msg: err.message }) }
     finally { setStbEmuExporting(false) }
   }
 
@@ -603,6 +670,34 @@ export default function SetupPage() {
           </button>
         </div>
 
+        {/* ── IPTV Links (M3U / XMLTV) ─────────────────────────────────────── */}
+        {(() => {
+          const origin = (typeof window !== 'undefined' && window.location?.origin) || ''
+          return (
+            <Card title="IPTV Links" description="Add StalkerWeb to Jellyfin, Plex, Emby, Dispatcharr, or any IPTV client using these URLs.">
+              <LinkRow
+                label="M3U Playlist"
+                icon={ListVideo}
+                url={`${origin}/api/m3u`}
+                hint="Channel list — add as an M3U / playlist URL in your IPTV client or tuner."
+              />
+              <LinkRow
+                label="XMLTV EPG Guide"
+                icon={CalendarDays}
+                url={`${origin}/api/xmltv`}
+                hint={epg
+                  ? 'Program guide in XMLTV format — add as the EPG / guide URL alongside the M3U.'
+                  : 'Program guide in XMLTV format. Enable EPG below for this to return data.'}
+              />
+              {!connected && (
+                <p className="text-xs text-[var(--color-muted)]">
+                  Connect to a portal above so clients can pull live channel and guide data from these links.
+                </p>
+              )}
+            </Card>
+          )
+        })()}
+
         {/* ── App Preferences ─────────────────────────────────────────────── */}
         <Card title="App Preferences" description="Customize how StalkerWeb behaves.">
           <div className="flex items-center justify-between">
@@ -658,7 +753,7 @@ export default function SetupPage() {
         </Card>
 
         {/* ── STBEmu Export ────────────────────────────────────────────────── */}
-        <Card title="STBEmu Export" description="Generate an STBEmu-compatible backup file you can restore directly in the app.">
+        <Card title="STBEmu Export" description="Generate an STBEmu-compatible backup file you can restore directly in the app. Pick which profile to export — the STB model & firmware come from that profile's Advanced options.">
           <form onSubmit={handleStbEmuSave} className="flex flex-col gap-4">
             {stbEmuNotice && (
               <div className={cn('flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs',
@@ -670,35 +765,27 @@ export default function SetupPage() {
                 {stbEmuNotice.msg}
               </div>
             )}
-            <Field label="Profile Name" id="stb-prof-name">
-              <Input id="stb-prof-name" placeholder="My IPTV Profile" value={stbEmu.stbemu_profile_name}
-                onChange={e => setStbEmu(s => ({ ...s, stbemu_profile_name: e.target.value }))} />
-            </Field>
-            <Field label="STB Model" id="stb-model">
-              <select id="stb-model" value={stbEmu.stbemu_stb_model}
-                onChange={e => setStbEmu(s => ({ ...s, stbemu_stb_model: e.target.value }))}
+            <Field label="Profile to Export" id="stb-export-profile" hint="Select which profile to export. The STB model, firmware, and connection details come from the chosen profile.">
+              <select id="stb-export-profile" value={exportProfileId}
+                onChange={e => {
+                  const id = e.target.value
+                  setExportProfileId(id)
+                  const prof = profiles.find(p => p.id === id)
+                  if (prof) setStbEmuProfileName(prof.name || '')
+                }}
                 className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]">
-                {STB_MODELS.map(m => <option key={m} value={m}>{m}</option>)}
+                <option value="">Current / Connected Config</option>
+                {profiles.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name || p.portal}{p.stb_model ? ` (${p.stb_model})` : ''}
+                  </option>
+                ))}
               </select>
             </Field>
-            <Field label="Firmware" id="stb-fw">
-              <select id="stb-fw" value={stbEmu.stbemu_firmware}
-                onChange={e => setStbEmu(s => ({ ...s, stbemu_firmware: e.target.value }))}
-                className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]">
-                {STB_FIRMWARES.map(f => <option key={f} value={f}>{f}</option>)}
-              </select>
+            <Field label="Profile Name" id="stb-prof-name" hint="Display name shown inside STBEmu for the restored profile.">
+              <Input id="stb-prof-name" placeholder="My IPTV Profile" value={stbEmuProfileName}
+                onChange={e => setStbEmuProfileName(e.target.value)} />
             </Field>
-            {stbEmu.stbemu_stb_model === 'CUSTOM' && (
-              <Field label="Custom Firmware String" id="stb-custom-fw" hint="e.g. mag-custom-2.20.02-pub-000">
-                <Input id="stb-custom-fw" placeholder="mag-xxx-2.20.02-pub-xxx" value={stbEmu.stbemu_custom_firmware}
-                  onChange={e => setStbEmu(s => ({ ...s, stbemu_custom_firmware: e.target.value }))} className="font-mono text-xs" />
-              </Field>
-            )}
-            {stbEmu.stbemu_stb_model !== 'CUSTOM' && (
-              <p className="text-xs text-[var(--color-muted)]">
-                Firmware: <span className="font-mono">{(() => { const slug = stbEmu.stbemu_stb_model.toLowerCase().replace(/^mag(\d+)$/, 'mag-$1'); const num = stbEmu.stbemu_stb_model.replace(/^MAG/, ''); return `${slug}-2.20.02-pub-${num}` })()}</span>
-              </p>
-            )}
             <div className="flex items-center gap-3 pt-1">
               <Button type="submit" variant="outline" disabled={stbEmuSaving} className="h-9 px-4 text-sm">
                 {stbEmuSaving ? <Loader2 size={14} className="animate-spin" /> : 'Save'}

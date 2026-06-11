@@ -59,23 +59,45 @@ module.exports = function exportModule(config) {
   const router = express.Router();
   const cache  = new CacheManager(config.dataDir);
 
-  router.get('/stbemu', (req, res) => {
+  // Shared handler. GET exports the currently-connected/saved config; POST
+  // exports an arbitrary profile supplied in the body (so the user can pick any
+  // of the profiles created in the UI, connected or not). Profiles live in the
+  // browser's localStorage, so the client sends the chosen one here.
+  function handleExport(req, res) {
     const saved = cache.load() || {};
-    const { portal, mac, timezone, serial_number, device_id, device_id2, signature,
-            stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware, stbemu_firmware } = saved;
+    const body  = (req.method === 'POST' && req.body) ? req.body : {};
 
-    if (!portal || !mac) {
-      return res.status(400).json({ error: 'Not connected — portal and MAC are required' });
+    // Per-field: explicit body value wins, else fall back to the saved config.
+    const pick = (b, s) => (b !== undefined && b !== null && b !== '' ? b : s);
+    const src = {
+      portal:          pick(body.portal,          saved.portal),
+      mac:             pick(body.mac,             saved.mac),
+      timezone:        pick(body.timezone,        saved.timezone),
+      serial_number:   pick(body.serial_number,   saved.serial_number),
+      device_id:       pick(body.device_id,       saved.device_id),
+      device_id2:      pick(body.device_id2,      saved.device_id2),
+      signature:       pick(body.signature,       saved.signature),
+      profile_name:    pick(body.stbemu_profile_name, saved.stbemu_profile_name),
+      stb_model:       pick(body.stb_model,       saved.stbemu_stb_model),
+      firmware:        pick(body.firmware,        saved.stbemu_firmware),
+      custom_firmware: pick(body.custom_firmware, saved.stbemu_custom_firmware),
+      token:           body.token,
+    };
+
+    if (!src.portal || !src.mac) {
+      return res.status(400).json({ error: 'Portal URL and MAC are required to export a profile' });
     }
 
-    const model       = STB_MODELS.includes(stbemu_stb_model) ? stbemu_stb_model : 'MAG250';
-    const profileName = (stbemu_profile_name || '').trim() || 'My IPTV Profile';
-    const fwPreset    = FIRMWARE_PRESETS[stbemu_firmware] || FIRMWARE_PRESETS['0.2.18-r14-pub-250'];
+    const model       = STB_MODELS.includes(src.stb_model) ? src.stb_model : 'MAG250';
+    const profileName = (src.profile_name || '').trim() || 'My IPTV Profile';
+    const fwPreset    = FIRMWARE_PRESETS[src.firmware] || FIRMWARE_PRESETS['0.2.18-r14-pub-250'];
 
-    const tokenKey = `stalker_${portalHash(portal)}`;
-    const tokenVal = saved[tokenKey]?.token || saved.token || '';
+    // Token: prefer a token already cached for THIS profile's portal, else the
+    // token the client sent for the profile, else any globally-saved token.
+    const tokenKey = `stalker_${portalHash(src.portal)}`;
+    const tokenVal = saved[tokenKey]?.token || src.token || saved.token || '';
 
-    const uuid = uuidV5(mac);
+    const uuid = uuidV5(src.mac);
 
     const now = new Date();
     const createdAt = [
@@ -128,24 +150,24 @@ module.exports = function exportModule(config) {
           uuid,
           name:                 profileName,
           stb_model:            modelSlug(model),
-          portal_url:           portal,
+          portal_url:           src.portal,
           is_internal_portal:   false,
           display_resolution:   '1280x720',
           video_resolution:     '1080p60',
-          mac_address:          mac,
-          serial_number:        serial_number || '',
+          mac_address:          src.mac,
+          serial_number:        src.serial_number || '',
           user_agent:           'default',
           language:             'en',
-          device_id:            device_id  || '',
+          device_id:            src.device_id  || '',
           use_mac_based_device_id: false,
           mac_seed_net_interface:  '',
           device_id_seed:          '',
           send_device_id:          true,
-          device_id2:              device_id2 || '',
+          device_id2:              src.device_id2 || '',
           device_custom_dev_id2:   true,
-          device_signature:        signature || '',
-          timezone:                timezone || 'Europe/London',
-          firmware:                firmwareString(model, stbemu_custom_firmware),
+          device_signature:        src.signature || '',
+          timezone:                src.timezone || 'Europe/London',
+          firmware:                firmwareString(model, src.custom_firmware),
           media_player:            'exo',
           firmware_player_engine_ver: DEVICE_PROFILE.player_engine_version || '0x566',
           firmware_js_api_ver:        DEVICE_PROFILE.js_api_version        || '328',
@@ -178,7 +200,7 @@ module.exports = function exportModule(config) {
         },
 
         data: [
-          { tag: 'config', name: 'portal_device_id2',  value: device_id2 || '' },
+          { tag: 'config', name: 'portal_device_id2',  value: src.device_id2 || '' },
           { tag: 'env',    name: 'defaultLedLevel',     value: '10' },
           { tag: 'env',    name: 'pri_audio_lang',      value: 'eng' },
           { tag: 'env',    name: 'sec_audio_lang',      value: 'eng' },
@@ -210,7 +232,10 @@ module.exports = function exportModule(config) {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/json');
     res.send(JSON.stringify(backup, null, 2));
-  });
+  }
+
+  router.get('/stbemu', handleExport);   // exports the connected/saved profile
+  router.post('/stbemu', handleExport);  // exports an arbitrary profile from the body
 
   return router;
 };

@@ -308,7 +308,8 @@ module.exports = function authModule(appState, config) {
 
     // Build a profile snapshot from the current flat config fields.
     const { portal, mac, timezone, lang, login, serial_number,
-            device_id, device_id2, signature, connection_timeout } = existing;
+            device_id, device_id2, signature, connection_timeout,
+            stbemu_stb_model, stbemu_firmware, stbemu_custom_firmware } = existing;
 
     if (!portal || !mac) {
       return res.status(400).json({ error: 'No active portal config to save as a profile' });
@@ -325,6 +326,9 @@ module.exports = function authModule(appState, config) {
       device_id2: device_id2 || '',
       signature: signature || '',
       connection_timeout: connection_timeout || 10,
+      stb_model: stbemu_stb_model || 'MAG250',
+      firmware: stbemu_firmware || '0.2.18-r14-pub-250',
+      custom_firmware: stbemu_custom_firmware || '',
     };
 
     cache.save({ ...existing, profiles });
@@ -345,6 +349,14 @@ module.exports = function authModule(appState, config) {
     }
 
     try {
+      // Restore per-profile STBEmu device settings into the global config
+      // so the export fallback values match the activated profile.
+      const existing2 = cache.load() || {};
+      if (profile.stb_model)        existing2.stbemu_stb_model        = profile.stb_model;
+      if (profile.firmware)         existing2.stbemu_firmware         = profile.firmware;
+      if (profile.custom_firmware)  existing2.stbemu_custom_firmware  = profile.custom_firmware;
+      cache.save(existing2);
+
       const result = await connectPortal(profile);
       appState.touchActivity?.();
       log.info(TAG, `profile activated: "${profileName}"`);
