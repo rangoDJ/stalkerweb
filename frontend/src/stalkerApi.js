@@ -127,6 +127,11 @@ export async function downloadStbEmuBackup(profile) {
 // ── Channel progress ──────────────────────────────────────────────────────
 export const getChannelProgress = () => _get('/channels/progress')
 
+// ── Channel stream health ───────────────────────────────────────────────────
+// { [uniqueId]: { errors, lastError } } — recent stream-resolution failures,
+// self-healing (cleared on a successful play). In-memory per server process.
+export const getChannelHealth = () => _get('/channels/health')
+
 // ── Favorites order ───────────────────────────────────────────────────────
 export const reorderFavoriteChannels = (order) => _put('/favorites/channels/order', { order })
 export const reorderFavoriteGroups   = (order) => _put('/favorites/groups/order',   { order })

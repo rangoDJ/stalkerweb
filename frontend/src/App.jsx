@@ -1,4 +1,4 @@
-import { useEffect, useState, lazy, Suspense } from 'react'
+import { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
 import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film, LayoutGrid } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
@@ -28,9 +28,9 @@ function NavItem({ to, icon: Icon, label }) {
       to={to}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-sm)] text-sm font-medium transition-colors duration-150',
+          'flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)] text-sm font-medium transition-all duration-150',
           isActive
-            ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
+            ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary-light)] shadow-[inset_0_0_0_1px_var(--color-primary-glow)]'
             : 'text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)]'
         )
       }
@@ -106,7 +106,7 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
             <path d="M 11 25 A 5 5 0 0 0 21 25" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
             <circle cx="16" cy="25" r="2.5" fill="currentColor"/>
           </svg>
-        <span className="font-semibold text-sm tracking-wide text-[var(--color-text)]">StalkerWeb</span>
+        <span className="font-display font-semibold text-base text-[var(--color-text)]">StalkerWeb</span>
       </div>
 
       {connected && (
@@ -156,6 +156,17 @@ function AppInner() {
   const [lastPingAt, setLastPingAt] = useState(null)
   const [idleInfo, setIdleInfo] = useState(null) // { lastActivityAt, idleTimeoutMs }
 
+  // Only replace idleInfo when a field actually changes — the 30s status poll
+  // otherwise hands a fresh object every tick, re-rendering every context
+  // consumer (PlayerPage, ChannelsPage, …) for no real state change.
+  function updateIdleInfo(lastActivityAt, idleTimeoutMs) {
+    setIdleInfo(prev =>
+      prev && prev.lastActivityAt === lastActivityAt && prev.idleTimeoutMs === idleTimeoutMs
+        ? prev
+        : { lastActivityAt, idleTimeoutMs }
+    )
+  }
+
   useEffect(() => {
     async function load() {
       try {
@@ -171,7 +182,7 @@ function AppInner() {
           profileGenres && profileGenres.length ? profileGenres : (settings.disabled_genres ?? [])
         ))
         if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)
-        if (status.lastActivityAt) setIdleInfo({ lastActivityAt: status.lastActivityAt, idleTimeoutMs: status.idleTimeoutMs })
+        if (status.lastActivityAt) updateIdleInfo(status.lastActivityAt, status.idleTimeoutMs)
       } catch {
         setConnected(false)
       } finally {
@@ -185,7 +196,7 @@ function AppInner() {
         setConnected(s.connected)
         if (s.watchdog?.lastPingAt) setLastPingAt(s.watchdog.lastPingAt)
         else if (!s.connected) setLastPingAt(null)
-        if (s.lastActivityAt) setIdleInfo({ lastActivityAt: s.lastActivityAt, idleTimeoutMs: s.idleTimeoutMs })
+        if (s.lastActivityAt) updateIdleInfo(s.lastActivityAt, s.idleTimeoutMs)
         else if (!s.connected) setIdleInfo(null)
       } catch {
         setConnected(false)
@@ -193,6 +204,14 @@ function AppInner() {
     }, 30_000)
     return () => clearInterval(id)
   }, [])
+
+  // Memoize so consumers don't re-render just because AppInner re-rendered
+  // (e.g. the 30s poll updating local idle/ping badges). Must run before any
+  // early return to keep hook order stable.
+  const ctxValue = useMemo(
+    () => ({ connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, disabledGenres, setDisabledGenres, setLastPingAt, setIdleInfo }),
+    [connected, epgEnabled, showAdult, disabledGenres]
+  )
 
   if (!statusLoaded) {
     return (
@@ -203,7 +222,7 @@ function AppInner() {
   }
 
   return (
-    <AppContext.Provider value={{ connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, disabledGenres, setDisabledGenres, setLastPingAt, setIdleInfo }}>
+    <AppContext.Provider value={ctxValue}>
       <TooltipProvider delayDuration={300}>
         <TopNav connected={connected} epgEnabled={epgEnabled} lastPingAt={lastPingAt} idleInfo={idleInfo} />
         <main className="pt-14 min-h-full">

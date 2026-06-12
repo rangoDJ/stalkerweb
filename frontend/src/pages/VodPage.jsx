@@ -5,6 +5,56 @@ import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { useApp } from '@/lib/appContext'
 import { getVodCategories, getVodItems, getVodSeasons, getVodEpisodes } from '../stalkerApi'
+import { getVodProgressList, removeVodProgress } from '@/lib/vodProgress'
+
+// ── Continue Watching row ─────────────────────────────────────────────────
+// Horizontally-scrolling shelf of in-progress titles, restored from localStorage.
+function ContinueWatching({ entries, onResume, onRemove }) {
+  if (!entries.length) return null
+  return (
+    <div className="mb-6">
+      <h2 className="text-sm font-semibold text-[var(--color-text)] mb-2">Continue Watching</h2>
+      <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+        {entries.map(e => {
+          const pct = e.duration > 0 ? Math.min(100, (e.position / e.duration) * 100) : 0
+          return (
+            <div key={e.key} className="group relative shrink-0 w-40">
+              <button
+                onClick={() => onResume(e)}
+                className="block w-full text-left rounded-[var(--radius-sm)] overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary-light)]"
+              >
+                <div className="relative w-full aspect-video bg-[var(--color-surface-2)] overflow-hidden">
+                  {e.screenshotUrl ? (
+                    <img src={e.screenshotUrl} alt={e.title} className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Film size={24} className="text-[var(--color-muted)] opacity-40" />
+                    </div>
+                  )}
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                    <Play size={28} className="text-white opacity-0 group-hover:opacity-90 transition-opacity drop-shadow-lg" fill="currentColor" />
+                  </div>
+                  {/* Progress bar */}
+                  <div className="absolute bottom-0 inset-x-0 h-1 bg-black/50">
+                    <div className="h-full bg-[var(--color-primary-light)]" style={{ width: `${pct}%` }} />
+                  </div>
+                </div>
+                <p className="text-xs font-medium text-[var(--color-text)] truncate leading-tight mt-1">{e.title}</p>
+              </button>
+              <button
+                onClick={() => onRemove(e.key)}
+                aria-label="Remove from Continue Watching"
+                className="absolute top-1 right-1 p-0.5 rounded-full bg-black/60 text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/80 hover:text-white transition-all"
+              >
+                <X size={12} />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
 
 // ── Thumbnail component ───────────────────────────────────────────────────
 function Thumb({ src, name, isHD }) {
@@ -37,7 +87,7 @@ function VodCard({ item, onClick }) {
   return (
     <button
       onClick={() => onClick(item)}
-      className="group text-left flex flex-col gap-1.5 rounded-[var(--radius-sm)] overflow-hidden transition-transform hover:scale-[1.02] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary-light)]"
+      className="group text-left flex flex-col gap-1.5 rounded-[var(--radius-md)] overflow-hidden transition-all duration-200 hover:scale-[1.03] hover:shadow-[var(--shadow-lg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary-light)]"
     >
       <div className="relative">
         <Thumb src={item.screenshotUrl} name={item.name} isHD={item.isHD} />
@@ -212,6 +262,7 @@ function buildPlayerParams(item, extra = {}) {
   if (item.year)         p.set('year', item.year)
   if (item.durationMin)  p.set('durationMin', String(item.durationMin))
   if (item.isHD)         p.set('isHD', 'true')
+  if (item.screenshotUrl) p.set('screenshotUrl', encodeURIComponent(item.screenshotUrl))
   if (item.description)  p.set('description', encodeURIComponent(item.description))
   if (item.director)     p.set('director', encodeURIComponent(item.director))
   if (item.actors)       p.set('actors', encodeURIComponent(item.actors))
@@ -239,8 +290,21 @@ export default function VodPage() {
 
   const [search, setSearch]           = useState('')
   const [seriesSheet, setSeriesSheet] = useState(null) // item to show seasons for
+  const [continueList, setContinueList] = useState([]) // Continue Watching entries
 
   const searchTimer = useRef(null)
+
+  // Load Continue Watching on mount (this page remounts when returning from the player).
+  useEffect(() => { setContinueList(getVodProgressList()) }, [])
+
+  function resumeEntry(entry) {
+    navigate(`/vod-player?${entry.params}`)
+  }
+
+  function removeEntry(key) {
+    removeVodProgress(key)
+    setContinueList(list => list.filter(e => e.key !== key))
+  }
 
   // Load categories on type change
   useEffect(() => {
@@ -328,7 +392,7 @@ export default function VodPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)]">
+    <div className="fade-in flex h-[calc(100vh-3.5rem)]">
 
       {/* ── Left sidebar: categories ── */}
       <aside className="w-56 shrink-0 flex flex-col border-r border-[var(--color-border)] bg-[var(--color-surface)] overflow-hidden">
@@ -339,9 +403,9 @@ export default function VodPage() {
               key={t}
               onClick={() => setVodType(t)}
               className={cn(
-                'flex-1 text-xs font-medium py-1.5 rounded-[var(--radius-sm)] transition-colors',
+                'flex-1 text-xs font-medium py-1.5 rounded-[var(--radius-sm)] transition-all',
                 vodType === t
-                  ? 'bg-[var(--color-primary)]/20 text-[var(--color-primary-light)]'
+                  ? 'btn-gradient text-white'
                   : 'text-[var(--color-muted)] hover:bg-[var(--color-surface-2)] hover:text-[var(--color-text)]'
               )}
             >
@@ -405,10 +469,13 @@ export default function VodPage() {
         {/* Items grid */}
         <div className="flex-1 overflow-y-auto p-4">
           {!selectedCategory && (
-            <div className="flex flex-col items-center justify-center h-full gap-3 text-[var(--color-muted)]">
-              <Film size={48} className="opacity-20" />
-              <p className="text-sm">Select a category to browse {vodType === 'series' ? 'series' : 'movies'}</p>
-            </div>
+            <>
+              <ContinueWatching entries={continueList} onResume={resumeEntry} onRemove={removeEntry} />
+              <div className="flex flex-col items-center justify-center gap-3 py-16 text-[var(--color-muted)]">
+                <Film size={48} className="opacity-20" />
+                <p className="text-sm">Select a category to browse {vodType === 'series' ? 'series' : 'movies'}</p>
+              </div>
+            </>
           )}
 
           {itemsError && (

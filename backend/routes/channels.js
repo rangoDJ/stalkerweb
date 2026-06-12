@@ -53,7 +53,7 @@ module.exports = function channelRoutes(appState) {
   });
 
   // GET /api/channels/progress — channel load progress (poll while loading)
-  router.get('/progress', (req, res) => {
+  router.get('/progress', guard, (req, res) => {
     const { channelManager } = appState;
     if (!channelManager) return res.json({ loading: false, page: 0, totalPages: 0, channelCount: 0 });
     res.json(channelManager.getProgress());
@@ -90,15 +90,28 @@ module.exports = function channelRoutes(appState) {
     });
     res.flushHeaders();
 
+    // Avoid the race where a client subscribes before any load has begun and
+    // immediately sees loading=false (→ "done" with 0 channels). Kick one off.
+    if (channelManager.getChannels().length === 0 && !channelManager.getProgress().loading) {
+      channelManager.loadChannels().catch(e => log.error(TAG, `SSE-triggered load failed: ${e.message}`));
+    }
+
+    const cleanup = () => { clearInterval(iv); clearInterval(hb); clearTimeout(maxLife); };
+
     const send = () => {
       const p = channelManager.getProgress();
       res.write(`data: ${JSON.stringify(p)}\n\n`);
-      if (!p.loading) { clearInterval(iv); res.end(); }
+      if (!p.loading) { cleanup(); res.end(); }
     };
 
     send(); // send immediately
     const iv = setInterval(send, 400);
-    req.on('close', () => clearInterval(iv));
+    // Heartbeat comment so proxies don't buffer/drop an otherwise-idle connection.
+    const hb = setInterval(() => res.write(': keepalive\n\n'), 15_000);
+    // Hard cap so a stuck load can't keep a connection (and its timers) alive forever.
+    const maxLife = setTimeout(() => { cleanup(); res.end(); }, 5 * 60 * 1000);
+
+    req.on('close', cleanup);
   });
 
   // GET /api/channels/health — stream error counts per channel

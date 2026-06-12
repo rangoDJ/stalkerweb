@@ -166,10 +166,16 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext
 
   const { visibleItems, totalHeight, offsetY } = useVirtualList(filtered, scrollRef)
 
-  // Scroll active channel into view when it changes
+  // Read `filtered` through a ref so the auto-scroll effect can use the current
+  // list without depending on it — otherwise it re-fires on every search keystroke
+  // or favs/genre change and yanks the view back to the playing channel.
+  const filteredRef = useRef(filtered)
+  useEffect(() => { filteredRef.current = filtered }, [filtered])
+
+  // Scroll active channel into view only when the active channel itself changes.
   useEffect(() => {
     if (!activeId || !scrollRef.current) return
-    const idx = filtered.findIndex(ch => String(ch.uniqueId) === String(activeId))
+    const idx = filteredRef.current.findIndex(ch => String(ch.uniqueId) === String(activeId))
     if (idx === -1) return
     const el = scrollRef.current
     const itemTop = idx * ROW_H
@@ -177,7 +183,7 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext
     if (itemTop < el.scrollTop || itemBottom > el.scrollTop + el.clientHeight) {
       el.scrollTo({ top: itemTop - el.clientHeight / 2 + ROW_H / 2, behavior: 'smooth' })
     }
-  }, [activeId, filtered])
+  }, [activeId])
 
   function selectGroup(id) {
     setGroup(id)
@@ -238,7 +244,10 @@ function ChannelList({ channels, activeId, logoMap, favoriteIds, groups, nowNext
       </div>
 
       {/* ── Channel rows (virtualized) ── */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+      {/* overflow-anchor:none — stop the browser's scroll anchoring from fighting
+          virtualization (rows mount/unmount as we scroll), which otherwise sends
+          scrollTop into an oscillation when auto-scrolling to the active channel. */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto [overflow-anchor:none]">
         {filtered.length === 0 ? (
           <p className="px-3 py-4 text-xs text-[var(--color-muted)] text-center">
             {favsOnly ? 'No favorites in this view.' : 'No channels found.'}
@@ -379,8 +388,14 @@ export default function PlayerPage() {
   // Persist sidebar visibility
   useEffect(() => { savePlayerPrefs({ showList }) }, [showList])
 
+  // Fetch now/next EPG and refresh it periodically so the sidebar's "now
+  // playing" titles and progress bars don't freeze during a long session.
   useEffect(() => {
-    getNowNext().then(setNowNext).catch(() => {})
+    let cancelled = false
+    const refresh = () => getNowNext().then(d => { if (!cancelled) setNowNext(d) }).catch(() => {})
+    refresh()
+    const id = setInterval(refresh, 5 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // Effect: fetch initial (partial) data + subscribe to full-data updates
@@ -701,8 +716,8 @@ export default function PlayerPage() {
 
         {status === 'paused' && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="rounded-full bg-black/50 p-5">
-              <Play size={36} className="text-white" fill="currentColor" />
+            <div className="rounded-full bg-black/40 backdrop-blur-sm ring-1 ring-white/15 p-6 shadow-[0_0_48px_-8px_var(--color-primary-glow)]">
+              <Play size={40} className="text-white" fill="currentColor" />
             </div>
           </div>
         )}

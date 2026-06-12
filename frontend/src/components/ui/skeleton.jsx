@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 function Skeleton({ className, ...props }) {
   return (
     <div
-      className={cn('animate-pulse rounded-[var(--radius-md)] bg-[var(--color-surface-2)]', className)}
+      className={cn('skeleton-shimmer rounded-[var(--radius-md)] bg-[var(--color-surface-2)]', className)}
       {...props}
     />
   )
