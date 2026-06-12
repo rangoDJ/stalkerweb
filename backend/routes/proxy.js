@@ -16,26 +16,67 @@ const express = require('express');
 const axios = require('axios');
 const http  = require('http');
 const https = require('https');
+const crypto = require('crypto');
 const log = require('../logger');
 const { channelIdRules, hlsUrlRules } = require('../middleware/validate');
 const TAG = 'proxy';
 
-// Dedicated HTTP client for CDN stream/segment fetches with a PERSISTENT
+// Dedicated HTTP clients for CDN stream/segment fetches with a PERSISTENT
 // keep-alive connection. Captured STBemu traffic shows it serves a whole movie
 // (master playlist → media playlist → every segment) over a SINGLE TCP
 // connection; these VOD CDNs allow one connection per token and hang any extra
 // one. The portal's cookie-jar client (axios-cookiejar-support) creates a fresh
 // agent — i.e. a new connection — per request, so the master succeeded but the
 // very next fetch opened a second connection that the CDN stalled until timeout.
-// maxSockets:1 funnels all stream fetches through one reused socket, like a STB.
+// maxSockets:1 funnels each stream's fetches through one reused socket, like a STB.
 // No cookie jar: stream CDNs are IP hosts and authenticate via the URL token, so
 // the jar never sent cookies to them anyway.
+//
+// One agent PER STREAM (keyed by CDN origin + playlist directory) rather than a
+// single global agent: the "one socket per token" rule is per-stream, so a global
+// maxSockets:1 would force every concurrent viewer/stream to contend for the same
+// socket and stall. Keying by the directory groups a stream's master/media
+// playlists and all its segments onto one socket while isolating distinct streams.
 const streamAgentOpts = { keepAlive: true, maxSockets: 1, maxFreeSockets: 1 };
-const streamHttp = axios.create({
-  httpAgent:  new http.Agent(streamAgentOpts),
-  httpsAgent: new https.Agent(streamAgentOpts),
-  maxRedirects: 5,
-});
+const STREAM_CLIENT_TTL_MS = 60_000;
+const streamClients = new Map(); // key → { client, httpAgent, httpsAgent, timer }
+
+// Groups all parts of a single stream (playlist + its segments live under the
+// same directory) under one key, while different streams get different keys.
+function streamClientKey(url) {
+  try {
+    const u = new URL(url);
+    const dir = u.pathname.replace(/[^/]*$/, ''); // strip the filename
+    return `${u.protocol}//${u.host}${dir}`;
+  } catch {
+    return url;
+  }
+}
+
+function getStreamClient(url) {
+  const key = streamClientKey(url);
+  let entry = streamClients.get(key);
+  if (!entry) {
+    const httpAgent  = new http.Agent(streamAgentOpts);
+    const httpsAgent = new https.Agent(streamAgentOpts);
+    entry = {
+      client: axios.create({ httpAgent, httpsAgent, maxRedirects: 5 }),
+      httpAgent,
+      httpsAgent,
+      timer: null,
+    };
+    streamClients.set(key, entry);
+  }
+  // Idle-evict so sockets for finished streams don't accumulate.
+  clearTimeout(entry.timer);
+  entry.timer = setTimeout(() => {
+    streamClients.delete(key);
+    entry.httpAgent.destroy();
+    entry.httpsAgent.destroy();
+  }, STREAM_CLIENT_TTL_MS);
+  if (entry.timer.unref) entry.timer.unref();
+  return entry.client;
+}
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
 
@@ -64,7 +105,10 @@ function isPlaylistUrl(url) {
 //                                                   segment extension check here)
 // Segments       → /proxy/hls/seg/<encoded>.ts     (passes FFmpeg's whitelist)
 // URI="" attrs   → /proxy/hls?url=<encoded>        (keys, maps — not segments)
-function rewriteM3u8(body, playlistUrl, proxyOrigin) {
+// `secret` (optional) enables HMAC signing of the emitted proxy URLs. Omitted
+// in unit tests; always provided in production via proxyModule's per-process key.
+function rewriteM3u8(body, playlistUrl, proxyOrigin, secret = null) {
+  const sig = (abs) => (secret ? signProxyUrl(abs, secret) : null);
   return body
     .split('\n')
     .map(line => {
@@ -76,16 +120,19 @@ function rewriteM3u8(body, playlistUrl, proxyOrigin) {
       if (trimmed.startsWith('#')) {
         return line.replace(/URI="([^"]+)"/gi, (_, uri) => {
           const abs = resolveUrl(uri, playlistUrl);
-          return `URI="${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}"`;
+          const s = sig(abs);
+          return `URI="${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}${s ? `&sig=${s}` : ''}"`;
         });
       }
 
       // URL line — choose format based on whether it's a playlist or segment
       const abs = resolveUrl(trimmed, playlistUrl);
+      const s = sig(abs);
       if (isPlaylistUrl(abs)) {
-        return `${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}`;
+        return `${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}${s ? `&sig=${s}` : ''}`;
       }
-      return `${proxyOrigin}/proxy/hls/seg/${encodeProxyUrl(abs)}.ts`;
+      // .ts stays the path suffix (FFmpeg's extension check); sig rides the query.
+      return `${proxyOrigin}/proxy/hls/seg/${encodeProxyUrl(abs)}.ts${s ? `?sig=${s}` : ''}`;
     })
     .join('\n');
 }
@@ -94,15 +141,34 @@ function isM3u8Body(text) {
   return text.includes('#EXTM3U') || text.includes('#EXT-X-');
 }
 
+// HMAC-sign the absolute target URL so the /hls* fetch routes only honor URLs
+// this server actually emitted — closing the SSRF/forged-URL hole where a caller
+// could base64-encode any URL and have the server fetch it. The secret is
+// per-process (see proxyModule), so URLs naturally expire on restart.
+function signProxyUrl(realUrl, secret) {
+  return crypto.createHmac('sha256', secret).update(realUrl).digest('base64url');
+}
+
 // ── Shared fetch helper ───────────────────────────────────────────────────────
 
 // Note: the first arg is kept for signature/test compatibility but ignored —
-// stream fetches always go through the persistent keep-alive streamHttp client,
-// never the portal's per-request cookie-jar client.
+// stream fetches always go through a persistent keep-alive client keyed to the
+// stream, never the portal's per-request cookie-jar client.
 async function fetchFromPortal(_httpClient, headers, url, timeoutMs = 15_000) {
-  return streamHttp.get(url, {
+  return getStreamClient(url).get(url, {
     headers,
     responseType: 'arraybuffer',
+    timeout: timeoutMs,
+    validateStatus: () => true,
+  });
+}
+
+// Like fetchFromPortal but returns a readable stream instead of buffering the
+// whole body — used for segments so .ts data never lands in the Node heap.
+async function fetchStreamFromPortal(headers, url, timeoutMs = 15_000) {
+  return getStreamClient(url).get(url, {
+    headers,
+    responseType: 'stream',
     timeout: timeoutMs,
     validateStatus: () => true,
   });
@@ -111,10 +177,23 @@ async function fetchFromPortal(_httpClient, headers, url, timeoutMs = 15_000) {
 // ── Route factory ─────────────────────────────────────────────────────────────
 
 // Exported for unit tests
-module.exports.helpers = { encodeProxyUrl, decodeProxyUrl, rewriteM3u8, isPlaylistUrl, resolveUrl, isM3u8Body, fetchFromPortal }
+module.exports.helpers = { encodeProxyUrl, decodeProxyUrl, rewriteM3u8, isPlaylistUrl, resolveUrl, isM3u8Body, fetchFromPortal, signProxyUrl }
 
 module.exports = function proxyModule(appState) {
   const router = express.Router();
+
+  // Per-process key for signing rewritten proxy URLs. Random so it never needs
+  // configuring; URLs are short-lived (live HLS) so expiry-on-restart is fine.
+  const proxySecret = crypto.randomBytes(32);
+
+  // Verify a client-supplied (realUrl, sig) pair was emitted by us. Constant-time.
+  function verifyProxySig(realUrl, sig) {
+    if (!sig) return false;
+    const expected = signProxyUrl(realUrl, proxySecret);
+    const a = Buffer.from(String(sig));
+    const b = Buffer.from(expected);
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  }
 
   function requireSession(res) {
     if (!appState.client || !appState.channelManager) {
@@ -197,7 +276,7 @@ module.exports = function proxyModule(appState) {
 
     const body = Buffer.from(response.data).toString('utf8');
     const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-    const rewritten = rewriteM3u8(body, realUrl, proxyOrigin);
+    const rewritten = rewriteM3u8(body, realUrl, proxyOrigin, proxySecret);
 
     res.set('Content-Type', 'application/vnd.apple.mpegurl');
     res.set('Cache-Control', 'no-cache, no-store');
@@ -276,6 +355,10 @@ module.exports = function proxyModule(appState) {
         return res.status(502).send(`Portal returned HTTP ${response.status}`);
       }
 
+      // If the viewer navigates away / seeks, tear down the upstream fetch so it
+      // doesn't keep draining the (maxSockets:1) stream socket to completion.
+      req.on('close', () => { if (!res.writableEnded) response.data.destroy(); });
+
       // Collect the first 512 bytes synchronously (before any await) to sniff for m3u8
       const SNIFF = 512;
       const firstChunk = await new Promise((resolve, reject) => {
@@ -305,7 +388,7 @@ module.exports = function proxyModule(appState) {
           response.data.on('error', reject);
         });
         const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-        const rewritten   = rewriteM3u8(Buffer.concat(allChunks).toString('utf8'), streamUrl, proxyOrigin);
+        const rewritten   = rewriteM3u8(Buffer.concat(allChunks).toString('utf8'), streamUrl, proxyOrigin, proxySecret);
         res.set('Content-Type', 'application/vnd.apple.mpegurl');
         res.set('Cache-Control', 'no-cache, no-store');
         res.set('Access-Control-Allow-Origin', '*');
@@ -383,7 +466,13 @@ module.exports = function proxyModule(appState) {
       return res.status(400).send('Invalid url encoding');
     }
 
-    // trusted=true: URL was embedded in an m3u8 we already proxied and rewrote.
+    // Only fetch URLs we ourselves emitted (and signed) — blocks forged-URL SSRF.
+    if (!verifyProxySig(realUrl, req.query.sig)) {
+      log.warn(TAG, 'rejected unsigned/invalid /hls url');
+      return res.status(403).send('Forbidden');
+    }
+
+    // trusted=true: the signature proves this URL came from an m3u8 we rewrote.
     // Portals deliver streams via CDNs whose hostnames differ from the portal.
     return servePlaylist(req, res, realUrl, true);
   });
@@ -406,8 +495,12 @@ module.exports = function proxyModule(appState) {
       return res.status(400).send('Invalid url encoding');
     }
 
-    const { client } = appState;
-    const http = client.getHttpClient();
+    // Only fetch URLs we ourselves emitted (and signed) — blocks forged-URL SSRF.
+    if (!verifyProxySig(realUrl, req.query.sig)) {
+      log.warn(TAG, 'rejected unsigned/invalid segment url');
+      return res.status(403).send('Forbidden');
+    }
+
     const headers = getHeadersForUrl(realUrl);
     // STBemu requests media segments with Accept-Encoding: identity (it only
     // uses gzip for the playlists). Match that exactly for .ts/.aac/.m4s fetches.
@@ -415,36 +508,78 @@ module.exports = function proxyModule(appState) {
 
     let response;
     try {
-      response = await fetchFromPortal(http, headers, realUrl);
+      response = await fetchStreamFromPortal(headers, realUrl);
     } catch (e) {
       log.error(TAG, `segment fetch failed: ${e.message}`);
       return res.status(502).send(`Fetch failed: ${e.message}`);
     }
 
+    // If the viewer aborts (seek/switch/close), tear down the upstream fetch so
+    // it doesn't keep occupying the per-stream (maxSockets:1) socket.
+    req.on('close', () => { if (!res.writableEnded) response.data?.destroy(); });
+
     if (response.status === 403 || response.status === 404) {
+      response.data.destroy();
       log.warn(TAG, `portal returned ${response.status} on segment — stream may have expired`);
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
     if (response.status >= 400) {
+      response.data.destroy();
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
 
-    // Check if portal unexpectedly returned a playlist instead of a segment
-    const buf = Buffer.from(response.data);
-    const head = buf.toString('utf8', 0, 64);
+    // Sniff the first chunk in case the portal unexpectedly returns a playlist
+    // instead of a segment, without buffering the whole (potentially large) body.
+    const SNIFF = 64;
+    let firstChunk;
+    try {
+      firstChunk = await new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+        const stream = response.data;
+        const cleanup = () => { stream.off('data', onData); stream.off('end', onEnd); stream.off('error', onError); };
+        const onData  = (chunk) => { chunks.push(chunk); size += chunk.length; if (size >= SNIFF) { stream.pause(); cleanup(); resolve(Buffer.concat(chunks)); } };
+        const onEnd   = () => { cleanup(); resolve(Buffer.concat(chunks)); };
+        const onError = (e) => { cleanup(); reject(e); };
+        stream.on('data', onData).once('end', onEnd).once('error', onError);
+      });
+    } catch (e) {
+      log.error(TAG, `segment read failed: ${e.message}`);
+      return res.status(502).send(`Fetch failed: ${e.message}`);
+    }
+
+    const head = firstChunk.toString('utf8', 0, 64);
     if (isM3u8Body(head)) {
+      // Rare: portal returned a playlist here. These are tiny — buffer the rest.
+      const rest = [firstChunk];
+      response.data.resume();
+      try {
+        await new Promise((resolve, reject) => {
+          response.data.on('data', c => rest.push(c));
+          response.data.once('end', resolve);
+          response.data.once('error', reject);
+        });
+      } catch (e) {
+        log.error(TAG, `segment playlist read failed: ${e.message}`);
+        return res.status(502).send(`Fetch failed: ${e.message}`);
+      }
       const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-      const rewritten = rewriteM3u8(buf.toString('utf8'), realUrl, proxyOrigin);
+      const rewritten = rewriteM3u8(Buffer.concat(rest).toString('utf8'), realUrl, proxyOrigin, proxySecret);
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Cache-Control', 'no-cache, no-store');
       res.set('Access-Control-Allow-Origin', '*');
       return res.send(rewritten);
     }
 
+    // Binary segment — pipe straight through so it never lands in the Node heap.
     const ct = response.headers['content-type'] || 'video/MP2T';
     res.set('Content-Type', ct);
     res.set('Access-Control-Allow-Origin', '*');
-    res.send(buf);
+    if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
+    res.write(firstChunk);
+    response.data.resume();
+    response.data.on('error', err => { log.error(TAG, `segment pipe error: ${err.message}`); res.destroy(); });
+    response.data.pipe(res);
   });
 
   return router;

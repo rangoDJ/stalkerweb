@@ -3,11 +3,15 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import Hls from 'hls.js'
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
-  ChevronLeft, AlertCircle, Loader2, Clock, Calendar,
+  ChevronLeft, AlertCircle, Loader2, Clock, Calendar, X,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
 import { getVodStreamUrl } from '../stalkerApi'
+import {
+  makeVodKey, getVodProgress, saveVodProgress,
+  VOD_RESUME_MIN_SECS, VOD_DONE_FRACTION,
+} from '@/lib/vodProgress'
 
 function formatTime(secs) {
   if (!isFinite(secs) || secs < 0) return '0:00'
@@ -49,9 +53,70 @@ export default function VodPlayerPage() {
   const [duration, setDuration]       = useState(0)
   const [showControls, setShowControls] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [resumedFrom, setResumedFrom] = useState(0) // >0 → show "resumed" banner
 
   useEffect(() => { volumeRef.current = volume }, [volume])
   useEffect(() => { mutedRef.current  = muted  }, [muted])
+
+  // ── Continue Watching: persist position + resume ──────────────────────────
+  const progressKey = makeVodKey({ videoId, seasonId, episodeId })
+
+  // Latest metadata for the saver, read through a ref so the save interval
+  // doesn't need to re-bind when params change (router reuses this component).
+  const metaRef = useRef({})
+  useEffect(() => {
+    metaRef.current = {
+      key:           progressKey,
+      title:         displayTitle,
+      screenshotUrl: searchParams.get('screenshotUrl') ? decodeURIComponent(searchParams.get('screenshotUrl')) : '',
+      params:        searchParams.toString(),
+    }
+  }, [progressKey, displayTitle, searchParams])
+
+  // Write current position to the store (auto-prunes when finished/barely-started).
+  const persist = useCallback(() => {
+    const v = videoRef.current
+    if (!v || !v.duration || !isFinite(v.duration)) return
+    saveVodProgress({ ...metaRef.current, position: v.currentTime, duration: v.duration })
+  }, [])
+
+  // Save every 10s while playing, and once more on unmount / title change.
+  useEffect(() => {
+    const id = setInterval(() => { if (!videoRef.current?.paused) persist() }, 10_000)
+    return () => { clearInterval(id); persist() }
+  }, [persist, progressKey])
+
+  // Resume once per title, after the duration is known. Re-runs if the user
+  // navigates to a different title without the component remounting.
+  const resumedKeyRef = useRef(null)
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v || !duration || resumedKeyRef.current === progressKey) return
+    resumedKeyRef.current = progressKey
+    const saved = getVodProgress(progressKey)
+    if (saved && saved.position >= VOD_RESUME_MIN_SECS && saved.position < duration * VOD_DONE_FRACTION) {
+      try { v.currentTime = saved.position } catch { /* seek rejected */ }
+      setResumedFrom(saved.position)
+    } else {
+      setResumedFrom(0)
+    }
+  }, [progressKey, duration])
+
+  // Auto-hide the "resumed" banner after a few seconds.
+  useEffect(() => {
+    if (!resumedFrom) return
+    const t = setTimeout(() => setResumedFrom(0), 8000)
+    return () => clearTimeout(t)
+  }, [resumedFrom])
+
+  // Also capture the position the moment playback pauses.
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const onPause = () => persist()
+    v.addEventListener('pause', onPause)
+    return () => v.removeEventListener('pause', onPause)
+  }, [persist])
 
   // Fetch + load stream
   useEffect(() => {
@@ -222,6 +287,22 @@ export default function VodPlayerPage() {
           </span>
         </div>
 
+        {/* Resumed-from banner */}
+        {resumedFrom > 0 && status !== 'loading' && status !== 'error' && (
+          <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3 px-3 py-1.5 rounded-full bg-black/75 backdrop-blur-sm text-white text-xs shadow-lg">
+            <span>Resumed from {formatTime(resumedFrom)}</span>
+            <button
+              onClick={() => { const v = videoRef.current; if (v) v.currentTime = 0; setResumedFrom(0) }}
+              className="text-[var(--color-primary-light)] hover:underline font-medium"
+            >
+              Start over
+            </button>
+            <button onClick={() => setResumedFrom(0)} aria-label="Dismiss" className="text-white/60 hover:text-white">
+              <X size={12} />
+            </button>
+          </div>
+        )}
+
         {/* Video element */}
         <div
           className="flex-1 flex items-center justify-center cursor-pointer"
@@ -255,8 +336,8 @@ export default function VodPlayerPage() {
         {/* Paused icon */}
         {status === 'paused' && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="rounded-full bg-black/50 p-5">
-              <Play size={36} className="text-white" fill="currentColor" />
+            <div className="rounded-full bg-black/40 backdrop-blur-sm ring-1 ring-white/15 p-6 shadow-[0_0_48px_-8px_var(--color-primary-glow)]">
+              <Play size={40} className="text-white" fill="currentColor" />
             </div>
           </div>
         )}

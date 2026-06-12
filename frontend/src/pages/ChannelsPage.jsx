@@ -1,21 +1,29 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Tv2, AlertCircle, RefreshCw, Heart, Clock, X, Image, Check } from 'lucide-react'
+import { Search, Tv2, AlertCircle, AlertTriangle, RefreshCw, Heart, Clock, X, Image, Check } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { SkeletonGrid } from '@/components/ui/skeleton'
-import { getChannelProgress, getProxiedLogoUrl, getNowNext, addLogoOverride, getLogoMap } from '../stalkerApi'
+import { getChannelProgress, getProxiedLogoUrl, getNowNext, addLogoOverride, getLogoMap, getChannelHealth } from '../stalkerApi'
 import { getRecentlyWatched, removeRecentlyWatched } from '@/lib/recentlyWatched'
 import { useApp } from '@/lib/appContext'
 import { getCachedChannelData, subscribeChannelUpdates } from '@/lib/channelCache'
 import { useFavorites } from '@/lib/useFavorites'
 
+// Channels with at least this many recent (unresolved) stream errors are "flaky".
+const FLAKY_THRESHOLD = 2
+
+function healthTitle(errors) {
+  return `${errors} recent stream ${errors === 1 ? 'failure' : 'failures'} — may not play`
+}
+
 // ── Channel card ──────────────────────────────────────────────────────────
-function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, onSetLogo, compact, nowNext }) {
+function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, onSetLogo, compact, nowNext, health }) {
   const [imgError, setImgError] = useState(false)
   const logo = logoUrl || getProxiedLogoUrl(channel.iconPath) || ''
+  const errors = health?.errors || 0
 
   const epgProgress = nowNext?.now
     ? Math.min(100, Math.round(((Math.floor(Date.now() / 1000) - nowNext.now.startTime) /
@@ -26,8 +34,13 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
     return (
       <button
         onClick={() => onClick(channel)}
-        className="group relative flex flex-col items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-2.5 text-left transition-all duration-200 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] cursor-pointer w-20 shrink-0"
+        className="surface-card group relative flex flex-col items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-2.5 text-left hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] cursor-pointer w-20 shrink-0"
       >
+        {errors > 0 && (
+          <span className="absolute top-1 left-1 z-10 text-amber-400" title={healthTitle(errors)}>
+            <AlertTriangle size={11} fill="currentColor" className="drop-shadow" />
+          </span>
+        )}
         <div className="relative group/logo flex h-10 w-10 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
           {logo && !imgError
             ? <img src={logo} alt={channel.name} loading="lazy" onError={() => setImgError(true)} className="h-full w-full object-contain p-0.5" />
@@ -50,7 +63,7 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
   return (
     <button
       onClick={() => onClick(channel)}
-      className="group relative flex flex-col items-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 text-left transition-all duration-200 hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] hover:shadow-[0_0_16px_var(--color-primary-glow)] cursor-pointer"
+      className="surface-card group relative flex flex-col items-center gap-2.5 rounded-[var(--radius-md)] bg-[var(--color-surface)] border border-[var(--color-border)] p-4 text-left hover:border-[var(--color-primary)]/50 hover:bg-[var(--color-surface-2)] cursor-pointer"
     >
       <button
         onClick={e => { e.stopPropagation(); onToggleFavorite(channel) }}
@@ -60,6 +73,15 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
       >
         <Heart size={14} fill={isFavorite ? 'currentColor' : 'none'} />
       </button>
+      {errors > 0 && (
+        <span
+          className={cn('absolute top-2 left-2 flex items-center gap-1 text-[10px] font-medium',
+            errors >= FLAKY_THRESHOLD ? 'text-amber-400' : 'text-amber-400/70')}
+          title={healthTitle(errors)}
+        >
+          <AlertTriangle size={12} fill="currentColor" />
+        </span>
+      )}
       <div className="relative group/logo flex h-16 w-16 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--color-surface-2)] overflow-hidden">
         {logo && !imgError
           ? <img src={logo} alt={channel.name} loading="lazy" onError={() => setImgError(true)} className="h-full w-full object-contain p-1" />
@@ -120,6 +142,8 @@ export default function ChannelsPage() {
   const [progress, setProgress]       = useState(null) // { loading, page, totalPages, channelCount }
   const [recentlyWatched, setRecentlyWatched] = useState([])
   const [nowNext, setNowNext] = useState({})
+  const [health, setHealth] = useState({})        // { uniqueId: { errors, lastError } }
+  const [hideFlaky, setHideFlaky] = useState(false)
 
   // Logo assignment modal
   const [logoChannel, setLogoChannel] = useState(null)
@@ -147,6 +171,15 @@ export default function ChannelsPage() {
   useEffect(() => {
     setRecentlyWatched(getRecentlyWatched())
     getNowNext().then(setNowNext).catch(() => {})
+  }, [])
+
+  // Poll channel stream-health and refresh periodically (it self-heals on success).
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => getChannelHealth().then(h => { if (!cancelled) setHealth(h || {}) }).catch(() => {})
+    refresh()
+    const id = setInterval(refresh, 60_000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // Effect 1: fetch initial (possibly partial) data + subscribe to full-data updates.
@@ -272,10 +305,16 @@ export default function ChannelsPage() {
   const filtered = useMemo(() => {
     let result = channels
     if (activeGroup) result = result.filter(c => String(c.genreId ?? '') === String(activeGroup))
+    if (hideFlaky) result = result.filter(c => (health[String(c.uniqueId)]?.errors || 0) < FLAKY_THRESHOLD)
     if (!query.trim()) return result
     const q = query.toLowerCase()
     return result.filter(c => c.name?.toLowerCase().includes(q))
-  }, [channels, activeGroup, query])
+  }, [channels, activeGroup, query, hideFlaky, health])
+
+  const flakyCount = useMemo(
+    () => channels.reduce((n, c) => n + ((health[String(c.uniqueId)]?.errors || 0) >= FLAKY_THRESHOLD ? 1 : 0), 0),
+    [channels, health]
+  )
 
   function selectGroup(id) {
     setQuery('')
@@ -293,7 +332,7 @@ export default function ChannelsPage() {
   )
 
   return (
-    <div className="flex flex-col h-[calc(100vh-3.5rem)]">
+    <div className="fade-in flex flex-col h-[calc(100vh-3.5rem)]">
       {/* Number jump overlay */}
       {jumpDigits && <NumberJumpOverlay digits={jumpDigits} />}
 
@@ -304,21 +343,36 @@ export default function ChannelsPage() {
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--color-muted)] pointer-events-none" />
             <Input placeholder="Search channels…" value={query} onChange={e => setQuery(e.target.value)} className="pl-9 py-5" />
           </div>
-          <span className="shrink-0 text-sm font-medium text-[var(--color-muted)] bg-[var(--color-surface-2)] px-3 py-1 rounded-md">
-            {filtered.length} {filtered.length === 1 ? 'channel' : 'channels'}
-          </span>
+          <div className="flex items-center gap-2 shrink-0">
+            {flakyCount > 0 && (
+              <button
+                onClick={() => setHideFlaky(v => !v)}
+                title={hideFlaky ? 'Show all channels' : `Hide ${flakyCount} channel${flakyCount === 1 ? '' : 's'} with recent stream failures`}
+                className={cn('flex items-center gap-1.5 px-3 py-1 rounded-md text-sm font-medium border transition-colors',
+                  hideFlaky
+                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-400'
+                    : 'bg-[var(--color-surface-2)] border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-text)]')}
+              >
+                <AlertTriangle size={13} fill={hideFlaky ? 'currentColor' : 'none'} />
+                {hideFlaky ? 'Flaky hidden' : `Hide flaky (${flakyCount})`}
+              </button>
+            )}
+            <span className="text-sm font-medium text-[var(--color-muted)] bg-[var(--color-surface-2)] px-3 py-1 rounded-md">
+              {filtered.length} {filtered.length === 1 ? 'channel' : 'channels'}
+            </span>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => selectGroup('')}
-            className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all shadow-sm',
-              !activeGroup ? 'bg-[var(--color-primary)] text-white ring-2 ring-[var(--color-primary)] ring-offset-2 ring-offset-[var(--color-bg)]' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
+            className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
+              !activeGroup ? 'btn-gradient text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
           >All</button>
           {groups.map(g => (
             <button key={g.id} onClick={() => selectGroup(g.id)}
-              className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all shadow-sm whitespace-nowrap',
-                activeGroup === String(g.id) ? 'bg-[var(--color-primary)] text-white ring-2 ring-[var(--color-primary)] ring-offset-2 ring-offset-[var(--color-bg)]' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
+              className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap',
+                activeGroup === String(g.id) ? 'btn-gradient text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
             >{g.name}</button>
           ))}
       </div>
@@ -345,6 +399,7 @@ export default function ChannelsPage() {
                     onClick={openChannel}
                     onSetLogo={ch => { setLogoChannel(ch); setLogoUrl(''); setLogoSearch(ch.name); setLogoResult(null) }}
                     compact
+                    health={health[String(r.uniqueId)]}
                   />
                   <button
                     onClick={() => removeRecentChannel(r.uniqueId)}
@@ -410,6 +465,7 @@ export default function ChannelsPage() {
                 onClick={openChannel}
                 onSetLogo={ch => { setLogoChannel(ch); setLogoUrl(''); setLogoSearch(ch.name); setLogoResult(null) }}
                 nowNext={nowNext[String(ch.uniqueId)]}
+                health={health[String(ch.uniqueId)]}
               />
             ))}
           </div>

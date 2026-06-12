@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { helpers } from '../routes/proxy.js'
 
-const { encodeProxyUrl, decodeProxyUrl, rewriteM3u8, isPlaylistUrl, resolveUrl, isM3u8Body } = helpers
+const { encodeProxyUrl, decodeProxyUrl, rewriteM3u8, isPlaylistUrl, resolveUrl, isM3u8Body, signProxyUrl } = helpers
 
 describe('encodeProxyUrl / decodeProxyUrl', () => {
   it('round-trips a URL', () => {
@@ -87,5 +87,29 @@ describe('rewriteM3u8', () => {
     const result = rewriteM3u8(input, PLAYLIST_URL, ORIGIN)
     expect(result).toContain('#EXT-X-VERSION:3')
     expect(result).toContain('# comment line')
+  })
+
+  it('omits signatures when no secret is given', () => {
+    const input = '#EXTM3U\n#EXTINF:10,\nseg.ts\nsub.m3u8\n'
+    const result = rewriteM3u8(input, PLAYLIST_URL, ORIGIN)
+    expect(result).not.toContain('sig=')
+  })
+
+  it('appends a valid HMAC signature for segment and playlist URLs when a secret is given', () => {
+    const secret = 'test-secret'
+    const input = '#EXTM3U\n#EXTINF:10,\nseg.ts\n#EXT-X-STREAM-INF:BANDWIDTH=1\nsub.m3u8\n'
+    const lines = rewriteM3u8(input, PLAYLIST_URL, ORIGIN, secret).split('\n')
+
+    const segLine = lines.find(l => l.includes('/proxy/hls/seg/'))
+    const subLine = lines.find(l => l.includes('/proxy/hls?url='))
+
+    // segment keeps the .ts path suffix with sig in the query
+    expect(segLine).toMatch(/\/proxy\/hls\/seg\/.+\.ts\?sig=.+$/)
+    // signature must match what the server will recompute from the decoded URL
+    const segAbs = resolveUrl('seg.ts', PLAYLIST_URL)
+    expect(segLine).toContain(`sig=${signProxyUrl(segAbs, secret)}`)
+
+    const subAbs = resolveUrl('sub.m3u8', PLAYLIST_URL)
+    expect(subLine).toContain(`&sig=${signProxyUrl(subAbs, secret)}`)
   })
 })
