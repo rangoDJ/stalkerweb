@@ -69,3 +69,19 @@ export function setProfileGenres(id, genres) {
   saveProfiles(updated)
   return updated
 }
+
+// One-time migration: genre filters used to live in the backend's global
+// settings (disabled_genres). Now they're strictly per-profile. On first run,
+// seed the active profile from that legacy global list if the profile has none
+// yet, then never touch it again (so a user who deliberately clears all genres
+// isn't re-seeded on the next load). Idempotent via a localStorage flag.
+const GENRES_MIGRATED_KEY = 'stalkerweb_genres_migrated'
+
+export function migrateGlobalGenresToActiveProfile(globalGenres) {
+  if (localStorage.getItem(GENRES_MIGRATED_KEY)) return
+  const id = getActiveProfileId()
+  if (id && Array.isArray(globalGenres) && globalGenres.length && !getProfileGenres(id).length) {
+    setProfileGenres(id, globalGenres)
+  }
+  localStorage.setItem(GENRES_MIGRATED_KEY, '1')
+}

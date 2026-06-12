@@ -5,7 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
 import { getStatus, getSettings } from './stalkerApi'
-import { getActiveProfileId, getProfileGenres } from '@/lib/profiles'
+import { getActiveProfileId, getProfileGenres, migrateGlobalGenresToActiveProfile } from '@/lib/profiles'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastHost } from '@/components/ToastHost'
 import { ReminderBell } from '@/components/ReminderBell'
@@ -174,13 +174,12 @@ function AppInner() {
         setConnected(status.connected)
         setEpgEnabled(settings.epg_enabled !== false)
         setShowAdult(!!settings.show_adult)
-        // Genre filters are per-profile (localStorage). Fall back to the
-        // backend's global list only if the active profile has none set yet.
+        // Genre filters are strictly per-profile (localStorage). Migrate the
+        // legacy global list onto the active profile once, then read only from
+        // the active profile — an empty list means "no filters", not "inherit".
+        migrateGlobalGenresToActiveProfile(settings.disabled_genres)
         const activeId = getActiveProfileId()
-        const profileGenres = activeId ? getProfileGenres(activeId) : null
-        setDisabledGenres(new Set(
-          profileGenres && profileGenres.length ? profileGenres : (settings.disabled_genres ?? [])
-        ))
+        setDisabledGenres(new Set(activeId ? getProfileGenres(activeId) : []))
         if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)
         if (status.lastActivityAt) updateIdleInfo(status.lastActivityAt, status.idleTimeoutMs)
       } catch {
