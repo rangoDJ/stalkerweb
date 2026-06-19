@@ -48,7 +48,7 @@ function Field({ label, id, hint, children }) {
 
 function Card({ title, description, children, className }) {
   return (
-    <div className={cn('rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 flex flex-col gap-5', className)}>
+    <div className={cn('glass rounded-[var(--radius-lg)] p-6 flex flex-col gap-5', className)}>
       <div>
         <h2 className="font-semibold text-[var(--color-text)]">{title}</h2>
         {description && <p className="text-sm text-[var(--color-muted)] mt-0.5">{description}</p>}
@@ -138,7 +138,7 @@ function ProfileSheet({ initial, onSave, onClose }) {
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* panel */}
-      <div className="relative z-10 w-full sm:max-w-lg max-h-[92vh] flex flex-col rounded-t-2xl sm:rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden">
+      <div className="glass-strong relative z-10 w-full sm:max-w-lg max-h-[92vh] flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden">
 
         {/* header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] shrink-0">
@@ -840,7 +840,7 @@ export default function SetupPage() {
         </Card>
 
         {/* ── Channel Logos ─────────────────────────────────────────────────── */}
-        <Card title="Channel Logos" description="Logos are matched automatically from the iptv-org database. Add manual overrides for channels that don't match.">
+        <Card title="Channel Logos" description="Logos come from your Stalker portal by default. Optionally fetch the iptv-org database to fill in logos for channels the portal doesn't provide, and add manual overrides per channel.">
           {logoNotice && (
             <div className={cn('flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs',
               logoNotice.type === 'success'
@@ -862,7 +862,7 @@ export default function SetupPage() {
               </div>
               {logoStats?.total_channels > 0 && (
                 <span className={cn('text-xs ml-5', logoStats.matched_channels > 0 ? 'text-[var(--color-success)]' : 'text-[var(--color-live)]')}>
-                  {logoStats.matched_channels} of {logoStats.total_channels} channels matched
+                  {logoStats.matched_channels} of {logoStats.total_channels} channels matched by iptv-org/overrides
                 </span>
               )}
             </div>

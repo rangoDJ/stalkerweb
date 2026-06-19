@@ -31,8 +31,8 @@ function NavItem({ to, icon: Icon, label }) {
         cn(
           'flex items-center gap-2 px-3 py-1.5 rounded-[var(--radius-md)] text-sm font-medium transition-all duration-150',
           isActive
-            ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary-light)] shadow-[inset_0_0_0_1px_var(--color-primary-glow)]'
-            : 'text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)]'
+            ? 'bg-[var(--color-primary)]/15 text-[var(--color-primary-light)] shadow-[inset_0_0_0_1px_var(--color-primary-glow),0_4px_16px_-6px_var(--color-primary-glow)]'
+            : 'text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)]/70'
         )
       }
     >
@@ -99,7 +99,7 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
   const { reminders, removeReminder } = useReminders()
 
   return (
-    <header className="fixed top-0 inset-x-0 z-40 h-14 flex items-center px-6 gap-6 border-b border-[var(--color-border)] bg-[var(--color-bg)]/90 backdrop-blur-sm">
+    <header className="fixed top-0 inset-x-0 z-40 h-14 flex items-center px-6 gap-6 border-b border-[var(--glass-border)] bg-[var(--color-bg)]/55 backdrop-blur-2xl backdrop-saturate-150 shadow-[0_4px_24px_-12px_rgba(0,0,0,0.7)]">
       <div className="flex items-center gap-2 shrink-0">
         <svg width="20" height="20" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" className="shrink-0 text-[var(--color-primary-light)]">
             <path d="M 3 25 A 13 13 0 0 0 29 25" stroke="currentColor" strokeWidth="2" strokeLinecap="round" opacity="0.35"/>
@@ -107,7 +107,7 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
             <path d="M 11 25 A 5 5 0 0 0 21 25" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"/>
             <circle cx="16" cy="25" r="2.5" fill="currentColor"/>
           </svg>
-        <span className="font-display font-semibold text-base text-[var(--color-text)]">StalkerWeb</span>
+        <span className="font-display font-semibold text-base text-gradient">StalkerWeb</span>
       </div>
 
       {connected && (
