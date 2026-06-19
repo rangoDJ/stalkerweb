@@ -77,7 +77,16 @@ class LogoManager {
 
   // ── Public ─────────────────────────────────────────────────────────────────
 
+  // Combined resolver kept for diagnostics (checkName) and the match-count stat:
+  // a manual override wins, otherwise the iptv-org database match (if loaded).
+  // NOTE: this deliberately does NOT include the portal logo — callers that
+  // build the channel→logo map compose override → portal → iptv-org themselves.
   getLogo(channelName) {
+    return this.resolveOverride(channelName) || this.resolveDbLogo(channelName);
+  }
+
+  // Manual per-channel override (data/logos.json). Always honored, top priority.
+  resolveOverride(channelName) {
     const overrides  = this._getOverrides();
     const stripWords = this._getStripWords();
 
@@ -85,20 +94,24 @@ class LogoManager {
     if (overrides[channelName]) return overrides[channelName];
 
     // 2. Normalized override — try both the original name and the stripped name
-    const norm        = normName(channelName);
-    const stripped    = applyStripWords(channelName, stripWords);
-    const normStripped = normName(stripped);
-
+    const norm         = normName(channelName);
+    const normStripped = normName(applyStripWords(channelName, stripWords));
     for (const [k, v] of Object.entries(overrides)) {
       const kn = normName(k);
       if (kn === norm || kn === normStripped) return v;
     }
-
-    // 3. iptv-org map — try stripped name first (more specific), then original
-    if (this._logoMap) {
-      return this._logoMap.get(normStripped) || this._logoMap.get(norm) || '';
-    }
     return '';
+  }
+
+  // iptv-org database match. Only non-empty once the DB has been loaded, which
+  // now happens solely via a user-triggered refresh() — never auto-downloaded.
+  resolveDbLogo(channelName) {
+    if (!this._logoMap) return '';
+    const stripWords   = this._getStripWords();
+    const norm         = normName(channelName);
+    const normStripped = normName(applyStripWords(channelName, stripWords));
+    // Try stripped name first (more specific), then original
+    return this._logoMap.get(normStripped) || this._logoMap.get(norm) || '';
   }
 
   checkName(name) {
@@ -134,9 +147,13 @@ class LogoManager {
     this._saveStripWords(words);
   }
 
+  // Load a previously-downloaded iptv-org DB from disk so a prior manual fetch
+  // survives restarts — but never auto-DOWNLOAD it. iptv-org is opt-in; the
+  // primary logo source is the Stalker portal. Downloading happens only via the
+  // user-triggered refresh().
   ensureLoadedBackground() {
-    if (!this._logoMap && !this._refreshing) {
-      this._loadOrDownload(false).catch(e =>
+    if (!this._logoMap && !this._refreshing && fs.existsSync(this._mapCacheFile)) {
+      this._loadFromDisk().catch(e =>
         log.warn(TAG, `background load failed: ${e.message}`)
       );
     }

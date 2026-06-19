@@ -41,7 +41,11 @@ module.exports = function m3uModule(appState, logoManager) {
 
     for (const ch of channels) {
       const group  = groupName.get(String(ch.tvGenreId)) || '';
-      const logo   = (logoManager ? logoManager.getLogo(ch.name) : '') || ch.iconPath || '';
+      // Precedence: manual override → Stalker portal logo → iptv-org (manual fetch).
+      const logo   = (logoManager ? logoManager.resolveOverride(ch.name) : '')
+                  || ch.iconPath
+                  || (logoManager ? logoManager.resolveDbLogo(ch.name) : '')
+                  || '';
       const name   = ch.name.replace(/,/g, ' '); // commas break the EXTINF line
       const chno   = ch.number > 0 ? ` tvg-chno="${ch.number}"` : '';
 
