@@ -52,7 +52,10 @@ import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.ui.utils.rememberIsTV
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
+
+private const val MAX_STREAM_RETRIES = 2
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -80,17 +83,37 @@ fun PlayerScreen(
 
     val activeId = state.activeChannelId.ifBlank { channelId }
 
+    // Auto-retry on playback error: Stalker create_link tokens are short-lived, so
+    // a stream that errors out (expired token, transient CDN hiccup) usually plays
+    // again after re-resolving. Retry a couple of times with a short backoff before
+    // surfacing the error. The listener outlives channel switches, so read the live
+    // channel id via rememberUpdatedState and reset the budget when it changes.
+    val retryScope = rememberCoroutineScope()
+    val currentActiveId by rememberUpdatedState(activeId)
+    var retryCount by remember { mutableStateOf(0) }
+    LaunchedEffect(activeId) { retryCount = 0 }
+
     DisposableEffect(player) {
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(playing: Boolean) { isPlaying = playing }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING ||
                               playbackState == Player.STATE_IDLE
-                if (playbackState == Player.STATE_READY) playerError = null
+                if (playbackState == Player.STATE_READY) { playerError = null; retryCount = 0 }
             }
             override fun onPlayerError(error: PlaybackException) {
-                isBuffering = false
-                playerError = error.message ?: "Playback error"
+                if (retryCount < MAX_STREAM_RETRIES) {
+                    retryCount++
+                    isBuffering = true
+                    playerError = null
+                    retryScope.launch {
+                        delay(1500L * retryCount)          // brief, growing backoff
+                        viewModel.loadStream(currentActiveId)  // re-resolve (token may have expired)
+                    }
+                } else {
+                    isBuffering = false
+                    playerError = error.message ?: "Playback error"
+                }
             }
         }
         player?.addListener(listener)

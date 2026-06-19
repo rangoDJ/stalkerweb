@@ -58,11 +58,18 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
     }
 
     fun load() {
-        // Load watch history immediately so it shows before the network call finishes
+        // Render the on-disk cache immediately (channels, logos, watch history) so
+        // the list appears instantly on cold start and survives a briefly-
+        // unreachable backend; the network refresh below replaces it silently.
+        val cached      = repository.getCachedChannels()
+        val cachedLogos = repository.getCachedLogoMap()
+        val haveData    = cached.isNotEmpty() || _state.value.channels.isNotEmpty()
         _state.value = _state.value.copy(
-            loading        = true,
+            loading        = !haveData,
             error          = null,
             recentChannels = repository.getWatched(),
+            channels       = if (_state.value.channels.isEmpty()) cached else _state.value.channels,
+            logoMap        = if (_state.value.logoMap.isEmpty()) cachedLogos else _state.value.logoMap,
         )
         viewModelScope.launch {
             runCatching {
@@ -83,7 +90,12 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
                     loading     = false,
                 )
             }.onFailure { e ->
-                _state.value = _state.value.copy(loading = false, error = e.message)
+                // Keep showing cached channels if we have them; only surface a hard
+                // error when there's nothing to display.
+                _state.value = _state.value.copy(
+                    loading = false,
+                    error   = if (_state.value.channels.isEmpty()) e.message else null,
+                )
             }
         }
         // EPG fetch is best-effort — don't block or fail the channel list

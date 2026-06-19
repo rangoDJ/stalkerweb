@@ -1,6 +1,7 @@
 package com.stalkerweb.android.data.prefs
 
 import android.content.Context
+import com.stalkerweb.android.data.api.Channel
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -55,6 +56,57 @@ class AppPrefs(context: Context) {
         }.getOrDefault(emptyList())
     }
 
+    // ── Channel list + logo cache ─────────────────────────────────────────────
+    // Lets the channel/player UI render instantly on cold start (and survive a
+    // briefly-unreachable backend) while a fresh copy loads in the background.
+
+    fun cacheChannels(channels: List<Channel>) {
+        val arr = JSONArray()
+        channels.forEach { ch ->
+            arr.put(JSONObject().apply {
+                put("uniqueId", ch.uniqueId)
+                put("number", ch.number)
+                put("name", ch.name)
+                if (ch.logo != null) put("logo", ch.logo)
+                if (ch.genre != null) put("genre", ch.genre)
+                if (ch.genreId != null) put("genreId", ch.genreId)
+            })
+        }
+        prefs.edit().putString(KEY_CHANNEL_CACHE, arr.toString()).apply()
+    }
+
+    fun getCachedChannels(): List<Channel> {
+        val raw = prefs.getString(KEY_CHANNEL_CACHE, null) ?: return emptyList()
+        return runCatching {
+            val arr = JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                Channel(
+                    uniqueId = o.getString("uniqueId"),
+                    number   = o.optInt("number", 0),
+                    name     = o.getString("name"),
+                    logo     = if (o.has("logo")) o.getString("logo") else null,
+                    genre    = if (o.has("genre")) o.getString("genre") else null,
+                    genreId  = if (o.has("genreId")) o.getString("genreId") else null,
+                )
+            }
+        }.getOrDefault(emptyList())
+    }
+
+    fun cacheLogoMap(map: Map<String, String>) {
+        val obj = JSONObject()
+        map.forEach { (k, v) -> obj.put(k, v) }
+        prefs.edit().putString(KEY_LOGO_CACHE, obj.toString()).apply()
+    }
+
+    fun getCachedLogoMap(): Map<String, String> {
+        val raw = prefs.getString(KEY_LOGO_CACHE, null) ?: return emptyMap()
+        return runCatching {
+            val obj = JSONObject(raw)
+            buildMap { obj.keys().forEach { k -> put(k, obj.getString(k)) } }
+        }.getOrDefault(emptyMap())
+    }
+
     // ── Per-channel stream URL overrides ─────────────────────────────────────
 
     fun getStreamOverride(uniqueId: String): String? =
@@ -72,6 +124,8 @@ class AppPrefs(context: Context) {
         private const val KEY_SERVER_URL      = "server_url"
         private const val KEY_WATCH_HISTORY   = "watch_history"
         private const val KEY_OVERRIDE_PREFIX = "stream_override_"
+        private const val KEY_CHANNEL_CACHE   = "channel_cache"
+        private const val KEY_LOGO_CACHE      = "logo_cache"
         private const val MAX_HISTORY         = 10
     }
 }

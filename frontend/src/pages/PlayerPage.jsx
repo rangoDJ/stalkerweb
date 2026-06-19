@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
+import mpegts from 'mpegts.js'
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
   List, Search, Loader2, AlertCircle, Tv2, Heart, ChevronDown,
@@ -332,6 +333,7 @@ export default function PlayerPage() {
 
   const videoRef     = useRef(null)
   const hlsRef       = useRef(null)
+  const mpegtsRef    = useRef(null)
   const containerRef = useRef(null)
   const hideTimer    = useRef(null)
   const retryCount   = useRef(0)
@@ -362,6 +364,7 @@ export default function PlayerPage() {
   })
 
   const [streamUrl, setStreamUrl]   = useState(null)
+  const [streamType, setStreamType] = useState('hls')
   const [status, setStatus]         = useState('idle')
   const [errorMsg, setErrorMsg]     = useState('')
   const [showControls, setShowControls] = useState(true)
@@ -429,7 +432,8 @@ export default function PlayerPage() {
     setStatus('loading')
     setErrorMsg('')
     try {
-      const { streamUrl: url } = await getStreamUrl(channelId)
+      const { streamUrl: url, streamType: type } = await getStreamUrl(channelId)
+      setStreamType(type || 'hls')
       setStreamUrl(url)
       const ch = channels.find(c => String(c.uniqueId) === String(channelId)) || activeChannel
       if (ch) pushRecentlyWatched(ch, logoMap[String(ch.uniqueId)])
@@ -459,7 +463,11 @@ export default function PlayerPage() {
     if (!streamUrl || !videoRef.current) return
     const video = videoRef.current
 
-    if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+    const teardown = () => {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null }
+      if (mpegtsRef.current) { try { mpegtsRef.current.destroy() } catch { /* already gone */ } mpegtsRef.current = null }
+    }
+    teardown()
     // Reset tracks on every new stream
     setAudioTracks([]); setActiveAudio(0); setSubtitleTracks([]); setActiveSub(-1)
 
@@ -483,48 +491,75 @@ export default function PlayerPage() {
       tryPlay()
     }
 
-    // MP4 and other non-HLS formats — use native video element directly
-    const isNativeFormat = /\.(mp4|mkv|avi|mov|webm|ts)(\?|$)/i.test(streamUrl)
-    if (isNativeFormat) {
-      playNative(streamUrl)
-      return
+    // Raw MPEG-TS over HTTP — what a STB feeds straight into ffmpeg. mpegts.js
+    // demuxes it in the browser via MSE.
+    const playMpegts = (src) => {
+      if (!mpegts.isSupported()) { setStatus('error'); setErrorMsg('This stream format is not supported by your browser.'); return }
+      const player = mpegts.createPlayer(
+        { type: 'mpegts', isLive: true, url: src },
+        { enableWorker: true, liveBufferLatencyChasing: true, lazyLoad: false }
+      )
+      mpegtsRef.current = player
+      player.attachMediaElement(video)
+      player.on(mpegts.Events.ERROR, () => {
+        setStatus('error'); setErrorMsg('Stream error. Try reloading.')
+      })
+      player.load()
+      video.volume = volumeRef.current / 100
+      video.muted = mutedRef.current
+      tryPlay()
     }
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
-      hlsRef.current = hls
-      hls.loadSource(streamUrl)
-      hls.attachMedia(video)
-      hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        video.volume = volumeRef.current / 100
-        video.muted = mutedRef.current
-        // Populate audio & subtitle track selectors
-        if (hls.audioTracks?.length > 1) { setAudioTracks(hls.audioTracks); setActiveAudio(hls.audioTrack) }
-        if (hls.subtitleTracks?.length > 0) { setSubtitleTracks(hls.subtitleTracks); setActiveSub(hls.subtitleTrack) }
-        tryPlay()
-      })
-      hls.on(Hls.Events.ERROR, (_e, data) => {
-        if (data.fatal) {
-          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retryCount.current < 1) {
-            retryCount.current++
-            hls.recoverMediaError()
-          } else if (retryCount.current < 1) {
-            retryCount.current++
-            // HLS parse failed — try native playback as fallback
-            hls.destroy()
-            hlsRef.current = null
-            playNative(streamUrl)
-          } else {
-            setStatus('error'); setErrorMsg('Stream error. Try reloading.')
+    const playHls = (src) => {
+      if (Hls.isSupported()) {
+        const hls = new Hls({ enableWorker: true, lowLatencyMode: true })
+        hlsRef.current = hls
+        hls.loadSource(src)
+        hls.attachMedia(video)
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.volume = volumeRef.current / 100
+          video.muted = mutedRef.current
+          // Populate audio & subtitle track selectors
+          if (hls.audioTracks?.length > 1) { setAudioTracks(hls.audioTracks); setActiveAudio(hls.audioTrack) }
+          if (hls.subtitleTracks?.length > 0) { setSubtitleTracks(hls.subtitleTracks); setActiveSub(hls.subtitleTrack) }
+          tryPlay()
+        })
+        hls.on(Hls.Events.ERROR, (_e, data) => {
+          if (data.fatal) {
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retryCount.current < 1) {
+              retryCount.current++
+              hls.recoverMediaError()
+            } else if (retryCount.current < 1) {
+              retryCount.current++
+              // Not a valid HLS playlist — the server may be piping raw MPEG-TS
+              // (extensionless link misclassified as HLS). Fall back to mpegts.js.
+              hls.destroy()
+              hlsRef.current = null
+              playMpegts(src)
+            } else {
+              setStatus('error'); setErrorMsg('Stream error. Try reloading.')
+            }
           }
-        }
-      })
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      playNative(streamUrl)
+        })
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        playNative(src)
+      }
     }
 
-    return () => { hlsRef.current?.destroy(); hlsRef.current = null }
-  }, [streamUrl])
+    // Pick the engine from the server's stream-type hint (resolved via create_link).
+    if (streamType === 'unsupported') {
+      setStatus('error')
+      setErrorMsg('This channel uses a protocol (UDP/RTP/RTSP) that browsers can’t play directly.')
+    } else if (streamType === 'native') {
+      playNative(streamUrl)
+    } else if (streamType === 'mpegts') {
+      playMpegts(streamUrl)
+    } else {
+      playHls(streamUrl)
+    }
+
+    return () => { teardown() }
+  }, [streamUrl, streamType])
 
   useEffect(() => {
     if (!videoRef.current) return

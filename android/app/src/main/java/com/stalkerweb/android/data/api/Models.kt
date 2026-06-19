@@ -150,3 +150,14 @@ data class VodStreamResponse(
     val videoId: String = "",
     val isHls: Boolean = true,
 )
+
+// Live-channel stream resolution. `streamType` is the backend's engine hint
+// (hls | mpegts | native | unsupported) so the player can pick the right
+// container/MIME instead of assuming HLS for everything.
+@JsonClass(generateAdapter = false)
+data class StreamResponse(
+    val streamUrl: String,
+    val channelId: String = "",
+    val channelName: String = "",
+    val streamType: String = "hls",
+)

@@ -203,14 +203,97 @@ module.exports = function proxyModule(appState) {
     return true;
   }
 
-  async function resolveStreamUrl(channel) {
-    const { client, channelManager } = appState;
-    if (channel.cmd.includes('matrix')) {
-      const raw = await client.resolveMatrixUrl(channel.cmd);
-      const sp = (raw || '').indexOf(' ');
-      return sp !== -1 ? raw.slice(sp + 1) : raw;
+  // Fetch a live stream URL and serve it. If the portal returns an HLS playlist
+  // we rewrite its URLs through the proxy; if it returns raw MPEG-TS (or any
+  // other binary container) we pipe the bytes straight through — exactly like a
+  // STB feeding the stream to its ffmpeg-based player. Sniffing the first bytes,
+  // rather than trusting the URL extension, means tokenized/extensionless links
+  // are served correctly either way.
+  async function serveStream(req, res, realUrl, trusted = false) {
+    const setCors = () => res.set('Access-Control-Allow-Origin', '*');
+
+    if (!trusted && !isAllowedUrl(realUrl, appState.client?.getBasePath())) {
+      log.warn(TAG, `blocked SSRF attempt to ${realUrl}`);
+      setCors();
+      return res.status(403).send('Forbidden');
     }
-    return channelManager.getStreamUrl(channel);
+
+    const headers = getHeadersForUrl(realUrl);
+
+    let response;
+    try {
+      response = await fetchStreamFromPortal(headers, realUrl, 30_000);
+    } catch (e) {
+      log.error(TAG, `stream fetch failed: ${e.message}`);
+      setCors();
+      return res.status(502).send(`Fetch failed: ${e.message}`);
+    }
+
+    // Tear down the upstream fetch if the viewer aborts so the per-stream socket frees.
+    req.on('close', () => { if (!res.writableEnded) response.data?.destroy(); });
+
+    if (response.status >= 400) {
+      response.data?.destroy();
+      log.warn(TAG, `portal returned ${response.status} on stream — link may have expired`);
+      setCors();
+      return res.status(502).send(`Portal returned HTTP ${response.status}`);
+    }
+
+    // Sniff the first chunk to distinguish an HLS playlist from a binary container.
+    const SNIFF = 512;
+    let firstChunk;
+    try {
+      firstChunk = await new Promise((resolve, reject) => {
+        const chunks = [];
+        let size = 0;
+        const stream = response.data;
+        const cleanup = () => { stream.off('data', onData); stream.off('end', onEnd); stream.off('error', onError); };
+        const onData  = (c) => { chunks.push(c); size += c.length; if (size >= SNIFF) { stream.pause(); cleanup(); resolve(Buffer.concat(chunks)); } };
+        const onEnd   = () => { cleanup(); resolve(Buffer.concat(chunks)); };
+        const onError = (e) => { cleanup(); reject(e); };
+        stream.on('data', onData).once('end', onEnd).once('error', onError);
+      });
+    } catch (e) {
+      log.error(TAG, `stream read failed: ${e.message}`);
+      setCors();
+      return res.status(502).send(`Fetch failed: ${e.message}`);
+    }
+
+    const head = firstChunk.toString('utf8', 0, 128);
+    if (isM3u8Body(head)) {
+      // HLS playlist — buffer the rest (tiny) and rewrite its URLs through the proxy.
+      const rest = [firstChunk];
+      response.data.resume();
+      try {
+        await new Promise((resolve, reject) => {
+          response.data.on('data', c => rest.push(c));
+          response.data.once('end', resolve);
+          response.data.once('error', reject);
+        });
+      } catch (e) {
+        log.error(TAG, `playlist read failed: ${e.message}`);
+        setCors();
+        return res.status(502).send(`Fetch failed: ${e.message}`);
+      }
+      const proxyOrigin = `${req.protocol}://${req.get('host')}`;
+      const rewritten = rewriteM3u8(Buffer.concat(rest).toString('utf8'), realUrl, proxyOrigin, proxySecret);
+      res.set('Content-Type', 'application/vnd.apple.mpegurl');
+      res.set('Cache-Control', 'no-cache, no-store');
+      setCors();
+      return res.send(rewritten);
+    }
+
+    // Raw MPEG-TS / binary container — pipe straight through so it never lands in
+    // the Node heap. The player (mpegts.js) demuxes it, mirroring the STB's ffmpeg.
+    const ct = response.headers['content-type'] || 'video/MP2T';
+    res.status(response.status);
+    res.set('Content-Type', ct);
+    setCors();
+    if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
+    res.write(firstChunk);
+    response.data.resume();
+    response.data.on('error', err => { log.error(TAG, `stream pipe error: ${err.message}`); res.destroy(); });
+    response.data.pipe(res);
   }
 
   function isAllowedUrl(url, allowedOrigin) {
@@ -425,30 +508,35 @@ module.exports = function proxyModule(appState) {
     const channel = await channelManager.waitForChannel(uniqueId);
     if (!channel) return res.status(404).send('Channel not found');
 
-    let streamUrl;
+    // Catch-up support: if ?startTime= is provided, modify the cmd to request archive stream
+    const target = req.query.startTime
+      ? { ...channel, cmd: `${channel.cmd} archive=1 start=${req.query.startTime}` }
+      : channel;
+    if (req.query.startTime) log.info(TAG, `catch-up request for ch ${channel.number}: startTime=${req.query.startTime}`);
+
+    let resolved;
     try {
-      // Catch-up support: if ?startTime= is provided, modify the cmd to request archive stream
-      if (req.query.startTime) {
-        log.info(TAG, `catch-up request for ch ${channel.number}: startTime=${req.query.startTime}`);
-        const archiveChannel = { ...channel, cmd: `${channel.cmd} archive=1 start=${req.query.startTime}` };
-        streamUrl = await resolveStreamUrl(archiveChannel);
-      } else {
-        streamUrl = await resolveStreamUrl(channel);
-      }
+      resolved = await channelManager.resolveStream(target);
     } catch (e) {
       log.error(TAG, `stream resolution failed: ${e.message}`);
       channelManager.recordStreamError(uniqueId);
       return res.status(502).send(`Stream resolution failed: ${e.message}`);
     }
 
+    const streamUrl = resolved?.url;
     if (!streamUrl) {
       channelManager.recordStreamError(uniqueId);
       return res.status(502).send('Could not resolve stream URL');
     }
+    if (resolved.type === 'unsupported') {
+      channelManager.recordStreamError(uniqueId);
+      log.warn(TAG, `ch ${channel.number}: unsupported protocol for browser playback: ${streamUrl}`);
+      return res.status(415).send('Unsupported stream protocol (UDP/RTP/RTSP) — cannot play in a browser without server-side remux');
+    }
 
     channelManager.recordStreamSuccess(uniqueId);
-    log.info(TAG, `master playlist for ch ${channel.number}: ${streamUrl}`);
-    return servePlaylist(req, res, streamUrl, true); // trusted — URL from portal create_link
+    log.info(TAG, `stream for ch ${channel.number} (${resolved.type}): ${streamUrl}`);
+    return serveStream(req, res, streamUrl, true); // trusted — URL from portal create_link
   });
 
   // ── GET /proxy/hls?url=<encoded> — sub-playlist proxy ────────────────────

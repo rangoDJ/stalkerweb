@@ -76,10 +76,25 @@ module.exports = function streamRoutes(appState, config) {
     }
 
     appState.touchActivity?.();
+
+    // Resolve once up-front to tell the player which engine to use (hls.js vs
+    // mpegts.js vs native). The result is cached by ChannelManager so the
+    // subsequent /proxy/stream fetch reuses this same create_link — one portal
+    // link per zap, exactly like a STB. On failure we fall back to 'hls' and let
+    // the proxy resolve again (and surface any real error there).
+    let streamType = 'hls';
+    try {
+      const resolved = await channelManager.resolveStream(channel);
+      streamType = resolved.type;
+    } catch (e) {
+      log.warn(TAG, `type pre-resolve failed (proxy will retry): ${e.message}`);
+    }
+
     res.json({
       channelId:   uniqueId,
       channelName: channel.name,
       streamUrl:   `/proxy/stream/${rawId}`,
+      streamType,
     });
   });
 
