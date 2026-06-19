@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue, useLayoutEffect, memo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Tv2, AlertCircle, AlertTriangle, RefreshCw, Heart, Clock, X, Image, Check } from 'lucide-react'
 import { Input } from '@/components/ui/input'
@@ -15,12 +16,22 @@ import { useFavorites } from '@/lib/useFavorites'
 // Channels with at least this many recent (unresolved) stream errors are "flaky".
 const FLAKY_THRESHOLD = 2
 
+// Grid geometry — mirrors the old `repeat(auto-fill, minmax(160px,1fr))` + gap-3
+// so the virtualizer reproduces the same responsive column layout.
+const GRID_GAP     = 12   // px (Tailwind gap-3 = 0.75rem)
+const MIN_COL      = 160  // px (minmax(160px, 1fr))
+const ROW_ESTIMATE = 210  // px initial row-height guess; dynamic measurement refines it
+
 function healthTitle(errors) {
   return `${errors} recent stream ${errors === 1 ? 'failure' : 'failures'} — may not play`
 }
 
 // ── Channel card ──────────────────────────────────────────────────────────
-function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, onSetLogo, compact, nowNext, health }) {
+// Memoized: with thousands of channels rendered through the virtualizer, the
+// grid re-renders on every scroll tick and on health/now-next polls. memo +
+// stable callback props keep all but the genuinely-changed cards from
+// re-rendering.
+const ChannelCard = memo(function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, onSetLogo, compact, nowNext, health }) {
   const [imgError, setImgError] = useState(false)
   const logo = logoUrl || getProxiedLogoUrl(channel.iconPath) || ''
   const errors = health?.errors || 0
@@ -113,7 +124,7 @@ function ChannelCard({ channel, logoUrl, isFavorite, onToggleFavorite, onClick, 
       )}
     </button>
   )
-}
+})
 
 // ── Number jump overlay ───────────────────────────────────────────────────
 function NumberJumpOverlay({ digits }) {
@@ -122,6 +133,45 @@ function NumberJumpOverlay({ digits }) {
       <div className="rounded-[var(--radius-md)] bg-black/80 border border-[var(--color-border)] px-6 py-3 text-center backdrop-blur-sm">
         <p className="text-xs text-[var(--color-muted)] mb-1">Jump to channel</p>
         <p className="text-3xl font-bold font-mono text-[var(--color-primary-light)] tracking-widest">{digits}</p>
+      </div>
+    </div>
+  )
+}
+
+// ── Channel-load progress bar ─────────────────────────────────────────────
+// Owns its own 800ms progress polling so the frequent ticks re-render ONLY this
+// small bar, never the (potentially huge) channel grid above it.
+function ChannelLoadProgress({ active, onDone }) {
+  const [p, setP] = useState(null)
+  useEffect(() => {
+    if (!active) { setP(null); return }
+    let cancelled = false
+    let timer
+    const poll = async () => {
+      try {
+        const prog = await getChannelProgress()
+        if (cancelled) return
+        setP(prog)
+        if (prog.loading) timer = setTimeout(poll, 800)
+        else onDone?.()
+      } catch { /* progress polling is best-effort */ }
+    }
+    poll()
+    return () => { cancelled = true; clearTimeout(timer) }
+  }, [active, onDone])
+
+  if (!active || !p?.loading || !p.totalPages) return null
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between text-xs text-[var(--color-muted)]">
+        <span>Loading channels…</span>
+        <span>{p.page} / {p.totalPages} pages · {p.channelCount} channels</span>
+      </div>
+      <div className="h-1 w-full rounded-full bg-[var(--color-surface-2)] overflow-hidden">
+        <div
+          className="h-full rounded-full bg-[var(--color-primary)] transition-all duration-500"
+          style={{ width: `${Math.round((p.page / p.totalPages) * 100)}%` }}
+        />
       </div>
     </div>
   )
@@ -139,7 +189,7 @@ export default function ChannelsPage() {
   const { favoriteIds, toggleFavorite } = useFavorites()
   const [loading, setLoading]         = useState(true)  // true only before first data arrives
   const [error, setError]             = useState(null)
-  const [progress, setProgress]       = useState(null) // { loading, page, totalPages, channelCount }
+  const [backendLoading, setBackendLoading] = useState(false) // backend still paging in channels
   const [recentlyWatched, setRecentlyWatched] = useState([])
   const [nowNext, setNowNext] = useState({})
   const [health, setHealth] = useState({})        // { uniqueId: { errors, lastError } }
@@ -158,7 +208,17 @@ export default function ChannelsPage() {
 
   const activeGroup = searchParams.get('group') || ''
   const [query, setQuery] = useState('')
+  // Deferred so typing stays snappy: the (large) grid re-filters off the
+  // deferred value while the input itself updates immediately.
+  const deferredQuery = useDeferredValue(query)
   const pillsRef = useRef(null)
+
+  // Virtualized-grid plumbing
+  const scrollRef  = useRef(null)   // the scrolling content viewport
+  const contentRef = useRef(null)   // wrapper around all scrollable content (resizes as it loads)
+  const listRef    = useRef(null)   // the virtualized grid container
+  const [gridWidth, setGridWidth]       = useState(0)
+  const [scrollMargin, setScrollMargin] = useState(0)
 
   useEffect(() => {
     const el = pillsRef.current
@@ -186,24 +246,14 @@ export default function ChannelsPage() {
   // Runs once on mount.  The subscription fires later when the backend finishes
   // loading all channels, so the grid populates on the fly without blocking.
   useEffect(() => {
-    let progressTimer
     let cancelled = false
-
-    async function pollProgress() {
-      try {
-        const p = await getChannelProgress()
-        if (cancelled) return
-        setProgress(p)
-        if (p.loading) progressTimer = setTimeout(pollProgress, 800)
-      } catch { /* progress polling is best-effort */ }
-    }
 
     getCachedChannelData()
       .then(data => {
         if (cancelled) return
         setRawData(data)
         setLoading(false)
-        if (data.loading) pollProgress()   // backend still loading — track progress
+        if (data.loading) setBackendLoading(true)  // ChannelLoadProgress tracks the rest
       })
       .catch(err => {
         if (cancelled) return
@@ -215,11 +265,13 @@ export default function ChannelsPage() {
     const unsub = subscribeChannelUpdates(data => {
       if (cancelled) return
       setRawData(data)
-      setProgress(p => p ? { ...p, loading: false } : null)
+      setBackendLoading(false)
     })
 
-    return () => { cancelled = true; clearTimeout(progressTimer); unsub() }
+    return () => { cancelled = true; unsub() }
   }, [])
+
+  const handleLoadDone = useCallback(() => setBackendLoading(false), [])
 
   // Effect 2: re-apply adult/genre filters whenever raw data or filter settings change.
   useEffect(() => {
@@ -245,6 +297,16 @@ export default function ChannelsPage() {
   const openChannel = useCallback((channel) => {
     navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)
   }, [navigate])
+
+  // Stable callbacks passed to every (memoized) ChannelCard so the cards don't
+  // re-render just because the page did. toggleFavorite is read through a ref
+  // because useFavorites returns a fresh function each render.
+  const toggleFavoriteRef = useRef(toggleFavorite)
+  toggleFavoriteRef.current = toggleFavorite
+  const handleToggleFavorite = useCallback((ch) => toggleFavoriteRef.current(ch), [])
+  const handleSetLogo = useCallback((ch) => {
+    setLogoChannel(ch); setLogoUrl(''); setLogoSearch(ch.name); setLogoResult(null)
+  }, [])
 
   // ── Keyboard: channel number jump ────────────────────────────────────────
   useEffect(() => {
@@ -302,14 +364,21 @@ export default function ChannelsPage() {
     }, 400)
   }
 
-  const filtered = useMemo(() => {
+  // Base filter (group + search) — independent of health so the 60s health
+  // poll doesn't re-run it over the whole list.
+  const baseFiltered = useMemo(() => {
     let result = channels
     if (activeGroup) result = result.filter(c => String(c.genreId ?? '') === String(activeGroup))
-    if (hideFlaky) result = result.filter(c => (health[String(c.uniqueId)]?.errors || 0) < FLAKY_THRESHOLD)
-    if (!query.trim()) return result
-    const q = query.toLowerCase()
-    return result.filter(c => c.name?.toLowerCase().includes(q))
-  }, [channels, activeGroup, query, hideFlaky, health])
+    const q = deferredQuery.trim().toLowerCase()
+    if (q) result = result.filter(c => c.name?.toLowerCase().includes(q))
+    return result
+  }, [channels, activeGroup, deferredQuery])
+
+  // Flaky filter layered on top — only depends on health when actually hiding.
+  const filtered = useMemo(() => {
+    if (!hideFlaky) return baseFiltered
+    return baseFiltered.filter(c => (health[String(c.uniqueId)]?.errors || 0) < FLAKY_THRESHOLD)
+  }, [baseFiltered, hideFlaky, health])
 
   const flakyCount = useMemo(
     () => channels.reduce((n, c) => n + ((health[String(c.uniqueId)]?.errors || 0) >= FLAKY_THRESHOLD ? 1 : 0), 0),
@@ -330,6 +399,45 @@ export default function ChannelsPage() {
     })).slice(0, 10),
     [recentlyWatched, logoMap]
   )
+
+  // ── Virtualized grid ──────────────────────────────────────────────────────
+  const showGrid = !loading && !error && filtered.length > 0
+  const columns  = Math.max(1, Math.floor((gridWidth + GRID_GAP) / (MIN_COL + GRID_GAP)))
+  const rowCount = Math.ceil(filtered.length / columns)
+
+  const rowVirtualizer = useVirtualizer({
+    count: rowCount,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_ESTIMATE,
+    overscan: 6,
+    scrollMargin,
+  })
+
+  // Track the grid's width (→ responsive column count) and its offset within the
+  // shared scroll viewport (→ scrollMargin, so rows sit below the Recently-Watched
+  // / progress sections). A ResizeObserver on the content wrapper catches late
+  // layout shifts such as recently-watched thumbnails finishing loading.
+  useLayoutEffect(() => {
+    const scrollEl = scrollRef.current
+    const contentEl = contentRef.current
+    const listEl = listRef.current
+    if (!scrollEl || !contentEl || !listEl) return
+    const measure = () => {
+      const w = listEl.clientWidth
+      setGridWidth(prev => (Math.abs(prev - w) > 0.5 ? w : prev))
+      const top = listEl.getBoundingClientRect().top
+        - scrollEl.getBoundingClientRect().top + scrollEl.scrollTop
+      setScrollMargin(prev => (Math.abs(prev - top) > 1 ? top : prev))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(contentEl)
+    ro.observe(listEl)
+    return () => ro.disconnect()
+  }, [showGrid])
+
+  // Row composition changes with column count, so reset cached row heights.
+  useEffect(() => { rowVirtualizer.measure() }, [columns, rowVirtualizer])
 
   return (
     <div className="fade-in flex flex-col h-[calc(100vh-3.5rem)]">
@@ -379,7 +487,8 @@ export default function ChannelsPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-6">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto px-6 py-5">
+       <div ref={contentRef} className="flex flex-col gap-6">
 
         {/* Recently watched */}
         {recentChannels.length > 0 && !query && (
@@ -395,9 +504,9 @@ export default function ChannelsPage() {
                     channel={{ uniqueId: r.uniqueId, name: r.name, number: r.number }}
                     logoUrl={r.logoUrl}
                     isFavorite={favoriteIds.has(String(r.uniqueId))}
-                    onToggleFavorite={ch => toggleFavorite(ch)}
+                    onToggleFavorite={handleToggleFavorite}
                     onClick={openChannel}
-                    onSetLogo={ch => { setLogoChannel(ch); setLogoUrl(''); setLogoSearch(ch.name); setLogoResult(null) }}
+                    onSetLogo={handleSetLogo}
                     compact
                     health={health[String(r.uniqueId)]}
                   />
@@ -419,21 +528,8 @@ export default function ChannelsPage() {
           <SkeletonGrid count={12} />
         )}
 
-        {/* Progress bar — shows while backend is still fetching pages (even after first channels appear) */}
-        {!loading && progress?.loading && progress.totalPages > 0 && (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between text-xs text-[var(--color-muted)]">
-              <span>Loading channels…</span>
-              <span>{progress.page} / {progress.totalPages} pages · {progress.channelCount} channels</span>
-            </div>
-            <div className="h-1 w-full rounded-full bg-[var(--color-surface-2)] overflow-hidden">
-              <div
-                className="h-full rounded-full bg-[var(--color-primary)] transition-all duration-500"
-                style={{ width: `${Math.round((progress.page / progress.totalPages) * 100)}%` }}
-              />
-            </div>
-          </div>
-        )}
+        {/* Progress bar — self-polls so its frequent ticks don't re-render the grid */}
+        {!loading && <ChannelLoadProgress active={backendLoading} onDone={handleLoadDone} />}
 
         {!loading && error && (
           <div className="flex flex-col items-center justify-center gap-3 h-48 text-center">
@@ -446,30 +542,52 @@ export default function ChannelsPage() {
         )}
 
         {/* Empty state — only shown when loading is truly complete with no results */}
-        {!loading && !progress?.loading && !error && filtered.length === 0 && (
+        {!loading && !backendLoading && !error && filtered.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 h-48 text-center">
             <Tv2 size={32} className="text-[var(--color-muted)]" />
             <p className="text-sm text-[var(--color-muted)]">No channels found.</p>
           </div>
         )}
 
-        {/* Channel grid — renders as soon as any channels are available */}
-        {!loading && !error && filtered.length > 0 && (
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-            {filtered.map(ch => (
-              <ChannelCard
-                key={ch.uniqueId} channel={ch}
-                logoUrl={logoMap[String(ch.uniqueId)]}
-                isFavorite={favoriteIds.has(String(ch.uniqueId))}
-                onToggleFavorite={toggleFavorite}
-                onClick={openChannel}
-                onSetLogo={ch => { setLogoChannel(ch); setLogoUrl(''); setLogoSearch(ch.name); setLogoResult(null) }}
-                nowNext={nowNext[String(ch.uniqueId)]}
-                health={health[String(ch.uniqueId)]}
-              />
-            ))}
+        {/* Channel grid — virtualized: only the visible rows are mounted, so the
+            DOM stays tiny no matter how many thousands of channels load. */}
+        {showGrid && (
+          <div ref={listRef} style={{ position: 'relative', width: '100%', height: `${rowVirtualizer.getTotalSize()}px` }}>
+            {rowVirtualizer.getVirtualItems().map(vRow => {
+              const start = vRow.index * columns
+              const rowItems = filtered.slice(start, start + columns)
+              return (
+                <div
+                  key={vRow.key}
+                  data-index={vRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  style={{
+                    position: 'absolute', top: 0, left: 0, width: '100%',
+                    transform: `translateY(${vRow.start - rowVirtualizer.options.scrollMargin}px)`,
+                    display: 'grid',
+                    gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
+                    gap: `${GRID_GAP}px`,
+                    paddingBottom: `${GRID_GAP}px`,
+                  }}
+                >
+                  {rowItems.map(ch => (
+                    <ChannelCard
+                      key={ch.uniqueId} channel={ch}
+                      logoUrl={logoMap[String(ch.uniqueId)]}
+                      isFavorite={favoriteIds.has(String(ch.uniqueId))}
+                      onToggleFavorite={handleToggleFavorite}
+                      onClick={openChannel}
+                      onSetLogo={handleSetLogo}
+                      nowNext={nowNext[String(ch.uniqueId)]}
+                      health={health[String(ch.uniqueId)]}
+                    />
+                  ))}
+                </div>
+              )
+            })}
           </div>
         )}
+       </div>
       </div>
 
       {/* Logo assignment modal */}
