@@ -2,7 +2,7 @@
 // Caches the app shell (JS/CSS/HTML) for instant loads after first visit.
 // API calls (/api/*, /proxy/*) are always fetched from network — never cached.
 
-const CACHE   = 'stalkerweb-v1';
+const CACHE   = 'stalkerweb-v2';
 const OFFLINE = '/';
 
 // App-shell assets to pre-cache on install
@@ -31,11 +31,18 @@ self.addEventListener('fetch', (e) => {
   // Never intercept API or proxy requests — always go to network
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/proxy/')) return;
 
-  // Navigation requests: serve from cache, fall back to network
+  // Navigation requests (the HTML shell): network-first. The shell references
+  // content-hashed JS/CSS, so a stale cached shell points at chunks that no
+  // longer exist after a deploy ("Failed to fetch dynamically imported module").
+  // Always fetch the latest shell; fall back to cache only when offline.
   if (e.request.mode === 'navigate') {
     e.respondWith(
-      caches.match(OFFLINE)
-        .then(cached => cached || fetch(e.request))
+      fetch(e.request)
+        .then(response => {
+          const clone = response.clone();
+          caches.open(CACHE).then(c => c.put(OFFLINE, clone));
+          return response;
+        })
         .catch(() => caches.match(OFFLINE))
     );
     return;
