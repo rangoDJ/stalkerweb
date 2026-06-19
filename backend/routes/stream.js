@@ -86,6 +86,13 @@ module.exports = function streamRoutes(appState, config) {
     try {
       const resolved = await channelManager.resolveStream(channel);
       streamType = resolved.type;
+      // UDP/RTP/RTSP channels are transcoded server-side by FfmpegService to raw
+      // MPEG-TS, so the browser should use mpegts.js — not show an error.
+      // If FFmpeg isn't installed we keep 'unsupported' so the UI error still shows.
+      if (streamType === 'unsupported') {
+        const { isAvailable } = require('../stalker/FfmpegService');
+        streamType = isAvailable() ? 'mpegts' : 'unsupported';
+      }
     } catch (e) {
       log.warn(TAG, `type pre-resolve failed (proxy will retry): ${e.message}`);
     }

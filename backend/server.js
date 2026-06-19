@@ -26,6 +26,12 @@ fs.mkdirSync(config.cacheDir, { recursive: true });
 
 const app = express();
 
+// Trust the first reverse-proxy hop (Caddy / nginx / Traefik).
+// Without this, req.protocol is always 'http' even behind HTTPS termination,
+// which causes rewriteM3u8() to emit http:// proxy URLs that the browser
+// blocks as mixed content when the public URL is served over HTTPS.
+app.set('trust proxy', 1);
+
 // ── Middleware ─────────────────────────────────────────────────────────────
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' }, contentSecurityPolicy: false }));
 app.use(cors());
@@ -89,12 +95,17 @@ function httpLogLevel(path, status) {
 
 app.use((req, res, next) => {
   const start = Date.now();
+  // Snapshot req.url NOW — Express strips the sub-router mount prefix (/proxy)
+  // from req.url before calling the route handler, so reading it inside the
+  // 'finish' callback would give "/hls?…" instead of "/proxy/hls?…", breaking
+  // the httpLogLevel quiet-path check and causing HLS playlist poll spam at INFO.
+  const url = req.url;
   res.on('finish', () => {
-    const path  = req.url.split('?')[0];
+    const path  = url.split('?')[0];
     const level = httpLogLevel(path, res.statusCode);
     if (!level) return;
     const ms = Date.now() - start;
-    log[level]('http', `${req.method.padEnd(4)} ${req.url}  ${res.statusCode}  ${ms}ms`);
+    log[level]('http', `${req.method.padEnd(4)} ${url}  ${res.statusCode}  ${ms}ms`);
   });
   next();
 });
