@@ -38,7 +38,9 @@ const TAG = 'proxy';
 // socket and stall. Keying by the directory groups a stream's master/media
 // playlists and all its segments onto one socket while isolating distinct streams.
 const streamAgentOpts = { keepAlive: true, maxSockets: 1, maxFreeSockets: 1 };
-const STREAM_CLIENT_TTL_MS = 60_000;
+// 5 minutes: long enough to survive a VOD pause without triggering CDN
+// "one connection per token" rejections, while still evicting idle entries.
+const STREAM_CLIENT_TTL_MS = 300_000;
 const streamClients = new Map(); // key → { client, httpAgent, httpsAgent, timer }
 
 // Groups all parts of a single stream (playlist + its segments live under the
@@ -107,8 +109,12 @@ function isPlaylistUrl(url) {
 // URI="" attrs   → /proxy/hls?url=<encoded>        (keys, maps — not segments)
 // `secret` (optional) enables HMAC signing of the emitted proxy URLs. Omitted
 // in unit tests; always provided in production via proxyModule's per-process key.
-function rewriteM3u8(body, playlistUrl, proxyOrigin, secret = null) {
+// `channelId` (optional) tags emitted URLs with `ch=<id>` so the /hls and
+// /hls/seg routes can attribute a CDN 403/404 (expired token) back to the
+// channel — recording health and evicting its stale resolved-stream cache.
+function rewriteM3u8(body, playlistUrl, proxyOrigin, secret = null, channelId = null) {
   const sig = (abs) => (secret ? signProxyUrl(abs, secret) : null);
+  const ch = (channelId !== null && channelId !== undefined) ? String(channelId) : null;
   return body
     .split('\n')
     .map(line => {
@@ -121,7 +127,10 @@ function rewriteM3u8(body, playlistUrl, proxyOrigin, secret = null) {
         return line.replace(/URI="([^"]+)"/gi, (_, uri) => {
           const abs = resolveUrl(uri, playlistUrl);
           const s = sig(abs);
-          return `URI="${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}${s ? `&sig=${s}` : ''}"`;
+          let u = `${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}`;
+          if (s)  u += `&sig=${s}`;
+          if (ch) u += `&ch=${ch}`;
+          return `URI="${u}"`;
         });
       }
 
@@ -129,10 +138,18 @@ function rewriteM3u8(body, playlistUrl, proxyOrigin, secret = null) {
       const abs = resolveUrl(trimmed, playlistUrl);
       const s = sig(abs);
       if (isPlaylistUrl(abs)) {
-        return `${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}${s ? `&sig=${s}` : ''}`;
+        let u = `${proxyOrigin}/proxy/hls?url=${encodeProxyUrl(abs)}`;
+        if (s)  u += `&sig=${s}`;
+        if (ch) u += `&ch=${ch}`;
+        return u;
       }
-      // .ts stays the path suffix (FFmpeg's extension check); sig rides the query.
-      return `${proxyOrigin}/proxy/hls/seg/${encodeProxyUrl(abs)}.ts${s ? `?sig=${s}` : ''}`;
+      // .ts stays the path suffix (FFmpeg's extension check); sig/ch ride the query.
+      let u = `${proxyOrigin}/proxy/hls/seg/${encodeProxyUrl(abs)}.ts`;
+      const qp = [];
+      if (s)  qp.push(`sig=${s}`);
+      if (ch) qp.push(`ch=${ch}`);
+      if (qp.length) u += `?${qp.join('&')}`;
+      return u;
     })
     .join('\n');
 }
@@ -209,7 +226,7 @@ module.exports = function proxyModule(appState) {
   // STB feeding the stream to its ffmpeg-based player. Sniffing the first bytes,
   // rather than trusting the URL extension, means tokenized/extensionless links
   // are served correctly either way.
-  async function serveStream(req, res, realUrl, trusted = false) {
+  async function serveStream(req, res, realUrl, trusted = false, channelId = null) {
     const setCors = () => res.set('Access-Control-Allow-Origin', '*');
 
     if (!trusted && !isAllowedUrl(realUrl, appState.client?.getBasePath())) {
@@ -225,6 +242,7 @@ module.exports = function proxyModule(appState) {
       response = await fetchStreamFromPortal(headers, realUrl, 30_000);
     } catch (e) {
       log.error(TAG, `stream fetch failed: ${e.message}`);
+      if (channelId) appState.channelManager?.recordStreamError(channelId);
       setCors();
       return res.status(502).send(`Fetch failed: ${e.message}`);
     }
@@ -235,6 +253,8 @@ module.exports = function proxyModule(appState) {
     if (response.status >= 400) {
       response.data?.destroy();
       log.warn(TAG, `portal returned ${response.status} on stream — link may have expired`);
+      // Expired token on the master link — drop the cached resolution so a retry re-tokenizes.
+      if (channelId) appState.channelManager?.recordStreamError(channelId);
       setCors();
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
@@ -286,7 +306,7 @@ module.exports = function proxyModule(appState) {
         body = Buffer.concat(rest);
       }
       const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-      const rewritten = rewriteM3u8(body.toString('utf8'), realUrl, proxyOrigin, proxySecret);
+      const rewritten = rewriteM3u8(body.toString('utf8'), realUrl, proxyOrigin, proxySecret, channelId);
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Cache-Control', 'no-cache, no-store');
       setCors();
@@ -340,7 +360,7 @@ module.exports = function proxyModule(appState) {
 
   // trusted=true skips the SSRF hostname check — use when realUrl came from
   // the portal's own create_link / stream-resolution API (not user-supplied).
-  async function servePlaylist(req, res, realUrl, trusted = false) {
+  async function servePlaylist(req, res, realUrl, trusted = false, channelId = null) {
     const { client } = appState;
     const http = client.getHttpClient();
     const headers = getHeadersForUrl(realUrl);
@@ -358,23 +378,27 @@ module.exports = function proxyModule(appState) {
       response = await fetchFromPortal(http, headers, realUrl);
     } catch (e) {
       log.error(TAG, `playlist fetch failed: ${e.message}`);
+      if (channelId) appState.channelManager?.recordStreamError(channelId);
       setCors();
       return res.status(502).send(`Fetch failed: ${e.message}`);
     }
 
     if (response.status === 403 || response.status === 404) {
       log.warn(TAG, `portal returned ${response.status} on playlist — URL may have expired`);
+      // Sub-playlist token expired — record + evict so the next zap re-tokenizes.
+      if (channelId) appState.channelManager?.recordStreamError(channelId);
       setCors();
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
     if (response.status >= 400) {
+      if (channelId) appState.channelManager?.recordStreamError(channelId);
       setCors();
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
 
     const body = Buffer.from(response.data).toString('utf8');
     const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-    const rewritten = rewriteM3u8(body, realUrl, proxyOrigin, proxySecret);
+    const rewritten = rewriteM3u8(body, realUrl, proxyOrigin, proxySecret, channelId);
 
     res.set('Content-Type', 'application/vnd.apple.mpegurl');
     res.set('Cache-Control', 'no-cache, no-store');
@@ -550,8 +574,14 @@ module.exports = function proxyModule(appState) {
     }
 
     channelManager.recordStreamSuccess(uniqueId);
+    // One-shot: the resolved create_link URL has now been handed to the player.
+    // Evict it so a player retry / re-zap calls create_link again for a fresh
+    // token instead of replaying this (possibly short-lived) one — matching a
+    // STB, which create_links on every play. The 15s cache still bridges the
+    // /api/stream type-probe → this fetch as a single create_link.
+    channelManager.invalidateResolved(target);
     log.info(TAG, `stream for ch ${channel.number} (${resolved.type}): ${streamUrl}`);
-    return serveStream(req, res, streamUrl, true); // trusted — URL from portal create_link
+    return serveStream(req, res, streamUrl, true, uniqueId); // trusted — URL from portal create_link
   });
 
   // ── GET /proxy/hls?url=<encoded> — sub-playlist proxy ────────────────────
@@ -577,7 +607,8 @@ module.exports = function proxyModule(appState) {
 
     // trusted=true: the signature proves this URL came from an m3u8 we rewrote.
     // Portals deliver streams via CDNs whose hostnames differ from the portal.
-    return servePlaylist(req, res, realUrl, true);
+    // ch (if present) lets servePlaylist attribute an expiry back to the channel.
+    return servePlaylist(req, res, realUrl, true, req.query.ch || null);
   });
 
   // ── GET /proxy/hls/seg/:encoded.ts — segment proxy ───────────────────────
@@ -621,13 +652,17 @@ module.exports = function proxyModule(appState) {
     // it doesn't keep occupying the per-stream (maxSockets:1) socket.
     req.on('close', () => { if (!res.writableEnded) response.data?.destroy(); });
 
+    const ch = req.query.ch || null;
     if (response.status === 403 || response.status === 404) {
       response.data.destroy();
       log.warn(TAG, `portal returned ${response.status} on segment — stream may have expired`);
+      // Token expired mid-stream — record + evict so the next play re-tokenizes.
+      if (ch) appState.channelManager?.recordStreamError(ch);
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
     if (response.status >= 400) {
       response.data.destroy();
+      if (ch) appState.channelManager?.recordStreamError(ch);
       return res.status(502).send(`Portal returned HTTP ${response.status}`);
     }
 
@@ -667,7 +702,7 @@ module.exports = function proxyModule(appState) {
         return res.status(502).send(`Fetch failed: ${e.message}`);
       }
       const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-      const rewritten = rewriteM3u8(Buffer.concat(rest).toString('utf8'), realUrl, proxyOrigin, proxySecret);
+      const rewritten = rewriteM3u8(Buffer.concat(rest).toString('utf8'), realUrl, proxyOrigin, proxySecret, ch);
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Cache-Control', 'no-cache, no-store');
       res.set('Access-Control-Allow-Origin', '*');

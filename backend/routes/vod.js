@@ -1,18 +1,51 @@
 // routes/vod.js
-// GET /api/vod/categories?type=vod|series
-// GET /api/vod/items?type=vod|series&category=X&page=1&search=&fav=0
-// GET /api/vod/seasons/:movieId
-// GET /api/vod/stream?videoId=X&cmd=<encoded>&series=0
+// GET    /api/vod/categories?type=vod|series
+// GET    /api/vod/items?type=vod|series&category=X&page=1&search=&fav=0
+// GET    /api/vod/seasons/:movieId
+// GET    /api/vod/stream?videoId=X&cmd=<encoded>&series=0
+// GET    /api/vod/progress        — list all "Continue Watching" entries
+// PUT    /api/vod/progress        — upsert an entry
+// DELETE /api/vod/progress/:key   — remove an entry
 
 'use strict';
 
+const fs      = require('fs');
+const path    = require('path');
 const express = require('express');
 const router  = express.Router();
 const sessionMiddleware = require('../middleware/session');
 const log = require('../logger');
 const TAG = 'vod';
 
-module.exports = function vodRoutes(appState) {
+const VOD_PROGRESS_MAX = 20;
+
+class VodProgressStore {
+  constructor(dataDir) {
+    this._file = path.join(dataDir, 'vod-progress.json');
+  }
+
+  load() {
+    try {
+      const list = JSON.parse(fs.readFileSync(this._file, 'utf8'));
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  }
+
+  save(list) {
+    try {
+      const tmp = this._file + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify(list), 'utf8');
+      fs.renameSync(tmp, this._file);
+    } catch (e) {
+      log.error(TAG, `vod-progress save failed: ${e.message}`);
+    }
+  }
+}
+
+module.exports = function vodRoutes(appState, config) {
+  const progressStore = config?.dataDir ? new VodProgressStore(config.dataDir) : null;
   const guard = sessionMiddleware(appState);
 
   // GET /api/vod/categories?type=vod|series
@@ -96,8 +129,8 @@ module.exports = function vodRoutes(appState) {
       return res.status(502).json({ error: e.message });
     }
 
-    const path  = resolved.split('?')[0].split('#')[0];
-    const isHls = /\.(m3u8?|m3u)$/i.test(path);
+    const resolvedPath = resolved.split('?')[0].split('#')[0];
+    const isHls = /\.(m3u8?|m3u)$/i.test(resolvedPath);
 
     const p = new URLSearchParams({ videoId });
     if (cmd)                        p.set('cmd', cmd);
@@ -112,12 +145,39 @@ module.exports = function vodRoutes(appState) {
     if (isHls) {
       ext = '.m3u8';
     } else {
-      const m = path.match(/\.([a-z0-9]+)$/i);
+      const m = resolvedPath.match(/\.([a-z0-9]+)$/i);
       if (m) ext = '.' + m[1].toLowerCase();
     }
 
     appState.touchActivity?.();
     res.json({ streamUrl: `/proxy/vod/stream${ext}?${p}`, videoId, isHls });
+  });
+
+  // ── Continue Watching progress (no session guard — persists across disconnects) ──
+
+  // GET /api/vod/progress
+  router.get('/progress', (req, res) => {
+    if (!progressStore) return res.json([]);
+    res.json(progressStore.load());
+  });
+
+  // PUT /api/vod/progress — upsert a single entry { key, ... }
+  router.put('/progress', (req, res) => {
+    if (!progressStore) return res.json({ ok: true });
+    const entry = req.body;
+    if (!entry?.key) return res.status(400).json({ error: 'key is required' });
+    const list = progressStore.load().filter(e => e.key !== entry.key);
+    const next = [{ ...entry, updatedAt: entry.updatedAt ?? Date.now() }, ...list].slice(0, VOD_PROGRESS_MAX);
+    progressStore.save(next);
+    res.json({ ok: true });
+  });
+
+  // DELETE /api/vod/progress/:key
+  router.delete('/progress/:key', (req, res) => {
+    if (!progressStore) return res.json({ ok: true });
+    const key = req.params.key;
+    progressStore.save(progressStore.load().filter(e => e.key !== key));
+    res.json({ ok: true });
   });
 
   return router;

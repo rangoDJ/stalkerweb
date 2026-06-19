@@ -1,6 +1,12 @@
 // Persisted "Continue Watching" progress for VOD movies and series episodes.
-// Same localStorage approach as recentlyWatched.js, but stores a playback
-// position + the params needed to relaunch the exact title/episode.
+// localStorage is the fast/synchronous path; the backend is the source of truth
+// for cross-device/cross-browser sync. Both are kept in lock-step:
+//   - reads come from localStorage (instant, no await)
+//   - writes go to localStorage immediately AND fire-and-forget PUT to backend
+//   - syncVodProgressFromBackend() merges the backend list into localStorage;
+//     call it once on app load so any progress made on another device appears.
+
+import { getVodProgressBackend, saveVodProgressBackend, removeVodProgressBackend } from '../stalkerApi'
 
 const VOD_PROGRESS_KEY = 'sw_vod_progress'
 const VOD_PROGRESS_MAX = 20
@@ -31,6 +37,7 @@ export function getVodProgress(key) {
 export function removeVodProgress(key) {
   const list = getVodProgressList().filter(e => e.key !== key)
   localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(list))
+  removeVodProgressBackend(key).catch(() => {})
 }
 
 // entry: { key, title, episodeTitle, screenshotUrl, position, duration, params }
@@ -42,8 +49,38 @@ export function saveVodProgress(entry) {
   const fraction = entry.position / entry.duration
   if (entry.position < VOD_RESUME_MIN_SECS || fraction >= VOD_DONE_FRACTION) {
     localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(list))
+    removeVodProgressBackend(entry.key).catch(() => {})
     return
   }
-  const next = [{ ...entry, updatedAt: Date.now() }, ...list].slice(0, VOD_PROGRESS_MAX)
+  const withTs = { ...entry, updatedAt: Date.now() }
+  const next = [withTs, ...list].slice(0, VOD_PROGRESS_MAX)
   localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(next))
+  saveVodProgressBackend(withTs).catch(() => {})
+}
+
+// Fetch the backend list and merge it into localStorage. Backend entries win
+// when the same key exists in both (most-recently-updated takes precedence).
+// Call once on app load so progress from other devices/browsers is visible.
+export async function syncVodProgressFromBackend() {
+  let remote
+  try {
+    remote = await getVodProgressBackend()
+  } catch {
+    return // backend unavailable — localStorage already has local progress
+  }
+  if (!Array.isArray(remote) || remote.length === 0) return
+
+  const local = getVodProgressList()
+  const merged = new Map(local.map(e => [e.key, e]))
+  for (const re of remote) {
+    const le = merged.get(re.key)
+    if (!le || (re.updatedAt ?? 0) > (le.updatedAt ?? 0)) {
+      merged.set(re.key, re)
+    }
+  }
+  // Re-sort by updatedAt desc and cap
+  const sorted = [...merged.values()]
+    .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
+    .slice(0, VOD_PROGRESS_MAX)
+  localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(sorted))
 }

@@ -29,6 +29,19 @@ class SessionManager {
     this._watchdog = null;
     this._authTimer = null;
     this._statusCallback = null;    // (status: 'ok'|'lost'|'error') => void
+    this._tokenPersistCb = null;    // (newToken) => void — persist a rotated token
+
+    // Token rotation is captured centrally in StalkerClient (any response with a
+    // js.token). React to it here: keep the cookie/state in sync and persist the
+    // new token to disk so a mid-session rotation survives a restart (otherwise
+    // the next boot reconnects with a stale token the portal may have retired).
+    client.setTokenChangedCallback?.((newToken, prevToken) => {
+      log.info(TAG, `token rotated: ${prevToken || '(none)'} → ${newToken}`);
+      this.client.updateTokenCookie(newToken);
+      if (this._tokenPersistCb) {
+        try { this._tokenPersistCb(newToken); } catch (e) { log.warn(TAG, `token persist failed: ${e.message}`); }
+      }
+    });
   }
 
   setIdentity(identity, hasManualToken = false) {
@@ -38,6 +51,12 @@ class SessionManager {
 
   setStatusCallback(cb) {
     this._statusCallback = cb;
+  }
+
+  // Register a callback invoked whenever the token rotates, so the caller can
+  // persist it (e.g. CacheManager.saveToken).
+  setTokenPersistCallback(cb) {
+    this._tokenPersistCb = cb;
   }
 
   // Capture portal_signature from any API response JS object.
@@ -73,21 +92,15 @@ class SessionManager {
 
     if (!data || !data.js) throw new Error('Handshake: empty response');
 
-    const prev = this.identity.token || '(none)';
-    if (data.js.token) {
-      this.identity.token = data.js.token;
-      this.client.setIdentity(this.identity);
-      this.client.updateTokenCookie(data.js.token);
-    }
-
+    // Token capture is centralized in StalkerClient._maybeUpdateToken (which
+    // fires the token-changed callback for logging + persistence). Here we only
+    // record the not_valid flag and any portal signature.
     if (data.js.not_valid !== undefined) {
       this.identity.valid_token = !Number(data.js.not_valid);
     }
 
     this._applyPortalSignature(data.js);
-    const changed = this.identity.token !== prev;
-    log.info(TAG, `handshake ok${changed ? ' (token updated)' : ''}`);
-    if (changed) log.debug(TAG, `  token: ${prev} → ${this.identity.token || '(none)'}`);
+    log.info(TAG, 'handshake ok');
   }
 
   // ── DoAuth ─────────────────────────────────────────────────────────────────
@@ -99,14 +112,9 @@ class SessionManager {
     if (data && data.js === false) {
       throw new Error('do_auth: authentication rejected by portal');
     }
-    
+
+    // Token rotation handled centrally in StalkerClient; just capture signature.
     if (data && data.js && typeof data.js === 'object') {
-      if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        log.debug(TAG, `token rotated during do_auth: ${data.js.token}`);
-        this.identity.token = data.js.token;
-        this.client.setIdentity(this.identity);
-        this.client.updateTokenCookie(data.js.token);
-      }
       this._applyPortalSignature(data.js);
     }
   }
@@ -119,13 +127,8 @@ class SessionManager {
 
     if (!data || !data.js) throw new Error('get_profile: empty response');
 
+    // Token rotation handled centrally in StalkerClient; just capture signature.
     if (data && data.js && typeof data.js === 'object') {
-      if (typeof data.js.token === 'string' && data.js.token && data.js.token !== this.identity.token) {
-        log.debug(TAG, `token rotated during get_profile: ${data.js.token}`);
-        this.identity.token = data.js.token;
-        this.client.setIdentity(this.identity);
-        this.client.updateTokenCookie(data.js.token);
-      }
       this._applyPortalSignature(data.js);
     }
 

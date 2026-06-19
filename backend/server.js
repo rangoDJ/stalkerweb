@@ -68,16 +68,33 @@ const { authRoutes, connectPortal } = require('./routes/auth')(appState, config)
 const log = require('./logger');
 
 // ── HTTP request logger ────────────────────────────────────────────────────
-// Replaces morgan('dev') with a format consistent with our structured logger.
+// Classifies each request so the console shows what actually matters:
+//   • errors (4xx/5xx)            → always, as warn/error
+//   • real API calls + stream     → info (visible at the default level)
+//   • high-frequency / SSE / poll  → debug only
+//   • health probes, SPA shell,    → never logged on success (pure flood —
+//     static assets                  this was the "GET / 200" noise)
+const QUIET_EXACT  = new Set(['/', '/index.html', '/status', '/favicon.ico', '/api/health']);
+const QUIET_PREFIX = ['/api/channels/progress', '/api/channels/events', '/assets/'];
+const STATIC_EXT   = /\.(js|mjs|css|png|jpe?g|gif|svg|ico|woff2?|ttf|map|webmanifest|txt)$/i;
+
+function httpLogLevel(path, status) {
+  if (status >= 500) return 'error';
+  if (status >= 400) return 'warn';
+  if (QUIET_EXACT.has(path) || STATIC_EXT.test(path)) return null;           // skip on success
+  if (path.startsWith('/proxy/hls') ||                                       // segments/sub-playlists
+      QUIET_PREFIX.some(p => path.startsWith(p))) return 'debug';
+  return 'info';                                                             // API + stream starts
+}
+
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
-    const ms     = Date.now() - start;
-    const status = res.statusCode;
-    const msg    = `${req.method.padEnd(6)} ${req.url}  ${status}  ${ms}ms`;
-    if (status >= 500)      log.error('http', msg);
-    else if (status >= 400) log.warn('http', msg);
-    else                    log.debug('http', msg);
+    const path  = req.url.split('?')[0];
+    const level = httpLogLevel(path, res.statusCode);
+    if (!level) return;
+    const ms = Date.now() - start;
+    log[level]('http', `${req.method.padEnd(4)} ${req.url}  ${res.statusCode}  ${ms}ms`);
   });
   next();
 });
@@ -137,7 +154,31 @@ appState.attachStreamHeartbeat = function attachStreamHeartbeat(req, res) {
   res.on('finish', end);
 };
 
-const vodRoutes    = require('./routes/vod')(appState);
+// ── Periodic state summary ─────────────────────────────────────────────────
+// One-line snapshot of what the server is actually doing — but logged ONLY when
+// it changes. An idle box stays silent; a connect, channel load, or stream
+// start/stop surfaces immediately. This is the "what is happening" line you can
+// scan for even when no requests are flowing.
+let _lastSummary = '';
+function logStateSummary() {
+  const connected = !!appState.sessionManager?.isAuthenticated();
+  if (!connected) {
+    if (_lastSummary !== 'disconnected') { _lastSummary = 'disconnected'; log.info('state', 'portal disconnected'); }
+    return;
+  }
+  let portal = '?';
+  try { portal = new URL(appState.client.getBasePath()).host; } catch { /* ignore */ }
+  const prog     = appState.channelManager?.getProgress?.() || {};
+  const channels = appState.channelManager?.getChannels?.().length ?? 0;
+  const loading  = prog.loading ? ` (loading ${prog.page}/${prog.totalPages})` : '';
+  const streams  = appState.activeStreams || 0;
+  const summary  = `portal=${portal} channels=${channels}${loading} streams=${streams}`;
+  if (summary !== _lastSummary) { _lastSummary = summary; log.info('state', summary); }
+}
+const _summaryTimer = setInterval(logStateSummary, 10_000);
+if (_summaryTimer.unref) _summaryTimer.unref();
+
+const vodRoutes    = require('./routes/vod')(appState, config);
 
 const channelRoutes = require('./routes/channels')(appState);
 const epgRoutes = require('./routes/epg')(appState);
