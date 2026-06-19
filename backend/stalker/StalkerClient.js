@@ -37,6 +37,7 @@ class StalkerClient {
     this.basePath = '';     // m_basePath  → e.g. http://host/stalker_portal/
     this.referer  = '';     // m_referer   → e.g. http://host/stalker_portal/c/
     this.timeout  = 10000; // ms
+    this._tokenChangedCb = null; // (newToken, prevToken) => void — fired on any rotation
     this.jar = new CookieJar();
     this.http = wrapper(axios.create({
       jar: this.jar,
@@ -57,6 +58,27 @@ class StalkerClient {
   // `Authorization: Bearer <token>` (built in _buildHeaders from identity.token).
   // Kept for call-site compatibility with SessionManager.
   updateTokenCookie(_token) { /* token rides in the Authorization header */ }
+
+  // Register a callback fired whenever ANY portal response rotates the token.
+  setTokenChangedCallback(cb) { this._tokenChangedCb = cb; }
+
+  // Centralized token capture. A real STB always honors the freshest token the
+  // portal hands back — on handshake, get_profile, do_auth, AND on watchdog /
+  // itv calls. We previously only captured it during the auth sequence, so a
+  // mid-session rotation (returned in any js.token) was ignored until the
+  // watchdog tripped a full re-auth — and channels zapped in that window failed
+  // with "Authorization failed". Inspect every response's js.token here instead.
+  _maybeUpdateToken(js) {
+    if (!js || typeof js !== 'object' || Array.isArray(js)) return;
+    const tok = js.token;
+    if (typeof tok !== 'string' || !tok) return;
+    if (!this.identity || tok === this.identity.token) return;
+    const prev = this.identity.token;
+    this.identity.token = tok;
+    if (this._tokenChangedCb) {
+      try { this._tokenChangedCb(tok, prev); } catch (e) { log.warn(TAG, `token-changed callback threw: ${e.message}`); }
+    }
+  }
 
   async initialize(url) {
     let server = url.trim();
@@ -333,7 +355,9 @@ class StalkerClient {
           }
           log.info(TAG, `Handshake landed at ${landedPath} → basePath=${this.basePath}`);
 
-          return this._parseResponse(response.data);
+          const parsed = this._parseResponse(response.data);
+          this._maybeUpdateToken(parsed?.js);
+          return parsed;
         } catch (e) {
           lastError = e;
         }
@@ -361,7 +385,9 @@ class StalkerClient {
       if (response.status >= 400) {
         throw new StalkerError('API', `HTTP ${response.status}`);
       }
-      return this._parseResponse(response.data);
+      const parsed = this._parseResponse(response.data);
+      this._maybeUpdateToken(parsed?.js);
+      return parsed;
     }
   }
 

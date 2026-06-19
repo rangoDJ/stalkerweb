@@ -146,6 +146,11 @@ export const saveProfile    = (name)   => _post('/auth/profiles', { name })
 export const activateProfile = (name) => _put(`/auth/profiles/${encodeURIComponent(name)}`, {})
 export const deleteProfile  = (name)  => _delete(`/auth/profiles/${encodeURIComponent(name)}`)
 
+// ── VOD progress (Continue Watching) ─────────────────────────────────────
+export const getVodProgressBackend    = ()      => _get('/vod/progress')
+export const saveVodProgressBackend   = (entry) => _put('/vod/progress', entry)
+export const removeVodProgressBackend = (key)   => _delete(`/vod/progress/${encodeURIComponent(key)}`)
+
 // ── VOD ───────────────────────────────────────────────────────────────────
 export const getVodCategories = (type = 'vod') =>
   _get(`/vod/categories?type=${type}`)

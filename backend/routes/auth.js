@@ -106,6 +106,10 @@ module.exports = function authModule(appState, config) {
       lang: lang || 'en',
       time_zone: timezone || 'Europe/London',
       token: resolvedToken,
+      // Treat a saved/passed token as valid going in, so the first get_profile
+      // sends not_valid_token=0 (handshake will correct this if the portal
+      // disagrees). A fresh connect with no token stays not_valid=1.
+      valid_token: !!resolvedToken,
       login: login || '',
       password: password || '',
       serial_number: serial_number || '0000000000000',
@@ -127,8 +131,14 @@ module.exports = function authModule(appState, config) {
     sessionManager.setStatusCallback((status) => {
       log.info(TAG, `session status → ${status}`);
     });
+    // Persist any token the portal rotates mid-session (watchdog re-auth, the
+    // 30s auth-checker, etc.) so a restart reconnects with the live token rather
+    // than the stale one captured at first connect.
+    sessionManager.setTokenPersistCallback((newToken) => {
+      cache.saveToken(portalUrl, newToken);
+    });
 
-    const channelManager = new ChannelManager(client);
+    const channelManager = new ChannelManager(client, config.dataDir);
     const guideManager   = new GuideManager(client, `${config.dataDir}/cache`);
     const vodManager     = new VodManager(client);
 

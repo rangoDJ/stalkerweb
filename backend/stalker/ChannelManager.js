@@ -6,12 +6,16 @@
 
 'use strict';
 
+const fs   = require('fs');
+const path = require('path');
 const log = require('../logger');
 const TAG = 'ChannelManager';
 
 class ChannelManager {
-  constructor(client) {
+  constructor(client, dataDir = null) {
     this.client = client;
+    this._healthFile      = dataDir ? path.join(dataDir, 'stream-health.json') : null;
+    this._healthSaveTimer = null;
     this._channels = [];
     this._channelIndex = new Map();   // uniqueId → channel, for O(1) lookups
     this._groups = [];
@@ -19,8 +23,34 @@ class ChannelManager {
     this._loadGroupsPromise = null;    // deduplicates concurrent loadGroups calls
     this._loadChannelsPromise = null;  // deduplicates concurrent loadChannels calls
     this._progress = { loading: false, page: 0, totalPages: 0, channelCount: 0 };
-    this._health = new Map();          // uniqueId → { errors, lastError }
+    this._health = new Map(Object.entries(this._loadHealthFromDisk()));
     this._resolvedCache = new Map();   // cmd → { value:{url,type}, expires } — bridges /api/stream → /proxy/stream
+  }
+
+  _loadHealthFromDisk() {
+    if (!this._healthFile) return {};
+    try {
+      const raw = JSON.parse(fs.readFileSync(this._healthFile, 'utf8'));
+      return raw && typeof raw === 'object' ? raw : {};
+    } catch {
+      return {};
+    }
+  }
+
+  _scheduleHealthSave() {
+    if (!this._healthFile) return;
+    clearTimeout(this._healthSaveTimer);
+    this._healthSaveTimer = setTimeout(() => {
+      try {
+        const data = {};
+        for (const [k, v] of this._health) data[k] = v;
+        const tmp = this._healthFile + '.tmp';
+        fs.writeFileSync(tmp, JSON.stringify(data, null, 2), 'utf8');
+        fs.renameSync(tmp, this._healthFile);
+      } catch (e) {
+        log.warn(TAG, `health persist failed: ${e.message}`);
+      }
+    }, 2000);
   }
 
   getProgress() { return { ...this._progress }; }
@@ -32,10 +62,33 @@ class ChannelManager {
     entry.errors++;
     entry.lastError = new Date().toISOString();
     this._health.set(key, entry);
+    this._scheduleHealthSave();
+    // A failed play almost always means the cached create_link URL carries a
+    // stale/expired token. Drop it so the next attempt re-tokenizes via a fresh
+    // create_link — exactly like a STB, which calls create_link on every play.
+    this.invalidateResolvedForChannel(uniqueId);
   }
 
   recordStreamSuccess(uniqueId) {
     this._health.delete(String(uniqueId)); // clear errors on success
+    this._scheduleHealthSave();
+  }
+
+  // ── Resolved-stream cache eviction ─────────────────────────────────────────
+  // Evict the cached resolved URL for an exact target (handles catch-up, whose
+  // cmd is mutated). Used to make a resolved create_link one-shot: once
+  // /proxy/stream has consumed it, the next zap forces a fresh create_link.
+  invalidateResolved(channel) {
+    if (!channel) return;
+    this._resolvedCache.delete(channel.cmd || String(channel.uniqueId));
+  }
+
+  // Evict by uniqueId (the error/health path only has the id). Clears the live
+  // (static-cmd) key plus the uniqueId fallback key.
+  invalidateResolvedForChannel(uniqueId) {
+    const ch = this._channelIndex.get(String(uniqueId));
+    if (ch?.cmd) this._resolvedCache.delete(ch.cmd);
+    this._resolvedCache.delete(String(uniqueId));
   }
 
   getHealth() {

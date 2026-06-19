@@ -5,6 +5,7 @@ import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
 import { getStatus, getSettings } from './stalkerApi'
+import { syncVodProgressFromBackend } from '@/lib/vodProgress'
 import { getActiveProfileId, getProfileGenres, migrateGlobalGenresToActiveProfile } from '@/lib/profiles'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastHost } from '@/components/ToastHost'
@@ -172,6 +173,7 @@ function AppInner() {
       try {
         const [status, settings] = await Promise.all([getStatus(), getSettings()])
         setConnected(status.connected)
+        syncVodProgressFromBackend().catch(() => {})
         setEpgEnabled(settings.epg_enabled !== false)
         setShowAdult(!!settings.show_adult)
         // Genre filters are strictly per-profile (localStorage). Migrate the
