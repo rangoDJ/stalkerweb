@@ -142,14 +142,31 @@ class ChannelRepository(private val prefs: AppPrefs) {
     suspend fun getVodCategories(type: String): List<VodCategory> =
         runCatching { requireApi().getVodCategories(type).categories }.getOrDefault(emptyList())
 
-    suspend fun getVodItems(type: String, category: String, page: Int, search: String): VodItemsResponse =
-        requireApi().getVodItems(type, category, page, search)
+    suspend fun getVodItems(type: String, category: String, page: Int, search: String): VodItemsResponse {
+        val resp = requireApi().getVodItems(type, category, page, search)
+        return resp.copy(items = resp.items.map { it.copy(screenshotUrl = absoluteUrl(it.screenshotUrl)) })
+    }
 
     suspend fun getVodSeasons(showId: String): List<VodSeason> =
-        runCatching { requireApi().getVodSeasons(showId).seasons }.getOrDefault(emptyList())
+        runCatching {
+            requireApi().getVodSeasons(showId).seasons.map { it.copy(screenshotUrl = absoluteUrl(it.screenshotUrl)) }
+        }.getOrDefault(emptyList())
 
     suspend fun getVodEpisodes(showId: String, seasonId: String): List<VodEpisode> =
-        runCatching { requireApi().getVodEpisodes(showId, seasonId).episodes }.getOrDefault(emptyList())
+        runCatching {
+            requireApi().getVodEpisodes(showId, seasonId).episodes.map { it.copy(screenshotUrl = absoluteUrl(it.screenshotUrl)) }
+        }.getOrDefault(emptyList())
+
+    /**
+     * The backend returns relative image URLs (e.g. "/api/logos/render?url=…"),
+     * which resolve against the origin in the same-origin web UI but not for
+     * Coil in the app — it needs an absolute URL. Prefix with the server base.
+     */
+    private fun absoluteUrl(url: String?): String? = when {
+        url.isNullOrBlank()                      -> url
+        url.startsWith("http", ignoreCase = true) -> url
+        else                                     -> "${prefs.serverUrl?.trimEnd('/') ?: ""}$url"
+    }
 
     /** Resolves a VOD stream and returns the absolute, playable proxy URL. */
     suspend fun resolveVodStreamUrl(
