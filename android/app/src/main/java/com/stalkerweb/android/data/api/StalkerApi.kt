@@ -35,6 +35,10 @@ interface StalkerApi {
     @GET("api/epg/now")
     suspend fun getNowNext(): Map<String, NowNextEntry>
 
+    // Resolves a channel to its proxy stream URL + engine hint (hls/mpegts/native).
+    @GET("api/stream/{channelId}")
+    suspend fun getStream(@Path("channelId") channelId: String): StreamResponse
+
     @GET("api/settings")
     suspend fun getSettings(): SettingsResponse
 

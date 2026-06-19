@@ -74,7 +74,14 @@ class PlayerViewModel(
     }
 
     fun init(channelId: String) {
-        _state.value = _state.value.copy(activeChannelId = channelId)
+        // Seed from the on-disk cache so channel navigation/metadata work instantly
+        // while the network refresh runs below.
+        val cached = repository.getCachedChannels()
+        _state.value = _state.value.copy(
+            activeChannelId = channelId,
+            channels        = if (cached.isNotEmpty()) cached else _state.value.channels,
+            logoMap         = repository.getCachedLogoMap().ifEmpty { _state.value.logoMap },
+        )
 
         // Connect to PlaybackService — starts it if not already running
         val token = SessionToken(getApplication(), ComponentName(getApplication(), PlaybackService::class.java))
@@ -115,20 +122,29 @@ class PlayerViewModel(
     fun loadStream(channelId: String) {
         val p = _player.value ?: return
         val channel = _state.value.channels.find { it.uniqueId == channelId }
-        val url = repository.streamUrl(channelId)
-        val item = MediaItem.Builder()
-            .setUri(url)
-            .setMimeType(MimeTypes.APPLICATION_M3U8)
-            .setMediaMetadata(MediaMetadata.Builder().setTitle(channel?.name).build())
-            .build()
-        p.setMediaItem(item)
-        p.prepare()
-        p.playWhenReady = true
-        if (channel != null) {
-            repository.pushWatched(channel, _state.value.logoMap[channelId])
+        // Resolve via the backend so we know the engine type (hls/mpegts/native)
+        // and feed ExoPlayer the correct MIME — assuming HLS for everything breaks
+        // the raw-MPEG-TS channels the backend now serves.
+        viewModelScope.launch {
+            val info = repository.resolveStream(channelId)
+            val mime = when (info.type) {
+                "hls"    -> MimeTypes.APPLICATION_M3U8
+                "mpegts" -> MimeTypes.VIDEO_MP2T
+                else     -> null   // native / unknown → let ExoPlayer infer from the container
+            }
+            val builder = MediaItem.Builder()
+                .setUri(info.url)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(channel?.name).build())
+            if (mime != null) builder.setMimeType(mime)
+            p.setMediaItem(builder.build())
+            p.prepare()
+            p.playWhenReady = true
+            if (channel != null) {
+                repository.pushWatched(channel, _state.value.logoMap[channelId])
+            }
+            // Keep Cast session in sync with channel changes
+            castManager?.setStream(info.url, channel?.name)
         }
-        // Keep Cast session in sync with channel changes
-        castManager?.setStream(url, channel?.name)
     }
 
     fun selectChannel(channelId: String) {

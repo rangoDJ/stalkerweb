@@ -21,7 +21,10 @@ import kotlinx.coroutines.launch
 import java.net.URI
 
 private fun parseUrl(raw: String): Pair<String, String> {
-    if (raw.isBlank()) return "http://" to "3000"
+    // Blank config → empty port (not a forced 3000). A pre-filled port silently
+    // breaks reverse-proxied FQDNs like https://iptv.example.com, where the port
+    // is implied (443). The Port field's placeholder still hints "3000".
+    if (raw.isBlank()) return "http://" to ""
     return runCatching {
         val uri = URI(raw)
         val scheme = uri.scheme ?: "http"
@@ -51,10 +54,22 @@ fun SetupScreen(
     }
 
     fun tryConnect() {
-        val h = host.trim().trimEnd('/')
+        var h = host.trim().trimEnd('/')
         val p = port.trim()
         if (h.isBlank()) return
-        val fullUrl = if (p.isNotEmpty()) "$h:$p" else h
+        // Default to http:// when no scheme is given so a bare host still yields a
+        // valid base URL (https FQDNs are entered with their scheme).
+        if (!h.contains("://")) h = "http://$h"
+        // If the address already carries an explicit port, use it as-is and ignore
+        // the Port field. Otherwise append the Port field only when one is given; a
+        // blank port lets the scheme default apply (80/443) — needed for reverse-
+        // proxied FQDNs like https://iptv.example.com with no port.
+        val hasExplicitPort = runCatching { URI(h).port > 0 }.getOrDefault(false)
+        val fullUrl = when {
+            hasExplicitPort -> h
+            p.isNotEmpty()  -> "$h:$p"
+            else            -> h
+        }
         error   = null
         testing = true
         scope.launch {

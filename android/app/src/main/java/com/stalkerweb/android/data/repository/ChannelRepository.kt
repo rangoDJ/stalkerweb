@@ -13,6 +13,9 @@ import com.stalkerweb.android.data.api.VodSeason
 import com.stalkerweb.android.data.prefs.AppPrefs
 import com.stalkerweb.android.data.prefs.WatchedChannel
 
+/** A resolved live stream: its absolute URL and the engine hint for the player. */
+data class StreamInfo(val url: String, val type: String)
+
 class ChannelRepository(private val prefs: AppPrefs) {
 
     private var api: StalkerApi? = null
@@ -44,13 +47,53 @@ class ChannelRepository(private val prefs: AppPrefs) {
         return "$base/proxy/stream/$channelId"
     }
 
+    /**
+     * Resolves a channel to a playable URL + engine type by asking the backend
+     * (`/api/stream/:id`), which runs create_link and classifies the stream
+     * (hls/mpegts/native). A per-channel override skips the backend and is typed
+     * by its extension. On any failure we fall back to the direct proxy URL
+     * assuming HLS, so playback still attempts rather than dead-ending.
+     */
+    suspend fun resolveStream(channelId: String): StreamInfo {
+        val base = prefs.serverUrl?.trimEnd('/') ?: ""
+        prefs.getStreamOverride(channelId)?.let { return StreamInfo(it, inferStreamType(it)) }
+        return runCatching {
+            val resp = requireApi().getStream(channelId)
+            val url = if (resp.streamUrl.startsWith("http", ignoreCase = true)) resp.streamUrl
+                      else "$base${resp.streamUrl}"
+            StreamInfo(url, resp.streamType.ifBlank { "hls" })
+        }.getOrElse {
+            StreamInfo("$base/proxy/stream/$channelId", "hls")
+        }
+    }
+
+    /** Best-effort stream-type guess from a URL extension (used for overrides). */
+    private fun inferStreamType(url: String): String {
+        val path = url.substringBefore('?').substringBefore('#').lowercase()
+        return when {
+            path.endsWith(".m3u8") || path.endsWith(".m3u")                       -> "hls"
+            path.endsWith(".mp4") || path.endsWith(".mkv") ||
+                path.endsWith(".webm") || path.endsWith(".mov")                   -> "native"
+            path.endsWith(".ts") || path.endsWith(".mpeg") || path.endsWith(".mpg") -> "mpegts"
+            else                                                                  -> "hls"
+        }
+    }
+
     fun getStreamOverride(channelId: String): String? = prefs.getStreamOverride(channelId)
 
     fun setStreamOverride(channelId: String, url: String?) = prefs.setStreamOverride(channelId, url)
 
     suspend fun testConnection(): StatusResponse = requireApi().getStatus()
 
-    suspend fun getChannels(): List<Channel> = requireApi().getChannels().channels
+    suspend fun getChannels(): List<Channel> =
+        requireApi().getChannels().channels.also { prefs.cacheChannels(it) }
+
+    /** Last-known channel list from disk — lets the UI render instantly on cold
+     *  start while the network refresh runs in the background. */
+    fun getCachedChannels(): List<Channel> = prefs.getCachedChannels()
+
+    /** Last-known logo map from disk (already absolute URLs). */
+    fun getCachedLogoMap(): Map<String, String> = prefs.getCachedLogoMap()
 
     suspend fun getGroups(): List<Group> =
         runCatching { requireApi().getGroups().groups }.getOrDefault(emptyList())
@@ -63,7 +106,7 @@ class ChannelRepository(private val prefs: AppPrefs) {
             val base = prefs.serverUrl?.trimEnd('/') ?: ""
             requireApi().getLogoMap().mapValues { (_, url) ->
                 if (url.startsWith("http", ignoreCase = true)) url else "$base$url"
-            }
+            }.also { prefs.cacheLogoMap(it) }
         }.getOrDefault(emptyMap())
 
     suspend fun getFavoriteIds(): Set<String> =

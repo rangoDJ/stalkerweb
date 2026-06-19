@@ -20,6 +20,7 @@ class ChannelManager {
     this._loadChannelsPromise = null;  // deduplicates concurrent loadChannels calls
     this._progress = { loading: false, page: 0, totalPages: 0, channelCount: 0 };
     this._health = new Map();          // uniqueId → { errors, lastError }
+    this._resolvedCache = new Map();   // cmd → { value:{url,type}, expires } — bridges /api/stream → /proxy/stream
   }
 
   getProgress() { return { ...this._progress }; }
@@ -230,80 +231,123 @@ class ChannelManager {
     return this._channelIndex.get(id) ?? null;
   }
 
+  // ── Stream resolution (cached) ────────────────────────────────────────────
+  // Resolves a channel to a playable URL + a stream-type hint, caching the
+  // result briefly so /api/stream (type hint for the player) and the subsequent
+  // /proxy/stream fetch share ONE create_link call — exactly like a STB, which
+  // calls create_link once per zap. Keyed by cmd so catch-up/archive (which
+  // mutates cmd) and live get separate entries.
+  async resolveStream(channel) {
+    const key = channel.cmd || String(channel.uniqueId);
+    const cached = this._resolvedCache.get(key);
+    if (cached && cached.expires > Date.now()) return cached.value;
+
+    let url;
+    if ((channel.cmd || '').includes('matrix')) {
+      // Matrix channels resolve through the portal's matrix.php, not create_link.
+      const raw = await this.client.resolveMatrixUrl(channel.cmd);
+      url = this._rewriteLocalhost(_extractUrl(raw || ''));
+    } else {
+      url = await this.getStreamUrl(channel);
+    }
+
+    const value = { url, type: classifyStreamType(url) };
+    // Short TTL: long enough to bridge the type-hint → fetch handoff within one
+    // zap, short enough that a re-zap re-tokenizes (live temp links are themselves
+    // short-lived).
+    this._resolvedCache.set(key, { value, expires: Date.now() + 15_000 });
+    return value;
+  }
+
   // ── Stream URL resolution ─────────────────────────────────────────────────
-  // Mirrors ChannelManager::GetStreamURL() + ParseStreamCmd()
+  // Native STBemu behavior: call create_link for EVERY channel zap — not only
+  // when use_http_tmp_link/use_load_balancing are set. The portal re-tokenizes
+  // the link on every play (temp-link tokens, load-balancer host, CDN auth), so
+  // playing channel.cmd directly serves a stale/un-tokenized URL that some
+  // portals reject with 403 even though the channel plays fine in STBemu.
+  // Falls back to the static channel.cmd only if create_link yields nothing.
   async getStreamUrl(channel) {
     let cmd = '';
-    let usedCreateLink = false;
-
-    if (channel.useHttpTmpLink || channel.useLoadBalancing) {
-      log.info(TAG, `ch ${channel.number}: create_link path (useHttpTmpLink=${channel.useHttpTmpLink} useLoadBalancing=${channel.useLoadBalancing})`);
-      try {
-        const linkData = await this.client.itvCreateLink(channel.cmd);
-        log.debug(TAG, `ch ${channel.number}: create_link raw js=${JSON.stringify(linkData?.js)}`);
-
-        // Portals differ: some use js.cmd, others js.url, some return js as a string
-        if (linkData?.js?.cmd) {
-          cmd = linkData.js.cmd;
-          log.debug(TAG, `ch ${channel.number}: picked js.cmd="${cmd}"`);
-        } else if (linkData?.js?.url) {
-          cmd = linkData.js.url;
-          log.debug(TAG, `ch ${channel.number}: picked js.url="${cmd}"`);
-        } else if (typeof linkData?.js === 'string' && linkData.js) {
-          cmd = linkData.js;
-          log.debug(TAG, `ch ${channel.number}: picked js (string)="${cmd}"`);
-        } else {
-          log.warn(TAG, `ch ${channel.number}: create_link returned no recognisable cmd field, raw js=${JSON.stringify(linkData?.js)}`);
-        }
-        // Mark success only after a response was received (even if cmd is empty)
-        usedCreateLink = true;
-      } catch (e) {
-        log.warn(TAG, `ch ${channel.number}: create_link threw (${e.message}), falling back to direct cmd`);
-        // usedCreateLink stays false so the last-resort block can retry
+    try {
+      const linkData = await this.client.itvCreateLink(channel.cmd);
+      log.debug(TAG, `ch ${channel.number}: create_link raw js=${JSON.stringify(linkData?.js)}`);
+      // Portals differ: some use js.cmd, others js.url, some return js as a string
+      if (linkData?.js?.cmd) {
+        cmd = linkData.js.cmd;
+      } else if (linkData?.js?.url) {
+        cmd = linkData.js.url;
+      } else if (typeof linkData?.js === 'string' && linkData.js) {
+        cmd = linkData.js;
+      } else {
+        log.warn(TAG, `ch ${channel.number}: create_link returned no recognisable cmd field, raw js=${JSON.stringify(linkData?.js)}`);
       }
-      if (!cmd) {
-        log.warn(TAG, `ch ${channel.number}: create_link yielded empty cmd, falling back to channel.cmd="${channel.cmd}"`);
-        cmd = channel.cmd;
-      }
-    } else {
-      log.debug(TAG, `ch ${channel.number}: direct cmd path, cmd="${channel.cmd}"`);
+    } catch (e) {
+      log.warn(TAG, `ch ${channel.number}: create_link threw (${e.message}), falling back to direct cmd`);
+    }
+
+    if (!cmd) {
+      log.warn(TAG, `ch ${channel.number}: create_link yielded no cmd, falling back to channel.cmd="${channel.cmd}"`);
       cmd = channel.cmd;
     }
 
-    // cmd format: "ffrt<n> <url>" → extract url after first space
-    const spacePos = cmd.indexOf(' ');
-    const url = spacePos !== -1 ? cmd.slice(spacePos + 1) : cmd;
+    // cmd format: "ffrt<n> <url>" / "ffmpeg <url>" / "auto <url>" → url after first space
+    const url = this._rewriteLocalhost(_extractUrl(cmd));
     log.debug(TAG, `ch ${channel.number}: extracted url="${url || '(empty)'}"`);
+    return url;
+  }
 
-    // Last-resort: if cmd gave no usable URL, try create_link regardless of flags.
-    // Some portals require dynamic link creation for all channels even when
-    // use_http_tmp_link=0 and use_load_balancing=0. Also retries when create_link
-    // threw a transient error above (usedCreateLink=false in that case).
-    // A bare ffrt token (e.g. "ffrt2") is not a playable URL, so check startsWith('http').
-    if ((!url || !url.startsWith('http')) && channel.cmd && !usedCreateLink) {
-      log.warn(TAG, `ch ${channel.number}: direct cmd yielded no url, trying create_link as last resort`);
-      try {
-        const linkData = await this.client.itvCreateLink(channel.cmd);
-        log.debug(TAG, `ch ${channel.number}: last-resort create_link raw js=${JSON.stringify(linkData?.js)}`);
-        const fallbackCmd = linkData?.js?.cmd || linkData?.js?.url
-          || (typeof linkData?.js === 'string' ? linkData.js : '') || '';
-        if (fallbackCmd) {
-          const sp = fallbackCmd.indexOf(' ');
-          const fallbackUrl = sp !== -1 ? fallbackCmd.slice(sp + 1) : fallbackCmd;
-          log.info(TAG, `ch ${channel.number}: last-resort create_link resolved url="${fallbackUrl}"`);
-          return fallbackUrl;
-        }
-        log.warn(TAG, `ch ${channel.number}: last-resort create_link also returned no url`);
-      } catch (e) {
-        log.warn(TAG, `ch ${channel.number}: last-resort create_link threw: ${e.message}`);
+  // Stalker portals sometimes return a stream whose host is localhost/127.0.0.1
+  // (the portal proxies it on its own box). A remote client must rewrite that to
+  // the portal's public host — STBemu and pvr.stalker/stalkerhek all do this.
+  _rewriteLocalhost(url) {
+    if (!url || !/^https?:\/\//i.test(url)) return url;
+    try {
+      const u = new URL(url);
+      if (u.hostname === 'localhost' || u.hostname === '127.0.0.1' || u.hostname === '0.0.0.0') {
+        const portal = new URL(this.client.getBasePath());
+        u.protocol = portal.protocol;
+        u.host = portal.host;
+        const rewritten = u.toString();
+        log.info(TAG, `rewrote localhost stream host → ${portal.host}`);
+        return rewritten;
       }
-    }
-
+    } catch { /* not a parseable URL — leave as-is */ }
     return url;
   }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+// Strip the leading "solution" token from a Stalker cmd:
+//   "ffrt2 http://..."  → "http://..."
+//   "ffmpeg http://..." → "http://..."
+//   "http://..."        → "http://..."  (no token)
+function _extractUrl(cmd) {
+  if (!cmd) return '';
+  const sp = cmd.indexOf(' ');
+  return (sp !== -1 ? cmd.slice(sp + 1) : cmd).trim();
+}
+
+// Classify a resolved stream URL so the player can pick the right engine:
+//   'hls'         → HLS playlist (hls.js)
+//   'mpegts'      → raw MPEG-TS over HTTP (mpegts.js — what a STB feeds to ffmpeg)
+//   'native'      → progressive MP4/MKV/etc (native <video>)
+//   'unsupported' → udp/rtp/rtsp — a browser cannot fetch these without a
+//                   server-side ffmpeg remux (not implemented)
+function classifyStreamType(url) {
+  if (!url) return 'unsupported';
+  const lower = url.toLowerCase();
+  if (/^(udp|rtp|rtsp|mc|igmp):\/\//.test(lower)) return 'unsupported';
+  const path = lower.split('?')[0].split('#')[0];
+  if (/\.(m3u8|m3u)$/.test(path)) return 'hls';
+  if (/\.(mp4|mkv|mov|avi|webm)$/.test(path)) return 'native';
+  if (/\.(ts|mpegts|mpg|mpeg)$/.test(path)) return 'mpegts';
+  // Raw MPEG-TS gateways commonly expose multicast over HTTP as /udp/239.x or /rtp/
+  if (/\/(udp|rtp)\//.test(path)) return 'mpegts';
+  // Unknown/extensionless — most Stalker live links are HLS; default there. The
+  // proxy sniffs the actual bytes regardless, and the player falls back if wrong.
+  return 'hls';
+}
 
 // Mirrors ChannelManager::GetChannelId() — djb2 hash of name+number
 function _channelId(name, number) {
@@ -339,3 +383,4 @@ function _determineLogoUri(basePath, logo) {
 }
 
 module.exports = ChannelManager;
+module.exports.classifyStreamType = classifyStreamType;
