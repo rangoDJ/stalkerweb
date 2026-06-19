@@ -568,9 +568,18 @@ module.exports = function proxyModule(appState) {
       return res.status(502).send('Could not resolve stream URL');
     }
     if (resolved.type === 'unsupported') {
-      channelManager.recordStreamError(uniqueId);
-      log.warn(TAG, `ch ${channel.number}: unsupported protocol for browser playback: ${streamUrl}`);
-      return res.status(415).send('Unsupported stream protocol (UDP/RTP/RTSP) — cannot play in a browser without server-side remux');
+      const ffmpegSvc = require('../stalker/FfmpegService');
+      if (!ffmpegSvc.isAvailable()) {
+        channelManager.recordStreamError(uniqueId);
+        log.warn(TAG, `ch ${channel.number}: unsupported protocol — FFmpeg not available: ${streamUrl}`);
+        return res.status(415).send('Unsupported stream protocol (UDP/RTP/RTSP) — FFmpeg not installed in this container');
+      }
+      // FFmpeg will remux (or re-encode) the source to MPEG-TS piped to the browser.
+      // probeCodecs runs first inside transcode() to pick copy vs re-encode.
+      log.info(TAG, `ch ${channel.number}: remuxing via FFmpeg → ${streamUrl}`);
+      channelManager.recordStreamSuccess(uniqueId);
+      channelManager.invalidateResolved(target);
+      return ffmpegSvc.transcode(streamUrl, req, res);
     }
 
     channelManager.recordStreamSuccess(uniqueId);

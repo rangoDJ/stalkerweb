@@ -12,6 +12,10 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# FFmpeg: required for server-side remux/transcode of UDP/RTP/RTSP channels.
+# Ships with ffprobe (used for codec detection) and all necessary demuxers/muxers.
+RUN apk add --no-cache ffmpeg
+
 # Backend dependencies
 COPY backend/package*.json ./backend/
 RUN cd backend && npm ci --omit=dev
