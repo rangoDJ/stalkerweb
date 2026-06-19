@@ -96,7 +96,7 @@ class VodManager {
       id:            String(s.id),
       name:          s.season_name || s.name || s.o_name || `Season ${s.season_number || s.id}`,
       seasonNumber:  s.season_number != null ? String(s.season_number) : '',
-      screenshotUri: s.screenshot_uri || null,
+      screenshotUri: s.screenshot_uri || s.screenshot || null,
     }));
   }
 
@@ -115,7 +115,7 @@ class VodManager {
       episodeId:     String(e.id),
       seriesNumber:  e.series_number != null ? String(e.series_number) : '',
       name:          e.series_name || e.name || `Episode ${e.series_number || e.id}`,
-      screenshotUri: e.screenshot_uri || null,
+      screenshotUri: e.screenshot_uri || e.screenshot || null,
     }));
   }
 
@@ -455,7 +455,7 @@ class VodManager {
       isFav:       !!(item.fav),
       isSeries:    !!Number(item.is_series),
       episodes:    Array.isArray(item.series) ? item.series : [],
-      screenshotUri: item.screenshot_uri || null,
+      screenshotUri: item.screenshot_uri || item.screenshot || item.screenshot_url || null,
       cmd:          item.cmd || item.path || '',
       // Preserve any extra streaming URL fields the portal may include
       streamUrl:    item.stream_url || item.link || item.url || null,

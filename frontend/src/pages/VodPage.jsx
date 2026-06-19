@@ -233,8 +233,12 @@ function EpisodeList({ episodes, onPlay }) {
             onClick={() => onPlay(ep)}
             className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--color-surface-2)] transition-colors group"
           >
-            <div className="w-8 h-8 rounded-full bg-[var(--color-surface-2)] flex items-center justify-center shrink-0">
-              <Play size={14} className="text-[var(--color-muted)] group-hover:text-[var(--color-primary-light)] transition-colors" fill="currentColor" />
+            <div className="w-14 h-8 rounded bg-[var(--color-surface-2)] shrink-0 overflow-hidden relative flex items-center justify-center border border-[var(--color-border)]">
+              {ep.screenshotUrl ? (
+                <img src={ep.screenshotUrl} alt={ep.name} className="w-full h-full object-cover" loading="lazy" />
+              ) : (
+                <Play size={12} className="text-[var(--color-muted)] group-hover:text-[var(--color-primary-light)] transition-colors" fill="currentColor" />
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm text-[var(--color-text)] truncate">{ep.name || `Episode ${ep.seriesNumber}`}</p>
@@ -262,7 +266,9 @@ function buildPlayerParams(item, extra = {}) {
   if (item.year)         p.set('year', item.year)
   if (item.durationMin)  p.set('durationMin', String(item.durationMin))
   if (item.isHD)         p.set('isHD', 'true')
-  if (item.screenshotUrl) p.set('screenshotUrl', encodeURIComponent(item.screenshotUrl))
+  
+  const screenshot = extra.screenshotUrl || item.screenshotUrl
+  if (screenshot)        p.set('screenshotUrl', encodeURIComponent(screenshot))
   if (item.description)  p.set('description', encodeURIComponent(item.description))
   if (item.director)     p.set('director', encodeURIComponent(item.director))
   if (item.actors)       p.set('actors', encodeURIComponent(item.actors))
@@ -388,6 +394,7 @@ export default function VodPage() {
       seasonId:     season.id,
       episodeId:    ep.episodeId,
       episodeTitle: ep.name || `Episode ${ep.seriesNumber}`,
+      screenshotUrl: ep.screenshotUrl || season.screenshotUrl || show.screenshotUrl,
     })}`)
   }
 
