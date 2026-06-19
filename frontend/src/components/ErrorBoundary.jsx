@@ -9,6 +9,20 @@ export default class ErrorBoundary extends Component {
   }
 
   static getDerivedStateFromError(error) {
+    const isChunkError = error && (
+      error.name === 'ChunkLoadError' ||
+      /failed to fetch dynamically imported module/i.test(error.message) ||
+      /loading chunk/i.test(error.message)
+    )
+    if (isChunkError) {
+      const now = Date.now()
+      const lastReload = parseInt(sessionStorage.getItem('chunk_error_reload_time') || '0', 10)
+      if (now - lastReload > 10000) {
+        sessionStorage.setItem('chunk_error_reload_time', String(now))
+        window.location.reload()
+        return { error: null }
+      }
+    }
     return { error }
   }
 
