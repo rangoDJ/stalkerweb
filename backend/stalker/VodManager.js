@@ -370,12 +370,32 @@ class VodManager {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
-  // Resolve a portal-relative screenshot URI to an absolute URL.
+  // Build a browser-usable URL for a VOD screenshot/poster.
+  // Portal screenshot_uri values are usually http:// and frequently require the
+  // portal session (Cookie/User-Agent), so handing the raw portal URL to the
+  // browser breaks on the web: blocked as mixed content on an HTTPS page, and
+  // often 403 without auth. Instead route it through /api/logos/render, which
+  // fetches server-side with the portal headers, caches it, and serves it
+  // same-origin — exactly how channel logos are handled.
   resolveScreenshot(uri) {
+    const abs = this._absoluteScreenshotUrl(uri);
+    return abs ? `/api/logos/render?url=${encodeURIComponent(abs)}` : null;
+  }
+
+  // Resolve a portal-relative screenshot URI to an absolute portal URL.
+  _absoluteScreenshotUrl(uri) {
     if (!uri) return null;
     if (uri.startsWith('http://') || uri.startsWith('https://')) return uri;
-    const base = (this.client?.basePath || '').replace(/\/$/, '');
-    return base + '/' + uri.replace(/^\//, '');
+    const basePath = this.client?.basePath || '';
+    if (!basePath) return null;
+    // A leading-slash URI (e.g. "/stalker_portal/misc/logos/250/1.png") is an
+    // absolute path → join it to the portal ORIGIN, not the deeper basePath,
+    // otherwise the "/stalker_portal/" segment gets duplicated and 404s.
+    if (uri.startsWith('/')) {
+      try { return new URL(basePath).origin + uri; }
+      catch { return null; }
+    }
+    return basePath.replace(/\/$/, '') + '/' + uri;
   }
 
   // Resolve a playable URL from a create_link js response.
