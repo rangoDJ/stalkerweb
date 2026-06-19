@@ -1,6 +1,9 @@
 package com.stalkerweb.android.service
 
 import android.content.Intent
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
@@ -9,19 +12,37 @@ class PlaybackService : MediaSessionService() {
 
     private var mediaSession: MediaSession? = null
 
+    // Stop playback whenever the whole app leaves the foreground (backgrounded,
+    // swiped from recents, force-closed, or screen off). This is a viewer, not a
+    // music player, so it must not keep streaming in the background.
+    //
+    // ProcessLifecycleOwner is the reliable signal here: relying on the player
+    // controller's teardown races (the pause command may never reach the service
+    // before the controller disconnects), and a bound MediaSessionService doesn't
+    // reliably receive onTaskRemoved. Picture-in-Picture is handled for free — a
+    // PiP activity stays STARTED, so the app lifecycle never reaches onStop and
+    // playback continues in the PiP window as expected.
+    private val appLifecycleObserver = object : DefaultLifecycleObserver {
+        override fun onStop(owner: LifecycleOwner) {
+            mediaSession?.player?.run {
+                stop()
+                clearMediaItems()
+            }
+            stopSelf()
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         val player = ExoPlayer.Builder(this).build()
         mediaSession = MediaSession.Builder(this, player).build()
+        ProcessLifecycleOwner.get().lifecycle.addObserver(appLifecycleObserver)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
         mediaSession
 
-    // A MediaSessionService keeps running after the task is swiped away so music
-    // apps can play in the background. For video/IPTV that's unwanted — stop
-    // playback and tear the service down so it doesn't keep streaming after the
-    // app is closed.
+    // Backstop for the swipe-away case in case it is delivered before onStop.
     override fun onTaskRemoved(rootIntent: Intent?) {
         mediaSession?.player?.run {
             stop()
@@ -31,6 +52,7 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        ProcessLifecycleOwner.get().lifecycle.removeObserver(appLifecycleObserver)
         mediaSession?.run {
             player.release()
             release()
