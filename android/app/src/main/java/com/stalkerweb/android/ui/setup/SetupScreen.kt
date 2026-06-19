@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -38,6 +39,7 @@ private fun parseUrl(raw: String): Pair<String, String> {
 fun SetupScreen(
     repository: ChannelRepository,
     onConnected: () -> Unit,
+    onBack: (() -> Unit)? = null,
 ) {
     val (initHost, initPort) = remember { parseUrl(repository.getServerUrl() ?: "") }
     var host    by remember { mutableStateOf(initHost) }
@@ -74,11 +76,13 @@ fun SetupScreen(
         testing = true
         scope.launch {
             runCatching {
-                repository.setServerUrl(fullUrl)
-                repository.testConnection()
+                // Test first; only persist the URL once it actually connects so a
+                // failed/abandoned edit never leaves the app on a broken server.
+                repository.testServerUrl(fullUrl)
             }.onSuccess { status ->
                 testing = false
                 if (status.connected) {
+                    repository.setServerUrl(fullUrl)
                     onConnected()
                 } else {
                     error = "Portal not connected — check stalkerweb configuration."
@@ -91,6 +95,16 @@ fun SetupScreen(
     }
 
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        // Shown only when reachable from inside the app (editing settings), not on
+        // first-run setup where there's nowhere to go back to.
+        if (onBack != null) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            }
+        }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier

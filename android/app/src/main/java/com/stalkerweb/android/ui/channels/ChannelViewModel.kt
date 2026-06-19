@@ -57,7 +57,21 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
         if (repository.getServerUrl() != null) load()
     }
 
-    fun load() {
+    /**
+     * @param reset clears in-memory + cached state first — used after switching
+     *   servers so the previous server's channels don't linger during the refresh.
+     */
+    fun load(reset: Boolean = false) {
+        if (reset) {
+            _state.value = _state.value.copy(
+                channels        = emptyList(),
+                logoMap         = emptyMap(),
+                groups          = emptyList(),
+                favoriteIds     = emptySet(),
+                nowNext         = emptyMap(),
+                selectedGroupId = null,
+            )
+        }
         // Render the on-disk cache immediately (channels, logos, watch history) so
         // the list appears instantly on cold start and survives a briefly-
         // unreachable backend; the network refresh below replaces it silently.

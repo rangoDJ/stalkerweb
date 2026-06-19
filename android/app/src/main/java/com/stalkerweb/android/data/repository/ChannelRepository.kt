@@ -28,6 +28,9 @@ class ChannelRepository(private val prefs: AppPrefs) {
     /** Persists the URL and rebuilds the Retrofit client. */
     fun setServerUrl(url: String) {
         val normalized = url.trimEnd('/')
+        // Drop the cached channel/logo snapshot when pointing at a different
+        // server so the old server's channels don't flash before the refresh.
+        if (normalized != prefs.serverUrl) prefs.clearChannelCache()
         prefs.serverUrl = normalized
         api = StalkerApi.create(normalized)
     }
@@ -84,6 +87,12 @@ class ChannelRepository(private val prefs: AppPrefs) {
     fun setStreamOverride(channelId: String, url: String?) = prefs.setStreamOverride(channelId, url)
 
     suspend fun testConnection(): StatusResponse = requireApi().getStatus()
+
+    /** Tests a candidate server URL without persisting it or touching the live
+     *  client — so an abandoned/failed edit never leaves the app pointed at a
+     *  broken server. Commit with [setServerUrl] only after this succeeds. */
+    suspend fun testServerUrl(url: String): StatusResponse =
+        StalkerApi.create(url.trimEnd('/')).getStatus()
 
     suspend fun getChannels(): List<Channel> =
         requireApi().getChannels().channels.also { prefs.cacheChannels(it) }
