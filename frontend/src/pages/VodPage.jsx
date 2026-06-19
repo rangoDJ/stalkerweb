@@ -146,7 +146,7 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative z-10 w-full sm:max-w-lg max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl bg-[var(--color-surface)] border border-[var(--color-border)] overflow-hidden">
+      <div className="glass-strong relative z-10 w-full sm:max-w-lg max-h-[85vh] flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden">
 
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--color-border)]">

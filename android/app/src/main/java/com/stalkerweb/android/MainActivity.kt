@@ -13,6 +13,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -41,6 +42,7 @@ import com.stalkerweb.android.ui.setup.SetupScreen
 import com.stalkerweb.android.ui.channels.ChannelScreen
 import com.stalkerweb.android.ui.player.PlayerScreen
 import com.stalkerweb.android.ui.theme.StalkerTheme
+import com.stalkerweb.android.ui.theme.appBackgroundBrush
 import com.stalkerweb.android.ui.update.UpdateDialog
 import com.stalkerweb.android.ui.update.UpdateViewModel
 import com.stalkerweb.android.ui.vod.VodPlayerScreen
@@ -105,7 +107,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             StalkerTheme {
-                Box(Modifier.fillMaxSize().padding(if (isTV) 48.dp else 0.dp)) {
+                Box(Modifier.fillMaxSize().background(appBackgroundBrush()).padding(if (isTV) 48.dp else 0.dp)) {
                 val navController = rememberNavController()
                 val startDest     = if (repository.getServerUrl() != null) Screen.Channels.route
                                     else Screen.Setup.route
