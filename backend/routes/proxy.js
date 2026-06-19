@@ -240,8 +240,13 @@ module.exports = function proxyModule(appState) {
     }
 
     // Sniff the first chunk to distinguish an HLS playlist from a binary container.
+    // A small playlist (most live master playlists are < 512 bytes) ends DURING
+    // the sniff, so track that: if the stream already ended, firstChunk is the
+    // whole body and we must NOT try to read more (the 'end' event is already gone
+    // and a second listener would hang forever).
     const SNIFF = 512;
     let firstChunk;
+    let ended = false;
     try {
       firstChunk = await new Promise((resolve, reject) => {
         const chunks = [];
@@ -249,7 +254,7 @@ module.exports = function proxyModule(appState) {
         const stream = response.data;
         const cleanup = () => { stream.off('data', onData); stream.off('end', onEnd); stream.off('error', onError); };
         const onData  = (c) => { chunks.push(c); size += c.length; if (size >= SNIFF) { stream.pause(); cleanup(); resolve(Buffer.concat(chunks)); } };
-        const onEnd   = () => { cleanup(); resolve(Buffer.concat(chunks)); };
+        const onEnd   = () => { ended = true; cleanup(); resolve(Buffer.concat(chunks)); };
         const onError = (e) => { cleanup(); reject(e); };
         stream.on('data', onData).once('end', onEnd).once('error', onError);
       });
@@ -261,22 +266,27 @@ module.exports = function proxyModule(appState) {
 
     const head = firstChunk.toString('utf8', 0, 128);
     if (isM3u8Body(head)) {
-      // HLS playlist — buffer the rest (tiny) and rewrite its URLs through the proxy.
-      const rest = [firstChunk];
-      response.data.resume();
-      try {
-        await new Promise((resolve, reject) => {
-          response.data.on('data', c => rest.push(c));
-          response.data.once('end', resolve);
-          response.data.once('error', reject);
-        });
-      } catch (e) {
-        log.error(TAG, `playlist read failed: ${e.message}`);
-        setCors();
-        return res.status(502).send(`Fetch failed: ${e.message}`);
+      // HLS playlist — buffer any remainder (only if the stream hasn't already
+      // ended during the sniff) and rewrite its URLs through the proxy.
+      let body = firstChunk;
+      if (!ended) {
+        const rest = [firstChunk];
+        response.data.resume();
+        try {
+          await new Promise((resolve, reject) => {
+            response.data.on('data', c => rest.push(c));
+            response.data.once('end', resolve);
+            response.data.once('error', reject);
+          });
+        } catch (e) {
+          log.error(TAG, `playlist read failed: ${e.message}`);
+          setCors();
+          return res.status(502).send(`Fetch failed: ${e.message}`);
+        }
+        body = Buffer.concat(rest);
       }
       const proxyOrigin = `${req.protocol}://${req.get('host')}`;
-      const rewritten = rewriteM3u8(Buffer.concat(rest).toString('utf8'), realUrl, proxyOrigin, proxySecret);
+      const rewritten = rewriteM3u8(body.toString('utf8'), realUrl, proxyOrigin, proxySecret);
       res.set('Content-Type', 'application/vnd.apple.mpegurl');
       res.set('Cache-Control', 'no-cache, no-store');
       setCors();
@@ -290,6 +300,11 @@ module.exports = function proxyModule(appState) {
     res.set('Content-Type', ct);
     setCors();
     if (response.headers['content-length']) res.set('Content-Length', response.headers['content-length']);
+    if (ended) {
+      // Whole (small) body already arrived during the sniff — send and finish.
+      res.write(firstChunk);
+      return res.end();
+    }
     res.write(firstChunk);
     response.data.resume();
     response.data.on('error', err => { log.error(TAG, `stream pipe error: ${err.message}`); res.destroy(); });
