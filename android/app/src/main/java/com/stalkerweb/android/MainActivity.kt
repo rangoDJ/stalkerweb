@@ -171,14 +171,22 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController = navController, startDestination = startDest) {
 
                     composable(Screen.Setup.route) {
+                        // Reachable two ways: first-run (start destination, nothing
+                        // behind it) and from the channel list's settings button.
+                        val fromApp = navController.previousBackStackEntry != null
                         SetupScreen(
                             repository  = repository,
                             onConnected = {
-                                channelViewModel.load()
-                                navController.navigate(Screen.Channels.route) {
-                                    popUpTo(Screen.Setup.route) { inclusive = true }
+                                channelViewModel.load(reset = true)
+                                if (fromApp) {
+                                    navController.popBackStack()
+                                } else {
+                                    navController.navigate(Screen.Channels.route) {
+                                        popUpTo(Screen.Setup.route) { inclusive = true }
+                                    }
                                 }
                             },
+                            onBack = if (fromApp) ({ navController.popBackStack() }) else null,
                         )
                     }
 
@@ -190,6 +198,7 @@ class MainActivity : ComponentActivity() {
                             },
                             vodEnabled      = vodEnabled,
                             onOpenVod       = { navController.navigate(Screen.Vod.route) },
+                            onOpenSettings  = { navController.navigate(Screen.Setup.route) },
                         )
                     }
 

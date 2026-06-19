@@ -107,6 +107,10 @@ class AppPrefs(context: Context) {
         }.getOrDefault(emptyMap())
     }
 
+    fun clearChannelCache() {
+        prefs.edit().remove(KEY_CHANNEL_CACHE).remove(KEY_LOGO_CACHE).apply()
+    }
+
     // ── Per-channel stream URL overrides ─────────────────────────────────────
 
     fun getStreamOverride(uniqueId: String): String? =

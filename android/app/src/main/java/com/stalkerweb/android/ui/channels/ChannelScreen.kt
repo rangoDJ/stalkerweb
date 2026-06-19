@@ -38,6 +38,7 @@ fun ChannelScreen(
     onSelectChannel: (Channel) -> Unit,
     vodEnabled: Boolean = false,
     onOpenVod: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isTV  = rememberIsTV()
@@ -68,6 +69,9 @@ fun ChannelScreen(
                         }
                         IconButton(onClick = viewModel::load) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        }
+                        IconButton(onClick = onOpenSettings) {
+                            Icon(Icons.Default.Settings, contentDescription = "Server settings")
                         }
                     },
                 )
