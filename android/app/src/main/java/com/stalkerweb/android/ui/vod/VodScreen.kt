@@ -266,7 +266,7 @@ private fun SeriesSheet(
                             } else {
                                 LazyColumn {
                                     items(list, key = { it.id }) { season ->
-                                        ListRow(season.name) { onOpenSeason(season) }
+                                        ListRow(season.name, screenshotUrl = season.screenshotUrl) { onOpenSeason(season) }
                                     }
                                 }
                             }
@@ -279,7 +279,11 @@ private fun SeriesSheet(
                             } else {
                                 LazyColumn {
                                     items(list, key = { it.episodeId }) { ep ->
-                                        ListRow(ep.name.ifBlank { "Episode ${ep.seriesNumber}" }, leadingPlay = true) {
+                                        ListRow(
+                                            text = ep.name.ifBlank { "Episode ${ep.seriesNumber}" },
+                                            screenshotUrl = ep.screenshotUrl,
+                                            leadingPlay = true
+                                        ) {
                                             onPlayEpisode(selectedSeason, ep)
                                         }
                                     }
@@ -294,15 +298,39 @@ private fun SeriesSheet(
 }
 
 @Composable
-private fun ListRow(text: String, leadingPlay: Boolean = false, onClick: () -> Unit) {
+private fun ListRow(
+    text: String,
+    screenshotUrl: String? = null,
+    leadingPlay: Boolean = false,
+    onClick: () -> Unit,
+) {
     Row(
-        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().clickable { onClick() }.padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (leadingPlay) {
-            Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(Modifier.width(10.dp))
+        Box(
+            modifier = Modifier
+                .size(width = 64.dp, height = 36.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            if (!screenshotUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = screenshotUrl,
+                    contentDescription = text,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+            } else {
+                if (leadingPlay) {
+                    Icon(Icons.Default.PlayArrow, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                } else {
+                    Icon(Icons.Default.Tv, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
+        Spacer(Modifier.width(12.dp))
         Text(text, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f))
         if (!leadingPlay) Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
