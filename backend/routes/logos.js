@@ -64,7 +64,11 @@ module.exports = function logosModule(logoManager, appState) {
     const channels = channelManager.getChannels();
     const map = {};
     for (const ch of channels) {
-      const logo = logoManager.getLogo(ch.name) || ch.iconPath || '';
+      // Precedence: manual override → Stalker portal logo → iptv-org (manual fetch).
+      const logo = logoManager.resolveOverride(ch.name)
+                || ch.iconPath
+                || logoManager.resolveDbLogo(ch.name)
+                || '';
       if (logo) {
         map[String(ch.uniqueId)] = `/api/logos/render?url=${encodeURIComponent(logo)}`;
       }

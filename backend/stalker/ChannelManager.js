@@ -428,11 +428,26 @@ class _Semaphore {
 }
 
 // Mirrors Utils::DetermineLogoURI()
+// Mirrors pvr.stalker's Utils::DetermineLogoURI. Portals return the `logo`
+// field as a bare filename (e.g. "1485275651.png") whose image lives under the
+// portal's 320px logo directory, so a bare name must be prefixed with
+// SC_ITV_LOGO_PATH_320 = "misc/logos/320/". basePath ends in a slash
+// (e.g. "http://host/stalker_portal/").
+const ITV_LOGO_PATH_320 = 'misc/logos/320/';
 function _determineLogoUri(basePath, logo) {
   if (!logo) return '';
-  if (logo.startsWith('http://') || logo.startsWith('https://')) return logo;
-  if (logo.startsWith('/')) return basePath.replace(/\/$/, '') + logo;
-  return basePath + logo;
+  if (logo.startsWith('data:')) return '';            // data URIs aren't usable as <img src> here
+  if (logo.includes('://')) return logo;              // already absolute (any scheme)
+  // Absolute path on the portal host → join to the origin, not the deeper base
+  // path (which would duplicate the portal path segment).
+  if (logo.startsWith('/')) {
+    try { return new URL(basePath).origin + logo; }
+    catch { return basePath.replace(/\/$/, '') + logo; }
+  }
+  // Bare filename → portal logo directory. Skip the prefix if the value already
+  // carries a misc/logos path so we don't double it.
+  if (/(^|\/)misc\/logos\//.test(logo)) return basePath + logo;
+  return basePath + ITV_LOGO_PATH_320 + logo;
 }
 
 module.exports = ChannelManager;
