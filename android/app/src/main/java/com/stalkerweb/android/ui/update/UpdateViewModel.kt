@@ -47,7 +47,7 @@ class UpdateViewModel(private val manager: UpdateManager) : ViewModel() {
         _state.value = UpdateState.Downloading(0f)
         viewModelScope.launch {
             runCatching {
-                val file = manager.downloadApk(release.apkUrl) { progress ->
+                val file = manager.downloadApk(release) { progress ->
                     _state.value = UpdateState.Downloading(progress)
                 }
                 _state.value = UpdateState.ReadyToInstall(file)

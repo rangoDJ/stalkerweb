@@ -19,6 +19,7 @@ data class ReleaseInfo(val tagName: String, val version: String, val apkUrl: Str
 class UpdateManager(private val context: Context) {
 
     private val client = OkHttpClient()
+    private val prefs  = context.getSharedPreferences("stalkerweb_update", Context.MODE_PRIVATE)
 
     suspend fun checkForUpdate(): ReleaseInfo? = withContext(Dispatchers.IO) {
         runCatching {
@@ -54,9 +55,9 @@ class UpdateManager(private val context: Context) {
         }.getOrNull()
     }
 
-    suspend fun downloadApk(url: String, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
+    suspend fun downloadApk(release: ReleaseInfo, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
         val req      = Request.Builder()
-            .url(url)
+            .url(release.apkUrl)
             .header("User-Agent", "StalkerWeb-Android/${com.stalkerweb.android.BuildConfig.VERSION_NAME}")
             .build()
         val response = client.newCall(req).execute()
@@ -100,6 +101,10 @@ class UpdateManager(private val context: Context) {
             }
         }
 
+        // Remember which version this APK is for, so once it's installed we can
+        // tell the cached file is stale and stop offering it as an update.
+        prefs.edit().putString(KEY_PENDING_VERSION, release.version).apply()
+
         // Cancel progress notification and post "ready to install" notification
         nm.cancel(NOTIF_PROGRESS)
 
@@ -124,11 +129,25 @@ class UpdateManager(private val context: Context) {
         file
     }
 
-    /** Returns the cached APK file if it already exists on disk (survives process death). */
+    /**
+     * Returns the cached APK file if a download is still pending install — i.e. the
+     * file exists on disk (survives process death) AND its version is newer than the
+     * currently installed app. Once the update has been installed, the cached APK is
+     * stale, so we delete it and return null instead of forever showing "update ready".
+     */
     fun cachedApk(): File? {
         val dir  = File(context.externalCacheDir ?: context.cacheDir, "apk_downloads")
         val file = File(dir, "update.apk")
-        return if (file.exists() && file.length() > 0) file else null
+        if (!file.exists() || file.length() <= 0) return null
+
+        val pending = prefs.getString(KEY_PENDING_VERSION, null)
+        if (pending != null && isNewer(pending, com.stalkerweb.android.BuildConfig.VERSION_NAME)) {
+            return file
+        }
+        // Already installed (or unknown version) → clean up the stale download.
+        file.delete()
+        prefs.edit().remove(KEY_PENDING_VERSION).apply()
+        return null
     }
 
     private fun isNewer(remote: String, current: String): Boolean {
@@ -146,5 +165,6 @@ class UpdateManager(private val context: Context) {
         const val CHANNEL_NAME   = "App updates"
         private const val NOTIF_PROGRESS = 1001
         private const val NOTIF_READY    = 1002
+        private const val KEY_PENDING_VERSION = "pending_update_version"
     }
 }
