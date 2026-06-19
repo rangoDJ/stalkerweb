@@ -228,8 +228,16 @@ if (fs.existsSync(frontendDist)) {
       }
     }
   }));
-  // SPA fallback — serve index.html for all non-API routes
-  app.get('*', (_req, res) => {
+  // SPA fallback — serve index.html for all non-API routes.
+  // A request for a hashed asset (e.g. a stale chunk after a redeploy) must NOT
+  // fall through to index.html: returning 200 + HTML makes the browser try to
+  // evaluate HTML as a JS module ("Failed to fetch dynamically imported module").
+  // Return a real 404 so it surfaces as a ChunkLoadError and the client can recover.
+  app.get('*', (req, res) => {
+    if (/\.\w+$/.test(req.path)) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      return res.status(404).type('text/plain').send('Not found');
+    }
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(frontendDist, 'index.html'));
   });
