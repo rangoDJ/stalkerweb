@@ -354,7 +354,11 @@ export default function PlayerPage() {
   const activeChannelRef = useRef(null)
   const selectChannelRef = useRef(null)
   const volumeRef        = useRef(volume)
-  const mutedRef         = useRef(muted)
+  // The user's EXPLICIT mute preference (default: unmuted). Distinct from the
+  // temporary mute the browser forces on us to satisfy autoplay — that one must
+  // never carry over to the next channel, which is what made playback "always
+  // start muted" once any channel hit the autoplay fallback.
+  const userMutedRef     = useRef(muted)
 
   // Restore last-watched channel: URL param takes priority, then localStorage
   const [activeChannel, setActiveChannel] = useState(() => {
@@ -386,7 +390,6 @@ export default function PlayerPage() {
 
   // Persist volume changes
   useEffect(() => { volumeRef.current = volume; savePlayerPrefs({ volume }) }, [volume])
-  useEffect(() => { mutedRef.current = muted }, [muted])
 
   // Persist sidebar visibility
   useEffect(() => { savePlayerPrefs({ showList }) }, [showList])
@@ -470,24 +473,36 @@ export default function PlayerPage() {
     teardown()
     // Reset tracks on every new stream
     setAudioTracks([]); setActiveAudio(0); setSubtitleTracks([]); setActiveSub(-1)
+    // Each new channel starts from the user's explicit mute preference (default:
+    // unmuted) — never from a previous channel's forced-for-autoplay mute.
+    setMuted(userMutedRef.current)
 
     const tryPlay = () =>
       video.play()
         .then(() => { setStatus('playing'); setPlaying(true) })
         .catch(() => {
-          // Browsers always allow muted autoplay — retry muted so stream starts.
-          // Sync React state so the UI mute icon matches the DOM.
+          // Unmuted autoplay was blocked (no user activation yet). Start muted so
+          // the stream isn't stuck — but do NOT persist this as a preference.
           video.muted = true
-          setMuted(true)
           return video.play()
-            .then(() => { setStatus('playing'); setPlaying(true) })
+            .then(() => {
+              setStatus('playing'); setPlaying(true)
+              // Restore sound unless the user explicitly muted, provided the page
+              // has had user interaction (so unmuting won't be blocked/re-paused).
+              if (!userMutedRef.current && navigator.userActivation?.hasBeenActive) {
+                video.muted = false
+                setMuted(false)
+              } else {
+                setMuted(true) // honestly reflect the forced mute for this channel
+              }
+            })
             .catch(() => { setStatus('paused'); setPlaying(false) })
         })
 
     const playNative = (src) => {
       video.src = src
       video.volume = volumeRef.current / 100
-      video.muted = mutedRef.current
+      video.muted = userMutedRef.current
       tryPlay()
     }
 
@@ -506,7 +521,7 @@ export default function PlayerPage() {
       })
       player.load()
       video.volume = volumeRef.current / 100
-      video.muted = mutedRef.current
+      video.muted = userMutedRef.current
       tryPlay()
     }
 
@@ -518,7 +533,7 @@ export default function PlayerPage() {
         hls.attachMedia(video)
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           video.volume = volumeRef.current / 100
-          video.muted = mutedRef.current
+          video.muted = userMutedRef.current
           // Populate audio & subtitle track selectors
           if (hls.audioTracks?.length > 1) { setAudioTracks(hls.audioTracks); setActiveAudio(hls.audioTrack) }
           if (hls.subtitleTracks?.length > 0) { setSubtitleTracks(hls.subtitleTracks); setActiveSub(hls.subtitleTrack) }
@@ -641,7 +656,7 @@ export default function PlayerPage() {
           break
         case 'KeyM':
           e.preventDefault()
-          setMuted(m => !m)
+          setMuted(m => { const nm = !m; userMutedRef.current = nm; return nm })
           break
         case 'KeyP':
           e.preventDefault()
@@ -775,8 +790,8 @@ export default function PlayerPage() {
             audioTracks={audioTracks} activeAudio={activeAudio}
             subtitleTracks={subtitleTracks} activeSub={activeSub}
             onPlayPause={togglePlayPause}
-            onMute={() => setMuted(m => !m)}
-            onVolume={(v) => { setVolume(v); setMuted(false) }}
+            onMute={() => setMuted(m => { const nm = !m; userMutedRef.current = nm; return nm })}
+            onVolume={(v) => { setVolume(v); setMuted(false); userMutedRef.current = false }}
             onFullscreen={toggleFullscreen}
             onToggleList={() => setShowList(v => !v)}
             onTogglePiP={togglePiP}
