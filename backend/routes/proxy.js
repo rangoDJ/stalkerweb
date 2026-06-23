@@ -345,17 +345,7 @@ module.exports = function proxyModule(appState) {
   function getHeadersForUrl(realUrl) {
     const { client } = appState;
     if (!client) return {};
-    const basePath = client.getBasePath();
-    const isInternal = realUrl.startsWith(basePath) || isAllowedUrl(realUrl, basePath);
-
-    if (isInternal) {
-      const headers = { ...client._buildHeaders() };
-      delete headers['X-Requested-With'];
-      delete headers['Accept'];
-      return headers;
-    } else {
-      return { ...client.getStreamHeaders() };
-    }
+    return client.streamHeadersFor(realUrl);
   }
 
   // trusted=true skips the SSRF hostname check — use when realUrl came from

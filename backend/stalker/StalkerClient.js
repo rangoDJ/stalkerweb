@@ -269,6 +269,30 @@ class StalkerClient {
     };
   }
 
+  // Pick the right headers for fetching/probing a resolved stream URL.
+  // Portal-internal URLs (same host/subdomain as the portal) need the full STB
+  // header set incl. Authorization: Bearer; external CDN hosts get the minimal
+  // libavformat fingerprint STBemu uses (no Bearer, no Referer). Shared by the
+  // HLS proxy and the codec/type probe so both authenticate identically.
+  streamHeadersFor(url) {
+    const basePath = this.getBasePath();
+    let internal = false;
+    if (basePath) {
+      try {
+        const u = new URL(url);
+        const b = new URL(basePath);
+        internal = u.hostname === b.hostname || u.hostname.endsWith('.' + b.hostname);
+      } catch { internal = false; }
+    }
+    if (internal) {
+      const headers = { ...this._buildHeaders() };
+      delete headers['X-Requested-With'];
+      delete headers['Accept'];
+      return headers;
+    }
+    return { ...this.getStreamHeaders() };
+  }
+
   // ── Header building ────────────────────────────────────────────────────────
   // Reproduces the exact header set STBemu sends on every load.php call
   // (captured from a live session). Cookies are NOT set here — they live in the
