@@ -92,6 +92,41 @@ after the last viewer disconnects.
 
 ---
 
+## Live Log Monitor
+
+The backend exposes its structured logs over HTTP so an external agent (Claude,
+Antigravity, a dashboard, or plain `curl`) can watch them in real time. Every
+log line is also kept in an in-memory ring buffer (last `LOG_BUFFER_SIZE` lines,
+default 1000) so a fresh connection immediately gets recent history.
+
+| Endpoint | Description |
+|---|---|
+| `GET /api/logs` | One-shot JSON snapshot of the buffer |
+| `GET /api/logs/stream` | SSE stream — replays the buffer, then live-tails new lines |
+
+Both accept query filters: `?level=info|warn|error|debug`, `?tag=<source>`,
+`?since=<seq>` (only lines after a given sequence number), `?limit=<n>`. Each
+record is `{ seq, ts, level, tag, msg }`. The SSE stream emits an `id:` per
+event, so a client that drops can resume gap-free via the `Last-Event-ID`
+header (or `?since=`).
+
+**Access control** — these logs can contain the portal MAC, portal URL and
+stream tokens, so the endpoint is **localhost-only by default**: it accepts
+requests only from the same host/container unless `LOG_MONITOR_TOKEN` is set.
+With a token, any source IP may connect by sending it as `?token=<token>` or
+`Authorization: Bearer <token>`.
+
+```bash
+# Tail the live stream from the same host:
+curl -N http://localhost:8983/api/logs/stream
+
+# Only errors, with a token, from a remote agent:
+curl -N -H "Authorization: Bearer $LOG_MONITOR_TOKEN" \
+  "http://your-host:8983/api/logs/stream?level=error"
+```
+
+---
+
 ## Jellyfin Integration
 
 StalkerWeb exposes an M3U playlist and an XMLTV guide feed that Jellyfin can consume directly.

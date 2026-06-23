@@ -13,3 +13,6 @@ services:
       # - PORTAL_URL=http://your-portal.example.com/c/
       # - PORTAL_MAC=00:1A:79:XX:XX:XX
       # - PORTAL_TIMEZONE=Europe/London
+      # Optional: live log monitor. Without a token /api/logs is localhost-only;
+      # set a token to let a remote agent (Claude, Antigravity, …) connect.
+      # - LOG_MONITOR_TOKEN=change-me
