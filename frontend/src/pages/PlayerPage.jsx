@@ -337,6 +337,11 @@ export default function PlayerPage() {
   const containerRef = useRef(null)
   const hideTimer    = useRef(null)
   const retryCount   = useRef(0)
+  // Mid-playback auto-recovery: live links/tokens expire and CDN/ffmpeg pipes
+  // drop, which used to freeze playback until a manual browser refresh. These
+  // drive a re-attach (fresh create_link server-side) without user action.
+  const reconnectAttempts = useRef(0)
+  const recoveringRef     = useRef(false)
 
   const [rawData, setRawData]         = useState(null)
   const [channels, setChannels]       = useState([])
@@ -369,6 +374,9 @@ export default function PlayerPage() {
 
   const [streamUrl, setStreamUrl]   = useState(null)
   const [streamType, setStreamType] = useState('hls')
+  // Bumped to force the player to re-attach (and the proxy to re-resolve a fresh
+  // link) without changing streamUrl — used by auto-recovery below.
+  const [reloadKey, setReloadKey]   = useState(0)
   const [status, setStatus]         = useState('idle')
   const [errorMsg, setErrorMsg]     = useState('')
   const [showControls, setShowControls] = useState(true)
@@ -458,8 +466,28 @@ export default function PlayerPage() {
   useEffect(() => {
     if (!activeChannel?.uniqueId) return
     retryCount.current = 0
+    reconnectAttempts.current = 0
+    recoveringRef.current = false
     loadStreamRef.current(activeChannel.uniqueId)
   }, [activeChannel?.uniqueId])
+
+  // Re-attach the player after a mid-playback drop or stall. Bumps reloadKey so
+  // the attach effect re-runs and hits /proxy/stream again — the server then
+  // resolves a fresh create_link (new token / CDN host), exactly like a manual
+  // page refresh, but transparently and with exponential backoff.
+  const recoverStream = useCallback(() => {
+    if (recoveringRef.current) return
+    if (typeof document !== 'undefined' && document.hidden) return // don't fight background-pause
+    recoveringRef.current = true
+    reconnectAttempts.current++
+    const delay = Math.min(1500 * 2 ** (reconnectAttempts.current - 1), 15000)
+    setStatus('loading')
+    setErrorMsg('Connection lost — reconnecting…')
+    setTimeout(() => {
+      recoveringRef.current = false
+      setReloadKey(k => k + 1)
+    }, delay)
+  }, [])
 
   // Attach HLS when streamUrl changes
   useEffect(() => {
@@ -471,6 +499,18 @@ export default function PlayerPage() {
       if (mpegtsRef.current) { try { mpegtsRef.current.destroy() } catch { /* already gone */ } mpegtsRef.current = null }
     }
     teardown()
+
+    // Once media actually flows, clear the recovery state so the next drop gets
+    // a fresh backoff sequence. 'playing' also fires when playback resumes after
+    // re-buffering, which is exactly when we want to consider recovery done.
+    const onPlaying = () => { reconnectAttempts.current = 0; recoveringRef.current = false }
+    // For the live engines, the upstream pipe closing surfaces as 'ended' — treat
+    // it as a drop and reconnect rather than stopping. ('native' is progressive,
+    // where 'ended' is a real end-of-file, so it's excluded.)
+    const onEnded = () => { if (streamType === 'mpegts' || streamType === 'hls') recoverStream() }
+    video.addEventListener('playing', onPlaying)
+    video.addEventListener('ended', onEnded)
+
     // Reset tracks on every new stream
     setAudioTracks([]); setActiveAudio(0); setSubtitleTracks([]); setActiveSub(-1)
     // Each new channel starts from the user's explicit mute preference (default:
@@ -517,7 +557,9 @@ export default function PlayerPage() {
       mpegtsRef.current = player
       player.attachMediaElement(video)
       player.on(mpegts.Events.ERROR, () => {
-        setStatus('error'); setErrorMsg('Stream error. Try reloading.')
+        // A live MPEG-TS pipe dropped (token/CDN/ffmpeg) — reconnect with a fresh
+        // link instead of dead-ending until a manual refresh.
+        recoverStream()
       })
       player.load()
       video.volume = volumeRef.current / 100
@@ -552,7 +594,9 @@ export default function PlayerPage() {
               hlsRef.current = null
               playMpegts(src)
             } else {
-              setStatus('error'); setErrorMsg('Stream error. Try reloading.')
+              // Live playlist/segment expired or the connection dropped —
+              // reconnect with a fresh create_link rather than stopping.
+              recoverStream()
             }
           }
         })
@@ -573,8 +617,33 @@ export default function PlayerPage() {
       playHls(streamUrl)
     }
 
-    return () => { teardown() }
-  }, [streamUrl, streamType])
+    return () => {
+      video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('ended', onEnded)
+      teardown()
+    }
+  }, [streamUrl, streamType, reloadKey, recoverStream])
+
+  // Stall watchdog: a frozen live stream frequently emits no error at all (the
+  // MSE buffer just stops, or the upstream silently closes). If the playback
+  // clock stops advancing while we believe we're playing, reconnect.
+  useEffect(() => {
+    if (status !== 'playing') return
+    const video = videoRef.current
+    if (!video) return
+    let lastTime = video.currentTime
+    let lastAdvance = Date.now()
+    const id = setInterval(() => {
+      if (document.hidden || video.paused || recoveringRef.current) {
+        lastTime = video.currentTime; lastAdvance = Date.now(); return
+      }
+      if (video.currentTime > lastTime + 0.25) {
+        lastTime = video.currentTime; lastAdvance = Date.now(); return
+      }
+      if (Date.now() - lastAdvance > 12000) recoverStream()
+    }, 4000)
+    return () => clearInterval(id)
+  }, [status, recoverStream])
 
   useEffect(() => {
     if (!videoRef.current) return
