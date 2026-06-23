@@ -537,6 +537,8 @@ module.exports = function proxyModule(appState) {
     const channel = await channelManager.waitForChannel(uniqueId);
     if (!channel) return res.status(404).send('Channel not found');
 
+    log.info(TAG, `play: ch ${channel.number} "${channel.name}" (id ${uniqueId}) — resolving stream`);
+
     // Catch-up support: if ?startTime= is provided, modify the cmd to request archive stream
     const target = req.query.startTime
       ? { ...channel, cmd: `${channel.cmd} archive=1 start=${req.query.startTime}` }
