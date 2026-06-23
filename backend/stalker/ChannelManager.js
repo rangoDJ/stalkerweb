@@ -113,73 +113,114 @@ class ChannelManager {
   // Mirrors ChannelManager::LoadChannels()
   // First calls GetAllChannels to seed, then pages through GetOrderedList.
   async _doLoadChannels() {
+    const t0 = Date.now();
     this._channels = [];
     this._channelIndex = new Map();   // reset so stale entries don't linger during reload
     this._progress = { loading: true, page: 0, totalPages: 0, channelCount: 0 };
 
+    log.info(TAG, 'channel load: starting');
+
     // Load groups first so genre names can be resolved during channel parsing.
     // Always reload groups alongside channels so they stay in sync.
+    log.info(TAG, 'channel load [1/3]: fetching genres/groups (itv.get_genres)');
     await this.loadGroups();
     this._genreMap = new Map(this._groups.map((g) => [String(g.id), g.name]));
+    log.info(TAG, `channel load [1/3]: ${this._groups.length} groups`);
 
     // Step 1: get_all_channels (seeds the basic list)
+    log.info(TAG, 'channel load [2/3]: seeding list (itv.get_all_channels)');
     const allData = await this.client.itvGetAllChannels();
     if (allData?.js?.data) {
       this._parseChannels(allData);
     }
+    log.info(TAG, `channel load [2/3]: seeded ${this._channels.length} channels`);
 
     // Step 2: get_ordered_list (paginated, concurrent)
     const GENRE = '*';
-    const MAX_CONCURRENT = 10;
+    const MAX_CONCURRENT     = 10;
+    const RETRY_CONCURRENCY  = 4;   // ease portal contention on the retry passes
+    const MAX_RETRY_ROUNDS   = 2;
+
+    let totalItems = 0, pagesOk = 0, pagesFailed = 0, maxPages = 0;
+
+    // Fetch a set of pages with bounded concurrency; returns the pages that
+    // failed so they can be retried. Parses each page as it arrives.
+    const fetchPages = async (pageList, concurrency, label) => {
+      const semaphore = new _Semaphore(concurrency);
+      const failed = [];
+      await Promise.all(pageList.map(async (p) => {
+        await semaphore.acquire();
+        try {
+          const data = await this.client.itvGetOrderedList(GENRE, p);
+          const before = this._channels.length;
+          if (data?.js) this._parseChannels(data);
+          log.debug(TAG, `channel load [3/3]${label}: page ${p}/${maxPages} ok → +${this._channels.length - before} (running total ${this._channels.length})`);
+        } catch (e) {
+          failed.push(p);
+          log.warn(TAG, `channel load [3/3]${label}: page ${p}/${maxPages} failed: ${e.message}`);
+        } finally {
+          this._progress.page = Math.max(this._progress.page, p);
+          this._progress.channelCount = this._channels.length;
+          semaphore.release();
+        }
+      }));
+      return failed;
+    };
 
     const page1 = await this.client.itvGetOrderedList(GENRE, 1);
     if (page1?.js) {
-      const totalItems   = Number(page1.js.total_items)    || 0;
+      totalItems         = Number(page1.js.total_items)    || 0;
       const maxPageItems = Number(page1.js.max_page_items) || 0;
-      const maxPages     = totalItems > 0 && maxPageItems > 0
+      maxPages           = totalItems > 0 && maxPageItems > 0
         ? Math.ceil(totalItems / maxPageItems)
         : 1;
-      log.info(TAG, `fetching ${totalItems} channels across ${maxPages} page${maxPages !== 1 ? 's' : ''}…`);
+      log.info(TAG, `channel load [3/3]: paging itv.get_ordered_list — ${totalItems} items over ${maxPages} page${maxPages !== 1 ? 's' : ''} (concurrency ${MAX_CONCURRENT})`);
       this._progress.totalPages = maxPages;
       this._progress.page = 1;
+      const before1 = this._channels.length;
       this._parseChannels(page1);
+      log.debug(TAG, `channel load [3/3]: page 1/${maxPages} ok → +${this._channels.length - before1} (running total ${this._channels.length})`);
       this._progress.channelCount = this._channels.length;
 
+      let failed = [];
       if (maxPages > 1) {
         const pages = Array.from({ length: maxPages - 1 }, (_, i) => i + 2);
-        const semaphore = new _Semaphore(MAX_CONCURRENT);
-        await Promise.all(pages.map(async (p) => {
-          await semaphore.acquire();
-          try {
-            const data = await this.client.itvGetOrderedList(GENRE, p);
-            if (data?.js) this._parseChannels(data);
-          } catch (e) {
-            log.warn(TAG, `page ${p} failed: ${e.message}`);
-          } finally {
-            this._progress.page = Math.max(this._progress.page, p);
-            this._progress.channelCount = this._channels.length;
-            semaphore.release();
-          }
-        }));
+        failed = await fetchPages(pages, MAX_CONCURRENT, '');
+
+        // Retry passes for timed-out pages at lower concurrency so a transiently
+        // overloaded portal doesn't silently cost us thousands of channels.
+        for (let round = 1; round <= MAX_RETRY_ROUNDS && failed.length > 0; round++) {
+          log.info(TAG, `channel load [3/3]: retry ${round}/${MAX_RETRY_ROUNDS} — re-fetching ${failed.length} failed page(s) at concurrency ${RETRY_CONCURRENCY}`);
+          failed = await fetchPages(failed, RETRY_CONCURRENCY, ` retry${round}`);
+        }
       }
+      pagesFailed = failed.length;
+      pagesOk     = maxPages - pagesFailed;
     }
 
     // Deduplicate by channelId
+    const beforeDedup = this._channels.length;
     const seen = new Set();
     this._channels = this._channels.filter((ch) => {
       if (seen.has(ch.uniqueId)) return false;
       seen.add(ch.uniqueId);
       return true;
     });
+    const dupes = beforeDedup - this._channels.length;
 
     this._progress = { loading: false, page: this._progress.totalPages, totalPages: this._progress.totalPages, channelCount: this._channels.length };
     // Build O(1) lookup index
     this._channelIndex = new Map(this._channels.map((c) => [String(c.uniqueId), c]));
     const withGenre = this._channels.filter((c) => c.genre).length;
-    log.info(TAG, `loaded ${this._channels.length} channels (${withGenre} with genre, ${this._groups.length} groups)`);
+    const dur = ((Date.now() - t0) / 1000).toFixed(1);
+    log.info(TAG, `channel load: complete in ${dur}s — ${this._channels.length} channels (${withGenre} with genre, ${this._groups.length} groups, ${dupes} dupes removed, pages ${pagesOk} ok/${pagesFailed} failed)`);
+    if (pagesFailed > 0) {
+      const missing = Math.max(0, totalItems - this._channels.length);
+      log.warn(TAG, `channel load: ${pagesFailed}/${maxPages} pages failed (likely timeouts) — ~${missing} of ${totalItems} channels missing. Raise connection_timeout or reduce concurrency.`);
+    }
     if (this._channels.length > 0) {
       const s = this._channels[0];
-      log.debug(TAG, `sample channel: name=${s.name} genreId=${JSON.stringify(s.genreId)} genre=${JSON.stringify(s.genre)}`);
+      log.debug(TAG, `channel load: sample channel name=${s.name} genreId=${JSON.stringify(s.genreId)} genre=${JSON.stringify(s.genre)}`);
     }
     return this._channels;
   }
@@ -349,6 +390,7 @@ class ChannelManager {
   // Falls back to the static channel.cmd only if create_link yields nothing.
   async getStreamUrl(channel) {
     let cmd = '';
+    log.info(TAG, `resolve: ch ${channel.number} create_link cmd="${channel.cmd}"`);
     try {
       const linkData = await this.client.itvCreateLink(channel.cmd);
       log.debug(TAG, `ch ${channel.number}: create_link raw js=${JSON.stringify(linkData?.js)}`);
@@ -373,7 +415,7 @@ class ChannelManager {
 
     // cmd format: "ffrt<n> <url>" / "ffmpeg <url>" / "auto <url>" → url after first space
     const url = this._rewriteLocalhost(_extractUrl(cmd));
-    log.debug(TAG, `ch ${channel.number}: extracted url="${url || '(empty)'}"`);
+    log.info(TAG, `resolve: ch ${channel.number} → ${url || '(empty)'}`);
     return url;
   }
 
