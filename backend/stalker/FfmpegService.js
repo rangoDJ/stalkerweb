@@ -146,8 +146,15 @@ function _inputArgs(url, headers = null) {
     return ['-timeout', '10000000'];
   }
   // http(s): tokenized portal/CDN links need the same auth headers the proxy
-  // sends, or ffmpeg/ffprobe gets a 403.
-  return _httpHeaderArgs(headers);
+  // sends, or ffmpeg/ffprobe gets a 403. Auto-reconnect keeps a long live pull
+  // alive across transient CDN drops/keep-alive closes instead of EOF-ing the
+  // pipe (which would stall the browser player).
+  return [
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_delay_max', '5',
+    ..._httpHeaderArgs(headers),
+  ];
 }
 
 // Translate a header map into ffmpeg input options. The User-Agent gets its own
