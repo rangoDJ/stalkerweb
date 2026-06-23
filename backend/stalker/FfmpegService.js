@@ -51,6 +51,19 @@ function browserDirectPlayable(probe) {
   return vOk && aOk;
 }
 
+// Map an ffprobe format_name (comma-separated list) to one of stalkerweb's
+// player engine types, or null if unrecognised. Lets us classify an
+// extensionless link by what it actually IS, the way stalkerhek keys off the
+// Content-Type header rather than the URL extension.
+function _containerFromFormat(formatName) {
+  if (!formatName) return null;
+  const names = formatName.toLowerCase().split(',');
+  if (names.some(n => n === 'hls' || n === 'applehttp')) return 'hls';
+  if (names.includes('mpegts')) return 'mpegts';
+  if (names.some(n => ['mov', 'mp4', 'matroska', 'webm', 'm4a', 'flv'].includes(n))) return 'native';
+  return null;
+}
+
 // ── ffprobe codec probe ───────────────────────────────────────────────────────
 // Returns { video: 'h264'|null, audio: 'aac'|null } or null on error.
 // `headers` (optional) are the portal auth headers — required for tokenized
@@ -72,6 +85,7 @@ async function probeCodecs(streamUrl, headers = null) {
       '-i', streamUrl,
       '-v', 'quiet',
       '-print_format', 'json',
+      '-show_format',                 // format_name → container (hls/mpegts/mp4…)
       '-show_streams',
       '-select_streams', 'a:0,v:0',   // first audio + first video only
     ], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -99,9 +113,10 @@ async function probeCodecs(streamUrl, headers = null) {
           if (s.codec_type === 'video' && !video) video = (s.codec_name || '').toLowerCase();
           if (s.codec_type === 'audio' && !audio) audio = (s.codec_name || '').toLowerCase();
         }
+        const container = _containerFromFormat(json.format?.format_name);
         const direct = browserDirectPlayable({ video, audio });
-        log.info(TAG, `probe: video=${video ?? 'none'} audio=${audio ?? 'none'} browser-direct=${direct}`);
-        finish({ video, audio });
+        log.info(TAG, `probe: container=${container ?? '?'} video=${video ?? 'none'} audio=${audio ?? 'none'} browser-direct=${direct}`);
+        finish({ video, audio, container });
       } catch {
         log.warn(TAG, 'ffprobe output parse failed — codecs unknown');
         finish(null);

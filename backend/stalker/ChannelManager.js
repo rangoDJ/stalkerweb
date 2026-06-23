@@ -304,12 +304,40 @@ class ChannelManager {
       url = await this.getStreamUrl(channel);
     }
 
-    const value = { url, type: classifyStreamType(url) };
+    let type = classifyStreamType(url);
+
+    // Content-aware typing for ambiguous (extensionless) HTTP links. Like
+    // stalkerhek, which keys off the response Content-Type rather than the URL
+    // extension: an extensionless link can be an HLS playlist, raw MPEG-TS, or a
+    // progressive file, and guessing 'hls' from the extension misroutes raw-TS
+    // channels to hls.js. ffprobe tells us the real container (and the codec
+    // probe is cached, so the later /proxy/stream fetch reuses it for free).
+    if (type !== 'unsupported' && _isAmbiguousHttpUrl(url)) {
+      const refined = await this._refineTypeByProbe(url);
+      if (refined) {
+        if (refined !== type) log.info(TAG, `ch ${channel.number}: refined stream type ${type} → ${refined} via probe`);
+        type = refined;
+      }
+    }
+
+    const value = { url, type };
     // Short TTL: long enough to bridge the type-hint → fetch handoff within one
     // zap, short enough that a re-zap re-tokenizes (live temp links are themselves
     // short-lived).
     this._resolvedCache.set(key, { value, expires: Date.now() + 15_000 });
     return value;
+  }
+
+  // Probe an ambiguous HTTP link to learn its real container. Best-effort:
+  // returns null (→ keep the extension-based guess) when FFmpeg is unavailable
+  // or the probe fails, so this never regresses a channel that plays today.
+  async _refineTypeByProbe(url) {
+    const ff = require('./FfmpegService');
+    if (!ff.isAvailable()) return null;
+    let headers = {};
+    try { headers = this.client.streamHeadersFor(url); } catch { /* use none */ }
+    const probe = await ff.probeCodecs(url, headers);
+    return probe?.container || null;
   }
 
   // ── Stream URL resolution ─────────────────────────────────────────────────
@@ -379,6 +407,17 @@ function _extractUrl(cmd) {
   if (!cmd) return '';
   const sp = cmd.indexOf(' ');
   return (sp !== -1 ? cmd.slice(sp + 1) : cmd).trim();
+}
+
+// True for an http(s) URL whose path carries no recognisable container hint, so
+// classifyStreamType can only guess. These are the links worth probing for their
+// real type (mirrors stalkerhek inspecting the response Content-Type).
+function _isAmbiguousHttpUrl(url) {
+  if (!/^https?:\/\//i.test(url)) return false;
+  const path = url.toLowerCase().split('?')[0].split('#')[0];
+  if (/\.(m3u8|m3u|mp4|mkv|mov|avi|webm|ts|mpegts|mpg|mpeg)$/.test(path)) return false;
+  if (/\/(udp|rtp)\//.test(path)) return false; // already resolves to mpegts
+  return true;
 }
 
 // Classify a resolved stream URL so the player can pick the right engine:
