@@ -22,6 +22,36 @@ const BADGE = { debug: 'DEBUG', info: 'INFO ', warn: 'WARN ', error: 'ERROR' };
 
 function c(color, text) { return COLOR ? `${C[color]}${text}${C.reset}` : text; }
 
+// ── Live log capture ─────────────────────────────────────────────────────────
+// In addition to the pretty console output, every record is pushed into a
+// bounded ring buffer and broadcast to subscribers. This feeds the live log
+// monitor (routes/logs.js) without changing any call site or the console output.
+const { EventEmitter } = require('events');
+
+const RING_MAX = parseInt(process.env.LOG_BUFFER_SIZE || '1000', 10);
+const ring = [];           // [{ seq, ts, level, tag, msg }]
+let seq = 0;
+
+const emitter = new EventEmitter();
+emitter.setMaxListeners(0); // unbounded subscribers; we manage cleanup ourselves
+
+function capture(level, tag, msg) {
+  const record = { seq: ++seq, ts: Date.now(), level, tag, msg: String(msg) };
+  ring.push(record);
+  if (ring.length > RING_MAX) ring.shift();
+  emitter.emit('log', record);
+}
+
+// Returns buffered records, optionally filtered. Used by GET /api/logs.
+function getBuffer({ since = 0, level, tag, limit } = {}) {
+  let out = ring;
+  if (since)  out = out.filter(r => r.seq > since);
+  if (level)  out = out.filter(r => LEVELS[r.level] >= (LEVELS[level] ?? 0));
+  if (tag)    out = out.filter(r => r.tag === tag);
+  if (limit && out.length > limit) out = out.slice(out.length - limit);
+  return out;
+}
+
 function ts() {
   const d = new Date();
   const hh = String(d.getHours()).padStart(2, '0');
@@ -32,6 +62,7 @@ function ts() {
 
 function write(level, tag, msg) {
   if (LEVELS[level] < MIN) return;
+  capture(level, tag, msg);
   const line = [
     c('dim', ts()),
     c(level, BADGE[level]),
@@ -48,4 +79,8 @@ module.exports = {
   info:  (tag, msg) => write('info',  tag, msg),
   warn:  (tag, msg) => write('warn',  tag, msg),
   error: (tag, msg) => write('error', tag, msg),
+
+  // Live log monitor hooks (see routes/logs.js)
+  events: emitter,   // emits 'log' with each captured record
+  getBuffer,         // snapshot of the ring buffer, with optional filters
 };

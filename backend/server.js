@@ -81,7 +81,7 @@ const log = require('./logger');
 //   • health probes, SPA shell,    → never logged on success (pure flood —
 //     static assets                  this was the "GET / 200" noise)
 const QUIET_EXACT  = new Set(['/', '/index.html', '/status', '/favicon.ico', '/api/health']);
-const QUIET_PREFIX = ['/api/channels/progress', '/api/channels/events', '/assets/'];
+const QUIET_PREFIX = ['/api/channels/progress', '/api/channels/events', '/api/logs', '/assets/'];
 const STATIC_EXT   = /\.(js|mjs|css|png|jpe?g|gif|svg|ico|woff2?|ttf|map|webmanifest|txt)$/i;
 
 function httpLogLevel(path, status) {
@@ -201,6 +201,7 @@ const xmltvRoutes = require('./routes/xmltv')(appState);
 const logosRoutes     = require('./routes/logos')(logoManager, appState);
 const favoritesRoutes = require('./routes/favorites')(favoritesManager, appState);
 const exportRoutes    = require('./routes/export')(config);
+const logsRoutes      = require('./routes/logs');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/vod', vodRoutes);
@@ -213,6 +214,7 @@ app.use('/api/favorites', favoritesRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/m3u', m3uRoutes);
 app.use('/api/xmltv', xmltvRoutes);
+app.use('/api/logs', logsRoutes);
 // /proxy must be registered before the SPA static fallback
 app.use('/proxy', proxyRoutes);
 
