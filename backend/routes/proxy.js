@@ -589,6 +589,25 @@ module.exports = function proxyModule(appState) {
     // STB, which create_links on every play. The 15s cache still bridges the
     // /api/stream type-probe → this fetch as a single create_link.
     channelManager.invalidateResolved(target);
+
+    // Codec-aware fallback for raw HTTP MPEG-TS. Our browser players use
+    // mpegts.js, which only decodes H.264 + AAC/MP3 — so a channel encoded in
+    // MPEG-2, HEVC or AC-3 resolves fine but won't play, even though it plays in
+    // STBemu/VLC (native ffmpeg). Probe the codecs; if the browser can't decode
+    // them directly, route through FFmpeg (copy what's playable, transcode the
+    // rest) exactly like the UDP/RTP/RTSP path. HLS is left to hls.js as before.
+    if (resolved.type === 'mpegts' && /^https?:\/\//i.test(streamUrl)) {
+      const ffmpegSvc = require('../stalker/FfmpegService');
+      if (ffmpegSvc.isAvailable()) {
+        const headers = getHeadersForUrl(streamUrl);
+        const probe = await ffmpegSvc.probeCodecs(streamUrl, headers);
+        if (!ffmpegSvc.browserDirectPlayable(probe)) {
+          log.info(TAG, `ch ${channel.number}: codecs not browser-playable (video=${probe?.video ?? '?'} audio=${probe?.audio ?? '?'}) — routing through FFmpeg`);
+          return ffmpegSvc.transcode(streamUrl, req, res, headers);
+        }
+      }
+    }
+
     log.info(TAG, `stream for ch ${channel.number} (${resolved.type}): ${streamUrl}`);
     return serveStream(req, res, streamUrl, true, uniqueId); // trusted — URL from portal create_link
   });

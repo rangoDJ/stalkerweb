@@ -32,17 +32,40 @@ function isAvailable() {
   return _available;
 }
 
-// ── Browser-safe codec sets ───────────────────────────────────────────────────
-// Codecs that every modern browser can decode natively inside MPEG-TS via MSE.
-const SAFE_VIDEO = new Set(['h264', 'hevc', 'h265']); // hevc needs Safari/Edge but is common
-const SAFE_AUDIO = new Set(['aac', 'mp3', 'opus', 'pcm_alaw', 'pcm_mulaw']);
+// ── Browser-playable codec sets (mpegts.js path) ──────────────────────────────
+// Our browser players pull MPEG-TS through mpegts.js, which only decodes H.264
+// video + AAC/MP3 audio. (It does NOT support MPEG-2, HEVC/H.265, AC-3/E-AC-3 or
+// MP2 — those play in STBemu/VLC because they feed native ffmpeg, not a browser.)
+// A stream whose codecs are all in these sets can be copied straight into the
+// output TS (cheap remux); anything else must be transcoded by ffmpeg.
+const COPY_VIDEO = new Set(['h264']);
+const COPY_AUDIO = new Set(['aac', 'mp3']);
+
+// True when mpegts.js can play the raw stream as-is (no server-side ffmpeg).
+// A null probe means "unknown" — return true so we never regress a channel that
+// plays fine today by needlessly forcing it through ffmpeg.
+function browserDirectPlayable(probe) {
+  if (!probe) return true;
+  const vOk = !probe.video || COPY_VIDEO.has(probe.video);
+  const aOk = !probe.audio || COPY_AUDIO.has(probe.audio);
+  return vOk && aOk;
+}
 
 // ── ffprobe codec probe ───────────────────────────────────────────────────────
-// Returns { video: 'h264'|null, audio: 'aac'|null, safe: bool } or null on error.
-// probe timeout is generous: multicast/RTSP sources can take a few seconds to
-// start delivering frames.
-async function probeCodecs(streamUrl) {
-  const inputArgs = _inputArgs(streamUrl);
+// Returns { video: 'h264'|null, audio: 'aac'|null } or null on error.
+// `headers` (optional) are the portal auth headers — required for tokenized
+// portal/CDN stream URLs, or ffprobe gets a 403 and we'd misjudge the codecs.
+// Results are cached per stream path (query string stripped) since the codec is
+// a property of the channel, not the per-play token.
+const _probeCache = new Map();   // urlPath → { probe, ts }
+const PROBE_TTL_MS = 60 * 60 * 1000;
+
+async function probeCodecs(streamUrl, headers = null) {
+  const cacheKey = streamUrl.split('?')[0];
+  const hit = _probeCache.get(cacheKey);
+  if (hit && Date.now() - hit.ts < PROBE_TTL_MS) return hit.probe;
+
+  const inputArgs = _inputArgs(streamUrl, headers);
   return new Promise((resolve) => {
     const probe = spawn('ffprobe', [
       ...inputArgs,
@@ -56,10 +79,15 @@ async function probeCodecs(streamUrl) {
     let out = '';
     probe.stdout.on('data', d => { out += d.toString(); });
 
+    const finish = (result) => {
+      if (result) _probeCache.set(cacheKey, { probe: result, ts: Date.now() });
+      resolve(result);
+    };
+
     const timer = setTimeout(() => {
       try { probe.kill('SIGKILL'); } catch {}
-      log.warn(TAG, `ffprobe timed out for ${streamUrl} — assuming re-encode needed`);
-      resolve(null);
+      log.warn(TAG, `ffprobe timed out for ${streamUrl} — codecs unknown`);
+      finish(null);
     }, 12_000);
 
     probe.on('close', () => {
@@ -71,26 +99,26 @@ async function probeCodecs(streamUrl) {
           if (s.codec_type === 'video' && !video) video = (s.codec_name || '').toLowerCase();
           if (s.codec_type === 'audio' && !audio) audio = (s.codec_name || '').toLowerCase();
         }
-        const safe = (!video || SAFE_VIDEO.has(video)) && (!audio || SAFE_AUDIO.has(audio));
-        log.info(TAG, `probe: video=${video ?? 'none'} audio=${audio ?? 'none'} safe=${safe}`);
-        resolve({ video, audio, safe });
+        const direct = browserDirectPlayable({ video, audio });
+        log.info(TAG, `probe: video=${video ?? 'none'} audio=${audio ?? 'none'} browser-direct=${direct}`);
+        finish({ video, audio });
       } catch {
-        log.warn(TAG, 'ffprobe output parse failed — assuming re-encode needed');
-        resolve(null);
+        log.warn(TAG, 'ffprobe output parse failed — codecs unknown');
+        finish(null);
       }
     });
 
     probe.on('error', (err) => {
       clearTimeout(timer);
-      log.warn(TAG, `ffprobe error: ${err.message} — assuming re-encode needed`);
-      resolve(null);
+      log.warn(TAG, `ffprobe error: ${err.message} — codecs unknown`);
+      finish(null);
     });
   });
 }
 
 // ── Input args for each protocol ─────────────────────────────────────────────
 
-function _inputArgs(url) {
+function _inputArgs(url, headers = null) {
   const lower = url.toLowerCase();
   if (lower.startsWith('rtsp://')) {
     // TCP avoids UDP packet loss on RTSP; more reliable over NAT
@@ -102,25 +130,43 @@ function _inputArgs(url) {
     // Value is in microseconds (10 s).
     return ['-timeout', '10000000'];
   }
-  return [];
+  // http(s): tokenized portal/CDN links need the same auth headers the proxy
+  // sends, or ffmpeg/ffprobe gets a 403.
+  return _httpHeaderArgs(headers);
 }
 
-// ── Codec args: copy vs re-encode ─────────────────────────────────────────────
+// Translate a header map into ffmpeg input options. The User-Agent gets its own
+// dedicated flag; everything else goes into -headers as a CRLF-joined blob.
+function _httpHeaderArgs(headers) {
+  if (!headers) return [];
+  const args = [];
+  const ua = headers['User-Agent'] || headers['user-agent'];
+  if (ua) args.push('-user_agent', ua);
+  const rest = Object.entries(headers)
+    .filter(([k]) => k.toLowerCase() !== 'user-agent')
+    .map(([k, v]) => `${k}: ${v}`)
+    .join('\r\n');
+  if (rest) args.push('-headers', rest + '\r\n');
+  return args;
+}
 
-function _codecArgs(probeResult) {
-  if (probeResult?.safe) {
-    // All streams already browser-compatible — pure remux, near-zero CPU
-    return ['-c', 'copy'];
+// ── Codec args: per-stream copy vs re-encode ──────────────────────────────────
+// Decided independently for video and audio so the common "H.264 video + AC-3
+// audio" case only re-encodes the audio (cheap) and copies the video untouched.
+// A null probe means codecs are unknown → re-encode both as a safe fallback.
+function _codecArgs(probe) {
+  const args = [];
+  if (!probe || (probe.video && !COPY_VIDEO.has(probe.video))) {
+    args.push('-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency');
+  } else {
+    args.push('-c:v', 'copy');
   }
-  // Re-encode to the universal baseline that every browser supports
-  log.info(TAG, probeResult
-    ? `unsafe codecs (video=${probeResult.video} audio=${probeResult.audio}) — re-encoding to H.264/AAC`
-    : 'codec probe failed — re-encoding to H.264/AAC as fallback');
-  return [
-    '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-    '-c:a', 'aac',
-    '-b:a', '128k',
-  ];
+  if (!probe || (probe.audio && !COPY_AUDIO.has(probe.audio))) {
+    args.push('-c:a', 'aac', '-b:a', '128k');
+  } else {
+    args.push('-c:a', 'copy');
+  }
+  return args;
 }
 
 // ── Main transcode entry point ────────────────────────────────────────────────
@@ -128,14 +174,14 @@ function _codecArgs(probeResult) {
 // Returns a Promise that resolves when the FFmpeg process has started (or rejects
 // on immediate failure — e.g. spawn error).
 
-async function transcode(streamUrl, req, res) {
+async function transcode(streamUrl, req, res, headers = null) {
   // Probe first so we pick the right codec args
-  const probe = await probeCodecs(streamUrl);
+  const probe = await probeCodecs(streamUrl, headers);
 
-  const inputArgs  = _inputArgs(streamUrl);
+  const inputArgs  = _inputArgs(streamUrl, headers);
   const codecArgs  = _codecArgs(probe);
   const outputArgs = ['-f', 'mpegts', 'pipe:1'];
-  const mode = probe?.safe ? 'copy' : 're-encode';
+  const mode = codecArgs.includes('libx264') ? 're-encode' : 'copy';
 
   const args = ['-hide_banner', '-loglevel', 'warning', ...inputArgs, '-i', streamUrl, ...codecArgs, ...outputArgs];
   log.info(TAG, `spawning FFmpeg [${mode}]: ffmpeg ${args.join(' ')}`);
@@ -192,4 +238,4 @@ async function transcode(streamUrl, req, res) {
   });
 }
 
-module.exports = { isAvailable, transcode, probeCodecs };
+module.exports = { isAvailable, transcode, probeCodecs, browserDirectPlayable };
