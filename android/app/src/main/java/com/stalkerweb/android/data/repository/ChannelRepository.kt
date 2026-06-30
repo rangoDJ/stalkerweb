@@ -4,6 +4,9 @@ import com.stalkerweb.android.data.api.AddFavoriteRequest
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
 import com.stalkerweb.android.data.api.NowNextEntry
+import com.stalkerweb.android.data.api.PortalActionResponse
+import com.stalkerweb.android.data.api.PortalConfigResponse
+import com.stalkerweb.android.data.api.PortalConnectRequest
 import com.stalkerweb.android.data.api.StalkerApi
 import com.stalkerweb.android.data.api.StatusResponse
 import com.stalkerweb.android.data.api.VodCategory
@@ -93,6 +96,20 @@ class ChannelRepository(private val prefs: AppPrefs) {
      *  broken server. Commit with [setServerUrl] only after this succeeds. */
     suspend fun testServerUrl(url: String): StatusResponse =
         StalkerApi.create(url.trimEnd('/')).getStatus()
+
+    // ── Portal management ─────────────────────────────────────────────────────
+
+    suspend fun connectPortal(portal: String, mac: String, timezone: String = "Europe/London", lang: String = "en"): PortalActionResponse =
+        requireApi().connectPortal(PortalConnectRequest(portal, mac, timezone, lang))
+
+    suspend fun disconnectPortal(): PortalActionResponse =
+        requireApi().disconnectPortal()
+
+    suspend fun reconnectPortal(): PortalActionResponse =
+        requireApi().reconnectPortal()
+
+    suspend fun getPortalConfig(): PortalConfigResponse? =
+        runCatching { requireApi().getPortalConfig() }.getOrNull()
 
     suspend fun getChannels(): List<Channel> =
         requireApi().getChannels().channels.also { prefs.cacheChannels(it) }
