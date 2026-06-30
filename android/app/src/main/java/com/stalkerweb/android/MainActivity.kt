@@ -308,7 +308,7 @@ class MainActivity : ComponentActivity() {
                 UpdateManager.CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW,
             ).apply { description = "Update download progress" }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 

@@ -25,7 +25,13 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     /** Called once on app start — restores a previously saved URL. */
     fun initFromPrefs() {
-        prefs.serverUrl?.let { api = StalkerApi.create(it) }
+        val url = prefs.serverUrl ?: return
+        api = runCatching { StalkerApi.create(url) }.getOrElse {
+            // Stored URL is somehow invalid (e.g. data corruption). Clear it so
+            // the user lands on the Setup screen rather than crashing on every launch.
+            prefs.serverUrl = null
+            null
+        }
     }
 
     /** Persists the URL and rebuilds the Retrofit client. */
@@ -35,7 +41,7 @@ class ChannelRepository(private val prefs: AppPrefs) {
         // server so the old server's channels don't flash before the refresh.
         if (normalized != prefs.serverUrl) prefs.clearChannelCache()
         prefs.serverUrl = normalized
-        api = StalkerApi.create(normalized)
+        api = runCatching { StalkerApi.create(normalized) }.getOrNull()
     }
 
     fun getServerUrl(): String? = prefs.serverUrl
