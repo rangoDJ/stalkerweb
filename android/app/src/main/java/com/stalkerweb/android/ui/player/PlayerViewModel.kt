@@ -83,6 +83,15 @@ class PlayerViewModel(
             logoMap         = repository.getCachedLogoMap().ifEmpty { _state.value.logoMap },
         )
 
+        // If a MediaController is already connected (user opened a second channel in
+        // the same session), reuse it directly rather than creating a new one — each
+        // additional buildAsync() leaks the previous controller and races against its
+        // own listener to set _player.value.
+        if (_player.value != null) {
+            loadStream(channelId)
+            return
+        }
+
         // Connect to PlaybackService — starts it if not already running
         val token = SessionToken(getApplication(), ComponentName(getApplication(), PlaybackService::class.java))
         val future = MediaController.Builder(getApplication(), token).buildAsync()
