@@ -12,7 +12,6 @@ if (process.stderr._handle?.setBlocking) process.stderr._handle.setBlocking(true
 // record first. (Node 18+.)
 try { require('dns').setDefaultResultOrder('ipv4first'); } catch { /* older Node */ }
 
-require('express-async-errors');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
