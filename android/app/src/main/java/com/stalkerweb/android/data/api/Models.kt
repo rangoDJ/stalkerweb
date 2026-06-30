@@ -161,3 +161,27 @@ data class StreamResponse(
     val channelName: String = "",
     val streamType: String = "hls",
 )
+
+// ── Portal connect / disconnect ───────────────────────────────────────────────
+
+@JsonClass(generateAdapter = false)
+data class PortalConnectRequest(
+    val portal: String,
+    val mac: String,
+    val timezone: String = "Europe/London",
+    val lang: String = "en",
+)
+
+@JsonClass(generateAdapter = false)
+data class PortalActionResponse(
+    val success: Boolean = false,
+    val error: String? = null,
+)
+
+@JsonClass(generateAdapter = false)
+data class PortalConfigResponse(
+    val portal: String? = null,
+    val mac: String? = null,
+    val timezone: String? = null,
+    val lang: String? = null,
+)

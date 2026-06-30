@@ -43,6 +43,8 @@ import com.stalkerweb.android.ui.channels.ChannelScreen
 import com.stalkerweb.android.ui.player.PlayerScreen
 import com.stalkerweb.android.ui.theme.StalkerTheme
 import com.stalkerweb.android.ui.theme.appBackgroundBrush
+import com.stalkerweb.android.ui.portal.PortalScreen
+import com.stalkerweb.android.ui.portal.PortalViewModel
 import com.stalkerweb.android.ui.update.UpdateDialog
 import com.stalkerweb.android.ui.update.UpdateViewModel
 import com.stalkerweb.android.ui.vod.VodPlayerScreen
@@ -147,6 +149,13 @@ class MainActivity : ComponentActivity() {
                             VodPlayerViewModel(application, repository) as T
                     }
                 }
+                val portalVmFactory = remember {
+                    object : ViewModelProvider.Factory {
+                        @Suppress("UNCHECKED_CAST")
+                        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                            PortalViewModel(repository) as T
+                    }
+                }
 
                 val channelViewModel: ChannelViewModel = viewModel<ChannelViewModel>(factory = channelVmFactory).also { this@MainActivity.channelViewModel = it }
                 val playerViewModel:  PlayerViewModel  = viewModel<PlayerViewModel>(factory = playerVmFactory)
@@ -201,6 +210,15 @@ class MainActivity : ComponentActivity() {
                             vodEnabled      = vodEnabled,
                             onOpenVod       = { navController.navigate(Screen.Vod.route) },
                             onOpenSettings  = { navController.navigate(Screen.Setup.route) },
+                            onOpenPortal    = { navController.navigate(Screen.Portal.route) },
+                        )
+                    }
+
+                    composable(Screen.Portal.route) {
+                        val portalViewModel: PortalViewModel = viewModel(factory = portalVmFactory)
+                        PortalScreen(
+                            viewModel = portalViewModel,
+                            onBack    = { navController.popBackStack() },
                         )
                     }
 
@@ -290,7 +308,7 @@ class MainActivity : ComponentActivity() {
                 UpdateManager.CHANNEL_NAME,
                 NotificationManager.IMPORTANCE_LOW,
             ).apply { description = "Update download progress" }
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java)?.createNotificationChannel(channel)
         }
     }
 

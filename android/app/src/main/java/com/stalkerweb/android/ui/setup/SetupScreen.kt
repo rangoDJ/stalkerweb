@@ -79,14 +79,10 @@ fun SetupScreen(
                 // Test first; only persist the URL once it actually connects so a
                 // failed/abandoned edit never leaves the app on a broken server.
                 repository.testServerUrl(fullUrl)
-            }.onSuccess { status ->
+            }.onSuccess {
                 testing = false
-                if (status.connected) {
-                    repository.setServerUrl(fullUrl)
-                    onConnected()
-                } else {
-                    error = "Portal not connected — check stalkerweb configuration."
-                }
+                repository.setServerUrl(fullUrl)
+                onConnected()
             }.onFailure { e ->
                 testing = false
                 error = "Cannot reach server: ${e.message}"

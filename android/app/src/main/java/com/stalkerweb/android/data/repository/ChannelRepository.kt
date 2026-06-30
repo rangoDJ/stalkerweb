@@ -4,6 +4,9 @@ import com.stalkerweb.android.data.api.AddFavoriteRequest
 import com.stalkerweb.android.data.api.Channel
 import com.stalkerweb.android.data.api.Group
 import com.stalkerweb.android.data.api.NowNextEntry
+import com.stalkerweb.android.data.api.PortalActionResponse
+import com.stalkerweb.android.data.api.PortalConfigResponse
+import com.stalkerweb.android.data.api.PortalConnectRequest
 import com.stalkerweb.android.data.api.StalkerApi
 import com.stalkerweb.android.data.api.StatusResponse
 import com.stalkerweb.android.data.api.VodCategory
@@ -22,7 +25,13 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     /** Called once on app start — restores a previously saved URL. */
     fun initFromPrefs() {
-        prefs.serverUrl?.let { api = StalkerApi.create(it) }
+        val url = prefs.serverUrl ?: return
+        api = runCatching { StalkerApi.create(url) }.getOrElse {
+            // Stored URL is somehow invalid (e.g. data corruption). Clear it so
+            // the user lands on the Setup screen rather than crashing on every launch.
+            prefs.serverUrl = null
+            null
+        }
     }
 
     /** Persists the URL and rebuilds the Retrofit client. */
@@ -32,7 +41,7 @@ class ChannelRepository(private val prefs: AppPrefs) {
         // server so the old server's channels don't flash before the refresh.
         if (normalized != prefs.serverUrl) prefs.clearChannelCache()
         prefs.serverUrl = normalized
-        api = StalkerApi.create(normalized)
+        api = runCatching { StalkerApi.create(normalized) }.getOrNull()
     }
 
     fun getServerUrl(): String? = prefs.serverUrl
@@ -93,6 +102,20 @@ class ChannelRepository(private val prefs: AppPrefs) {
      *  broken server. Commit with [setServerUrl] only after this succeeds. */
     suspend fun testServerUrl(url: String): StatusResponse =
         StalkerApi.create(url.trimEnd('/')).getStatus()
+
+    // ── Portal management ─────────────────────────────────────────────────────
+
+    suspend fun connectPortal(portal: String, mac: String, timezone: String = "Europe/London", lang: String = "en"): PortalActionResponse =
+        requireApi().connectPortal(PortalConnectRequest(portal, mac, timezone, lang))
+
+    suspend fun disconnectPortal(): PortalActionResponse =
+        requireApi().disconnectPortal()
+
+    suspend fun reconnectPortal(): PortalActionResponse =
+        requireApi().reconnectPortal()
+
+    suspend fun getPortalConfig(): PortalConfigResponse? =
+        runCatching { requireApi().getPortalConfig() }.getOrNull()
 
     suspend fun getChannels(): List<Channel> =
         requireApi().getChannels().channels.also { prefs.cacheChannels(it) }
