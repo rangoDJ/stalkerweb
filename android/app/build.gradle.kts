@@ -12,12 +12,12 @@ val appVersionCode = (versionParts.getOrElse(0) { 0 } * 10_000) +
 
 android {
     namespace = "com.stalkerweb.android"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.stalkerweb.android"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 37
         versionCode = appVersionCode.coerceAtLeast(1)
         versionName = appVersionName
 
