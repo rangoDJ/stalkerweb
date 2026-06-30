@@ -1,5 +1,7 @@
 package com.stalkerweb.android.ui.vod
 
+import android.app.Activity
+import android.view.WindowManager
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -18,6 +20,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import androidx.compose.ui.platform.LocalContext
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -31,6 +34,8 @@ fun VodPlayerScreen(
     viewModel: VodPlayerViewModel,
     onBack: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val activity = context as? Activity
     val player  by viewModel.player.collectAsStateWithLifecycle()
     val loading by viewModel.loading.collectAsStateWithLifecycle()
     val error   by viewModel.error.collectAsStateWithLifecycle()
@@ -38,6 +43,13 @@ fun VodPlayerScreen(
     DisposableEffect(Unit) {
         viewModel.init(videoId, cmd, series, seasonId, episodeId, title)
         onDispose { }
+    }
+
+    // Keep the screen awake while this fullscreen player is open so the device's
+    // display timeout doesn't sleep mid-playback. Cleared when leaving the screen.
+    DisposableEffect(activity) {
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
