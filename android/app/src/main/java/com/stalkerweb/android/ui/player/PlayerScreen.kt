@@ -3,6 +3,7 @@ package com.stalkerweb.android.ui.player
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.view.WindowManager
 import androidx.annotation.OptIn
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
@@ -127,6 +128,16 @@ fun PlayerScreen(
             onSetPipEnabled(false)
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+
+    // Keep the screen awake while video is actually playing so Android's display
+    // timeout doesn't sleep the device mid-stream. The flag is cleared on pause and
+    // when leaving the player, so normal idle timeout resumes.
+    DisposableEffect(activity, isPlaying) {
+        val window = activity?.window
+        if (isPlaying) window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        else window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose { window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
     }
 
     LaunchedEffect(activeId) { playerError = null }
