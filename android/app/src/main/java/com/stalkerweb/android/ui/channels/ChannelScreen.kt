@@ -39,6 +39,7 @@ fun ChannelScreen(
     vodEnabled: Boolean = false,
     onOpenVod: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    onOpenPortal: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isTV  = rememberIsTV()
@@ -69,6 +70,9 @@ fun ChannelScreen(
                             IconButton(onClick = onOpenVod) {
                                 Icon(Icons.Default.Movie, contentDescription = "On Demand")
                             }
+                        }
+                        IconButton(onClick = onOpenPortal) {
+                            Icon(Icons.Default.Router, contentDescription = "Portal connection")
                         }
                         IconButton(onClick = viewModel::load) {
                             Icon(Icons.Default.Refresh, contentDescription = "Refresh")
