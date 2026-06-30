@@ -42,6 +42,19 @@ interface StalkerApi {
     @GET("api/settings")
     suspend fun getSettings(): SettingsResponse
 
+    // ── Portal connect / disconnect ───────────────────────────────────────────
+    @POST("api/auth/connect")
+    suspend fun connectPortal(@Body body: PortalConnectRequest): PortalActionResponse
+
+    @DELETE("api/auth/disconnect")
+    suspend fun disconnectPortal(): PortalActionResponse
+
+    @POST("api/auth/reconnect")
+    suspend fun reconnectPortal(): PortalActionResponse
+
+    @GET("api/auth/config")
+    suspend fun getPortalConfig(): PortalConfigResponse
+
     // ── VOD ───────────────────────────────────────────────────────────────────
     @GET("api/vod/categories")
     suspend fun getVodCategories(@Query("type") type: String): VodCategoriesResponse
