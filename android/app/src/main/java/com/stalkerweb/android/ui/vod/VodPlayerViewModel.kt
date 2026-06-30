@@ -79,9 +79,14 @@ class VodPlayerViewModel(
         if (url.substringBefore('?').endsWith(".m3u8", ignoreCase = true)) {
             builder.setMimeType(MimeTypes.APPLICATION_M3U8)
         }
-        p.setMediaItem(builder.build())
-        p.prepare()
-        p.playWhenReady = true
+        runCatching {
+            p.setMediaItem(builder.build())
+            p.prepare()
+            p.playWhenReady = true
+        }.onFailure { e ->
+            android.util.Log.e("VodPlayerVM", "startPlayback failed: ${e.message}")
+            _error.value = e.message ?: "Playback error"
+        }
         _loading.value = false
     }
 

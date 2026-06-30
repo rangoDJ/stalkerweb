@@ -83,13 +83,17 @@ class PlayerViewModel(
             logoMap         = repository.getCachedLogoMap().ifEmpty { _state.value.logoMap },
         )
 
-        // If a MediaController is already connected (user opened a second channel in
-        // the same session), reuse it directly rather than creating a new one — each
-        // additional buildAsync() leaks the previous controller and races against its
-        // own listener to set _player.value.
-        if (_player.value != null) {
-            loadStream(channelId)
-            return
+        // Reuse an existing connected MediaController; if the previous one disconnected
+        // (PlaybackService was stopped while the app was in the background) fall through
+        // and reconnect so player operations don't throw on a stale reference.
+        val existingController = _player.value as? MediaController
+        if (existingController != null) {
+            if (existingController.isConnected) {
+                loadStream(channelId)
+                return
+            }
+            // Stale disconnected controller — clear it so we reconnect below.
+            _player.value = null
         }
 
         // Connect to PlaybackService — starts it if not already running
@@ -135,24 +139,31 @@ class PlayerViewModel(
         // and feed ExoPlayer the correct MIME — assuming HLS for everything breaks
         // the raw-MPEG-TS channels the backend now serves.
         viewModelScope.launch {
-            val info = repository.resolveStream(channelId)
-            val mime = when (info.type) {
-                "hls"    -> MimeTypes.APPLICATION_M3U8
-                "mpegts" -> MimeTypes.VIDEO_MP2T
-                else     -> null   // native / unknown → let ExoPlayer infer from the container
+            runCatching {
+                val info = repository.resolveStream(channelId)
+                val mime = when (info.type) {
+                    "hls"    -> MimeTypes.APPLICATION_M3U8
+                    "mpegts" -> MimeTypes.VIDEO_MP2T
+                    else     -> null   // native / unknown → let ExoPlayer infer from the container
+                }
+                val builder = MediaItem.Builder()
+                    .setUri(info.url)
+                    .setMediaMetadata(MediaMetadata.Builder().setTitle(channel?.name).build())
+                if (mime != null) builder.setMimeType(mime)
+                p.setMediaItem(builder.build())
+                p.prepare()
+                p.playWhenReady = true
+                if (channel != null) {
+                    repository.pushWatched(channel, _state.value.logoMap[channelId])
+                }
+                // Keep Cast session in sync with channel changes
+                castManager?.setStream(info.url, channel?.name)
+            }.onFailure { e ->
+                android.util.Log.e("PlayerViewModel", "loadStream failed: ${e.message}")
+                // If the controller we used became disconnected, clear it so the next
+                // init() call (e.g. from back-stack restore) will reconnect cleanly.
+                if (_player.value == p) _player.value = null
             }
-            val builder = MediaItem.Builder()
-                .setUri(info.url)
-                .setMediaMetadata(MediaMetadata.Builder().setTitle(channel?.name).build())
-            if (mime != null) builder.setMimeType(mime)
-            p.setMediaItem(builder.build())
-            p.prepare()
-            p.playWhenReady = true
-            if (channel != null) {
-                repository.pushWatched(channel, _state.value.logoMap[channelId])
-            }
-            // Keep Cast session in sync with channel changes
-            castManager?.setStream(info.url, channel?.name)
         }
     }
 
