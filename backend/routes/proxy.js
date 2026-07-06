@@ -400,7 +400,9 @@ module.exports = function proxyModule(appState) {
   // Resolves a VOD stream URL via VodManager (auth + all fallbacks), then
   // either proxies an HLS playlist (rewriting sub-URLs) or pipes a direct
   // video stream with Range-request pass-through for seeking.
-  router.get('/vod/stream*', async (req, res) => {
+  // A RegExp path (rather than the string wildcard '/vod/stream*') sidesteps
+  // path-to-regexp entirely, since newer versions reject bare unnamed '*'.
+  router.get(/^\/vod\/stream/, async (req, res) => {
     // Fix: use requireSession (not just !client) so channelManager is also checked,
     // and unauthenticated requests are rejected consistently with other proxy routes.
     if (!requireSession(res)) return;
