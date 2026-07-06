@@ -234,7 +234,9 @@ if (fs.existsSync(frontendDist)) {
   // fall through to index.html: returning 200 + HTML makes the browser try to
   // evaluate HTML as a JS module ("Failed to fetch dynamically imported module").
   // Return a real 404 so it surfaces as a ChunkLoadError and the client can recover.
-  app.get('*', (req, res) => {
+  // A RegExp path sidesteps path-to-regexp string parsing, since newer
+  // versions reject the bare unnamed '*' wildcard.
+  app.get(/.*/, (req, res) => {
     if (/\.\w+$/.test(req.path)) {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       return res.status(404).type('text/plain').send('Not found');
