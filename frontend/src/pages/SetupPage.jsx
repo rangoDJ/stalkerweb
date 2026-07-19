@@ -466,6 +466,11 @@ export default function SetupPage() {
       setConnected(true)
       setConnectedPortal({ portal: profile.portal, mac: profile.mac })
 
+      // Discard any channel list cached from a previously connected portal,
+      // so ChannelsPage re-fetches this portal's channels instead of
+      // serving a stale snapshot.
+      invalidateChannelCache()
+
       // Mark this profile active and load ITS genre filters into the app
       // context so ChannelsPage / PlayerPage filter by the right list.
       setActiveProfileId(profile.id)

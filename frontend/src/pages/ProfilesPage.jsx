@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils'
 import { getProfiles, saveProfile, activateProfile, deleteProfile, getConfig, getSettings, saveSettings } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
 import { showToast } from '@/lib/toast'
+import { invalidateChannelCache } from '@/lib/channelCache'
 
 // ── Profile card ──────────────────────────────────────────────────────────────
 function ProfileCard({ name, profile, isActive, onActivate, onDelete, activating, deleting }) {
@@ -163,6 +164,7 @@ export default function ProfilesPage() {
     try {
       await activateProfile(name)
       setConnected(true)
+      invalidateChannelCache()
       showToast(`Switched to profile "${name}"`, 'success')
       await load()
     } catch (e) {
