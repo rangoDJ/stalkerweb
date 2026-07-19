@@ -17,12 +17,26 @@ function notify(data) {
   listeners.forEach(fn => fn(data))
 }
 
-// Opens a Server-Sent Events connection to /api/channels/events and waits
-// for the backend to report loading=false, then re-fetches the full list
-// and notifies all subscribers.  Falls back to polling if SSE is unavailable.
+// Opens a Server-Sent Events connection to /api/channels/events and re-fetches
+// the channel list every time the backend's page count grows — so the grid
+// fills in page-by-page instead of sitting empty until the whole load
+// finishes — then does one last fetch once loading=false.  Falls back to
+// polling if SSE is unavailable.
 function startPolling(gen) {
   if (polling) return
   polling = true
+  let lastCount = -1
+
+  // Re-fetches the channel list if the backend's count moved since our last
+  // fetch (skips redundant re-fetches on ticks where nothing new landed).
+  const refetch = async (loading) => {
+    const chRes = await getChannels()
+    if (gen !== generation) return
+    if (chRes?.channels) {
+      cache = { ...cache, channels: chRes.channels, loading }
+      notify(cache)
+    }
+  }
 
   // Try SSE first (lower latency, no round-trips)
   if (typeof EventSource !== 'undefined') {
@@ -33,13 +47,13 @@ function startPolling(gen) {
         const prog = JSON.parse(e.data)
         if (!prog.loading) {
           es.close()
-          const chRes = await getChannels()
-          if (gen !== generation) { polling = false; return }
-          if (chRes?.channels) {
-            cache = { ...cache, channels: chRes.channels, loading: false }
-            notify(cache)
-          }
+          await refetch(false)
           polling = false
+          return
+        }
+        if (prog.channelCount !== lastCount) {
+          lastCount = prog.channelCount
+          await refetch(true)
         }
       } catch { /* ignore parse errors */ }
     }
@@ -58,6 +72,7 @@ function startPolling(gen) {
 
 async function _pollOnce(gen) {
   polling = true
+  let lastCount = -1
   try {
     while (true) {
       await new Promise(r => setTimeout(r, 1500))
@@ -72,6 +87,15 @@ async function _pollOnce(gen) {
           notify(cache)
         }
         break
+      }
+      if (prog.channelCount !== lastCount) {
+        lastCount = prog.channelCount
+        const chRes = await getChannels()
+        if (gen !== generation) break
+        if (chRes?.channels) {
+          cache = { ...cache, channels: chRes.channels, loading: true }
+          notify(cache)
+        }
       }
     }
   } catch { /* best-effort */ } finally {
