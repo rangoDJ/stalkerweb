@@ -552,11 +552,16 @@ export default function PlayerPage() {
       if (!mpegts.isSupported()) { setStatus('error'); setErrorMsg('This stream format is not supported by your browser.'); return }
       const player = mpegts.createPlayer(
         { type: 'mpegts', isLive: true, url: src },
-        { enableWorker: true, liveBufferLatencyChasing: true, lazyLoad: false }
+        // enableWorker:false — worker-mode demuxing has been seen to fail silently
+        // (MediaSource opens, but the loader never issues its network fetch and
+        // no error event fires), leaving playback stuck with no diagnosable cause.
+        // Main-thread demuxing is slightly heavier but far more reliable here.
+        { enableWorker: false, liveBufferLatencyChasing: true, lazyLoad: false }
       )
       mpegtsRef.current = player
       player.attachMediaElement(video)
-      player.on(mpegts.Events.ERROR, () => {
+      player.on(mpegts.Events.ERROR, (type, detail, info) => {
+        console.error('[mpegts] playback error', type, detail, info)
         // A live MPEG-TS pipe dropped (token/CDN/ffmpeg) — reconnect with a fresh
         // link instead of dead-ending until a manual refresh.
         recoverStream()
