@@ -482,12 +482,22 @@ function classifyStreamType(url) {
   if (!url) return 'unsupported';
   const lower = url.toLowerCase();
   if (/^(udp|rtp|rtsp|mc|igmp):\/\//.test(lower)) return 'unsupported';
-  const path = lower.split('?')[0].split('#')[0];
-  if (/\.(m3u8|m3u)$/.test(path)) return 'hls';
-  if (/\.(mp4|mkv|mov|avi|webm)$/.test(path)) return 'native';
-  if (/\.(ts|mpegts|mpg|mpeg)$/.test(path)) return 'mpegts';
+  const [pathPart, queryPart] = lower.split('#')[0].split('?');
+  if (/\.(m3u8|m3u)$/.test(pathPart)) return 'hls';
+  if (/\.(mp4|mkv|mov|avi|webm)$/.test(pathPart)) return 'native';
+  if (/\.(ts|mpegts|mpg|mpeg)$/.test(pathPart)) return 'mpegts';
   // Raw MPEG-TS gateways commonly expose multicast over HTTP as /udp/239.x or /rtp/
-  if (/\/(udp|rtp)\//.test(path)) return 'mpegts';
+  if (/\/(udp|rtp)\//.test(pathPart)) return 'mpegts';
+  // Some portals (e.g. cf.business-cdn-8k.com-style CDNs) put the real container
+  // in an `extension=` query param instead of the path itself — a link like
+  // .../live.php?...&extension=ts is raw MPEG-TS even though the path has no
+  // extension. Trust that explicit hint before falling back to the blind guess.
+  if (queryPart) {
+    const ext = new URLSearchParams(queryPart).get('extension');
+    if (ext === 'ts' || ext === 'mpegts' || ext === 'mpg' || ext === 'mpeg') return 'mpegts';
+    if (ext === 'm3u8' || ext === 'm3u') return 'hls';
+    if (ext === 'mp4' || ext === 'mkv' || ext === 'mov' || ext === 'avi' || ext === 'webm') return 'native';
+  }
   // Unknown/extensionless — most Stalker live links are HLS; default there. The
   // proxy sniffs the actual bytes regardless, and the player falls back if wrong.
   return 'hls';

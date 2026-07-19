@@ -242,9 +242,10 @@ export default function ChannelsPage() {
     return () => { cancelled = true; clearInterval(id) }
   }, [])
 
-  // Effect 1: fetch initial (possibly partial) data + subscribe to full-data updates.
-  // Runs once on mount.  The subscription fires later when the backend finishes
-  // loading all channels, so the grid populates on the fly without blocking.
+  // Effect 1: fetch initial (possibly partial) data + subscribe to incremental
+  // updates. Runs once on mount. The subscription fires every time the backend
+  // pages in more channels — not just once at the very end — so the grid fills
+  // in page-by-page instead of sitting empty until the whole load finishes.
   useEffect(() => {
     let cancelled = false
 
@@ -261,11 +262,12 @@ export default function ChannelsPage() {
         setLoading(false)
       })
 
-    // Subscribe so the grid updates automatically when the full channel list arrives
+    // Subscribe so the grid updates as each page of channels lands, and only
+    // clears the "still loading" flag once the backend is actually done.
     const unsub = subscribeChannelUpdates(data => {
       if (cancelled) return
       setRawData(data)
-      setBackendLoading(false)
+      setBackendLoading(data.loading)
     })
 
     return () => { cancelled = true; unsub() }
