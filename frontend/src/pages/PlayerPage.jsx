@@ -556,7 +556,11 @@ export default function PlayerPage() {
         // (MediaSource opens, but the loader never issues its network fetch and
         // no error event fires), leaving playback stuck with no diagnosable cause.
         // Main-thread demuxing is slightly heavier but far more reliable here.
-        { enableWorker: false, liveBufferLatencyChasing: true, lazyLoad: false }
+        // liveBufferLatencyChasing:false — it seeks forward whenever the buffer
+        // grows, trading a couple seconds of latency for lower stall risk; on a
+        // jittery upstream that constant chasing itself shows up as stutter/restart.
+        // A few extra seconds of delay is a fine trade for smooth live-TV playback.
+        { enableWorker: false, liveBufferLatencyChasing: false, lazyLoad: false }
       )
       mpegtsRef.current = player
       player.attachMediaElement(video)
