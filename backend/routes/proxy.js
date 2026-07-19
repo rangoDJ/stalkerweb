@@ -226,7 +226,7 @@ module.exports = function proxyModule(appState) {
   // STB feeding the stream to its ffmpeg-based player. Sniffing the first bytes,
   // rather than trusting the URL extension, means tokenized/extensionless links
   // are served correctly either way.
-  async function serveStream(req, res, realUrl, trusted = false, channelId = null) {
+  async function serveStream(req, res, realUrl, trusted = false, channelId = null, fallbackUrl = null) {
     const setCors = () => res.set('Access-Control-Allow-Origin', '*');
 
     if (!trusted && !isAllowedUrl(realUrl, appState.client?.getBasePath())) {
@@ -241,6 +241,10 @@ module.exports = function proxyModule(appState) {
     try {
       response = await fetchStreamFromPortal(headers, realUrl, 30_000);
     } catch (e) {
+      if (fallbackUrl && fallbackUrl !== realUrl) {
+        log.warn(TAG, `stream fetch failed on create_link URL (${e.message}) — retrying with raw channel cmd`);
+        return serveStream(req, res, fallbackUrl, trusted, channelId, null);
+      }
       log.error(TAG, `stream fetch failed: ${e.message}`);
       if (channelId) appState.channelManager?.recordStreamError(channelId);
       setCors();
@@ -252,6 +256,10 @@ module.exports = function proxyModule(appState) {
 
     if (response.status >= 400) {
       response.data?.destroy();
+      if (fallbackUrl && fallbackUrl !== realUrl) {
+        log.warn(TAG, `create_link URL returned ${response.status} — retrying with raw channel cmd`);
+        return serveStream(req, res, fallbackUrl, trusted, channelId, null);
+      }
       log.warn(TAG, `portal returned ${response.status} on stream — link may have expired`);
       // Expired token on the master link — drop the cached resolution so a retry re-tokenizes.
       if (channelId) appState.channelManager?.recordStreamError(channelId);
@@ -602,8 +610,15 @@ module.exports = function proxyModule(appState) {
       }
     }
 
+    // Some portals' create_link response is unreliable (e.g. clobbers the
+    // stream id while minting a fresh token) even though the channel's own
+    // cmd is already a working, pre-tokenized link. Give serveStream that raw
+    // URL to retry against if the create_link one fails.
+    const rawUrl = channelManager.getRawStreamUrl(target);
+    const fallbackUrl = (rawUrl && /^https?:\/\//i.test(rawUrl) && rawUrl !== streamUrl) ? rawUrl : null;
+
     log.info(TAG, `stream for ch ${channel.number} (${resolved.type}): ${streamUrl}`);
-    return serveStream(req, res, streamUrl, true, uniqueId); // trusted — URL from portal create_link
+    return serveStream(req, res, streamUrl, true, uniqueId, fallbackUrl); // trusted — URL from portal create_link
   });
 
   // ── GET /proxy/hls?url=<encoded> — sub-playlist proxy ────────────────────

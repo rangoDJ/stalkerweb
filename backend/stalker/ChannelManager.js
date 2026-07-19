@@ -419,6 +419,16 @@ class ChannelManager {
     return url;
   }
 
+  // The channel's own (un-tokenized) cmd, resolved the same way as a create_link
+  // result. Some portals hand out channel cmds that already carry a working
+  // play_token/stream id and their create_link endpoint actually clobbers it
+  // (e.g. returns stream=<blank> with a fresh token that the CDN then 405s on)
+  // — this lets the proxy retry against the original link when create_link's
+  // result turns out to be broken.
+  getRawStreamUrl(channel) {
+    return this._rewriteLocalhost(_extractUrl(channel.cmd || ''));
+  }
+
   // Stalker portals sometimes return a stream whose host is localhost/127.0.0.1
   // (the portal proxies it on its own box). A remote client must rewrite that to
   // the portal's public host — STBemu and pvr.stalker/stalkerhek all do this.
