@@ -19,17 +19,17 @@
     "axios-cookiejar-support": "^7.0.0",
     "cors": "^2.8.5",
     "express": "^5.2.1",
-    "express-rate-limit": "^8.5.2",
+    "express-rate-limit": "^8.6.0",
     "express-validator": "^7.3.2",
-    "helmet": "^8.2.0",
+    "helmet": "^8.3.0",
     "morgan": "^1.11.0",
-    "tough-cookie": "^6.0.1"
+    "tough-cookie": "^6.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "eslint": "^10.6.0",
-    "prettier": "^3.9.3",
-    "vitest": "^4.1.9"
+    "eslint": "^10.7.0",
+    "prettier": "^3.9.5",
+    "vitest": "^4.1.10"
   },
   "engines": {
     "node": ">=20"
