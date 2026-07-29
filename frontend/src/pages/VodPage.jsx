@@ -27,7 +27,7 @@ function ContinueWatching({ entries, onResume, onRemove }) {
               >
                 <div className="relative w-full aspect-video bg-[var(--color-surface-2)] overflow-hidden">
                   {e.screenshotUrl ? (
-                    <img src={e.screenshotUrl} alt={e.title} className="w-full h-full object-cover" loading="lazy" />
+                    <img src={e.screenshotUrl} alt={e.title} className="w-full h-full object-contain" loading="lazy" />
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <Film size={24} className="text-[var(--color-muted)] opacity-40" />
@@ -67,7 +67,10 @@ function Thumb({ src, name, isHD }) {
         <img
           src={src}
           alt={name}
-          className="w-full h-full object-cover"
+          // object-contain, not object-cover — portal-supplied artwork isn't
+          // consistently 16:9, and cropping to fill the box was cutting off
+          // baked-in title text/logos near the top or bottom edge.
+          className="w-full h-full object-contain"
           loading="lazy"
           onError={() => setErr(true)}
         />
