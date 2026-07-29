@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import Hls from 'hls.js'
 import {
   Play, Pause, Volume2, VolumeX, Maximize, Minimize,
-  ChevronLeft, AlertCircle, Loader2, Clock, Calendar, X,
+  ChevronLeft, AlertCircle, Loader2, Clock, Calendar, X, PictureInPicture2,
 } from 'lucide-react'
 import { Slider } from '@/components/ui/slider'
 import { cn } from '@/lib/utils'
@@ -53,6 +53,7 @@ export default function VodPlayerPage() {
   const [duration, setDuration]       = useState(0)
   const [showControls, setShowControls] = useState(true)
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [isPiP, setIsPiP]               = useState(false)
   const [resumedFrom, setResumedFrom] = useState(0) // >0 → show "resumed" banner
 
   useEffect(() => { volumeRef.current = volume }, [volume])
@@ -242,6 +243,17 @@ export default function VodPlayerPage() {
     return () => document.removeEventListener('fullscreenchange', h)
   }, [])
 
+  // PiP sync
+  useEffect(() => {
+    const v = videoRef.current
+    if (!v) return
+    const enter = () => setIsPiP(true)
+    const leave = () => setIsPiP(false)
+    v.addEventListener('enterpictureinpicture', enter)
+    v.addEventListener('leavepictureinpicture', leave)
+    return () => { v.removeEventListener('enterpictureinpicture', enter); v.removeEventListener('leavepictureinpicture', leave) }
+  }, [])
+
   function togglePlayPause() {
     const v = videoRef.current; if (!v) return
     if (v.paused) v.play().catch(() => {})
@@ -251,6 +263,13 @@ export default function VodPlayerPage() {
   function toggleFullscreen() {
     if (!document.fullscreenElement) containerRef.current?.requestFullscreen()
     else document.exitFullscreen()
+  }
+
+  async function togglePiP() {
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture()
+      else await videoRef.current?.requestPictureInPicture()
+    } catch { /* PiP not supported or denied */ }
   }
 
   function seek(pct) {
@@ -383,6 +402,16 @@ export default function VodPlayerPage() {
               </div>
             </div>
             <div className="flex-1" />
+            {document.pictureInPictureEnabled && (
+              <button
+                onClick={togglePiP}
+                className={cn('p-1.5 rounded transition-colors', isPiP ? 'text-[var(--color-primary-light)] bg-white/10' : 'text-white/80 hover:text-white hover:bg-white/10')}
+                aria-label={isPiP ? 'Exit Picture-in-Picture' : 'Picture-in-Picture'}
+                title="Picture-in-Picture"
+              >
+                <PictureInPicture2 size={18} />
+              </button>
+            )}
             <button onClick={toggleFullscreen} className="text-white/80 hover:text-white p-1.5 rounded hover:bg-white/10 transition-colors">
               {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
             </button>
