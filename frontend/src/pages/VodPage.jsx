@@ -25,7 +25,7 @@ function ContinueWatching({ entries, onResume, onRemove }) {
                 onClick={() => onResume(e)}
                 className="block w-full text-left rounded-[var(--radius-sm)] overflow-hidden focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-primary-light)]"
               >
-                <div className="relative w-full aspect-video bg-[var(--color-surface-2)] overflow-hidden">
+                <div className="relative w-full aspect-[2/3] bg-[var(--color-surface-2)] overflow-hidden">
                   {e.screenshotUrl ? (
                     <img src={e.screenshotUrl} alt={e.title} className="w-full h-full object-contain" loading="lazy" />
                   ) : (
@@ -59,17 +59,18 @@ function ContinueWatching({ entries, onResume, onRemove }) {
 }
 
 // ── Thumbnail component ───────────────────────────────────────────────────
+// VOD artwork from these portals is almost always a movie-poster crop (2:3),
+// not a 16:9 backdrop — a 16:9 box just letterboxed it with big empty bars.
+// object-contain stays (some titles still send oddball aspect ratios), but
+// the box itself now matches the common case so it fills edge-to-edge.
 function Thumb({ src, name, isHD }) {
   const [err, setErr] = useState(false)
   return (
-    <div className="relative w-full aspect-video bg-[var(--color-surface-2)] rounded-[var(--radius-sm)] overflow-hidden">
+    <div className="relative w-full aspect-[2/3] bg-[var(--color-surface-2)] rounded-[var(--radius-sm)] overflow-hidden">
       {src && !err ? (
         <img
           src={src}
           alt={name}
-          // object-contain, not object-cover — portal-supplied artwork isn't
-          // consistently 16:9, and cropping to fill the box was cutting off
-          // baked-in title text/logos near the top or bottom edge.
           className="w-full h-full object-contain"
           loading="lazy"
           onError={() => setErr(true)}
@@ -585,7 +586,7 @@ export default function VodPage() {
 
           {items.length > 0 && (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3">
                 {items.map(item => (
                   <VodCard key={item.id} item={item} onClick={handleItemClick} onDownload={downloadMovie} />
                 ))}
