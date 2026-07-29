@@ -9,6 +9,17 @@ import {
 
 const CHECK_INTERVAL_MS = 30_000
 
+// Shared across every useReminders() call site (TopNav's ReminderBell,
+// EpgGridPage's per-programme toggle, …) so adding/removing/firing a
+// reminder in one instance is reflected in all the others immediately,
+// instead of each keeping independent state that only converges once its
+// own 30s check happens to find something due.
+const listeners = new Set()
+function notifyAll() {
+  const list = getReminders()
+  listeners.forEach(fn => fn(list))
+}
+
 async function requestNotificationPermission() {
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
@@ -41,9 +52,16 @@ function fireNotification(reminder) {
 export function useReminders() {
   const [reminders, setReminders] = useState(() => getReminders())
 
-  // Refresh local state from storage
+  // Subscribe to updates from any useReminders() instance, anywhere.
+  useEffect(() => {
+    listeners.add(setReminders)
+    return () => listeners.delete(setReminders)
+  }, [])
+
+  // Refresh (this instance's local view — but also broadcasts to every
+  // other subscribed instance, since the storage read is the same for all)
   const refresh = useCallback(() => {
-    setReminders(getReminders())
+    notifyAll()
   }, [])
 
   // Check for due reminders and fire notifications
@@ -56,8 +74,8 @@ export function useReminders() {
       markNotified(r.id)
       if (permitted) fireNotification(r)
     }
-    refresh()
-  }, [refresh])
+    notifyAll()
+  }, [])
 
   // Periodic checker
   useEffect(() => {
@@ -68,13 +86,13 @@ export function useReminders() {
 
   const addReminder = useCallback((channelId, channelName, title, startTime) => {
     _addReminder(channelId, channelName, title, startTime)
-    refresh()
-  }, [refresh])
+    notifyAll()
+  }, [])
 
   const removeReminder = useCallback((id) => {
     _removeReminder(id)
-    refresh()
-  }, [refresh])
+    notifyAll()
+  }, [])
 
   return { reminders, addReminder, removeReminder, refresh }
 }

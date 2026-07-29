@@ -7,9 +7,17 @@
 //     call it once on app load so any progress made on another device appears.
 
 import { getVodProgressBackend, saveVodProgressBackend, removeVodProgressBackend } from '../stalkerApi'
+import { getActiveProfileId } from './profiles'
 
-const VOD_PROGRESS_KEY = 'sw_vod_progress'
 const VOD_PROGRESS_MAX = 20
+
+// Scoped per-profile — same as recentlyWatched.js/epgReminders.js — so
+// switching portals doesn't show (or let Resume navigate to) another
+// portal's in-progress videoId, which is meaningless outside its own catalog.
+function storageKey() {
+  const id = getActiveProfileId()
+  return id ? `sw_vod_progress_${id}` : 'sw_vod_progress'
+}
 
 // Don't offer resume for the first 30s (barely started) or the last 5%
 // (effectively finished — clear it instead so it leaves the row).
@@ -18,7 +26,7 @@ export const VOD_DONE_FRACTION   = 0.95
 
 export function getVodProgressList() {
   try {
-    const list = JSON.parse(localStorage.getItem(VOD_PROGRESS_KEY) || '[]')
+    const list = JSON.parse(localStorage.getItem(storageKey()) || '[]')
     return Array.isArray(list) ? list : []
   } catch {
     return []
@@ -36,7 +44,7 @@ export function getVodProgress(key) {
 
 export function removeVodProgress(key) {
   const list = getVodProgressList().filter(e => e.key !== key)
-  localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(list))
+  localStorage.setItem(storageKey(), JSON.stringify(list))
   removeVodProgressBackend(key).catch(() => {})
 }
 
@@ -48,13 +56,13 @@ export function saveVodProgress(entry) {
   const list = getVodProgressList().filter(e => e.key !== entry.key)
   const fraction = entry.position / entry.duration
   if (entry.position < VOD_RESUME_MIN_SECS || fraction >= VOD_DONE_FRACTION) {
-    localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(list))
+    localStorage.setItem(storageKey(), JSON.stringify(list))
     removeVodProgressBackend(entry.key).catch(() => {})
     return
   }
   const withTs = { ...entry, updatedAt: Date.now() }
   const next = [withTs, ...list].slice(0, VOD_PROGRESS_MAX)
-  localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(next))
+  localStorage.setItem(storageKey(), JSON.stringify(next))
   saveVodProgressBackend(withTs).catch(() => {})
 }
 
@@ -82,5 +90,5 @@ export async function syncVodProgressFromBackend() {
   const sorted = [...merged.values()]
     .sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0))
     .slice(0, VOD_PROGRESS_MAX)
-  localStorage.setItem(VOD_PROGRESS_KEY, JSON.stringify(sorted))
+  localStorage.setItem(storageKey(), JSON.stringify(sorted))
 }

@@ -299,6 +299,14 @@ export default function VodPage() {
   const [continueList, setContinueList] = useState([]) // Continue Watching entries
 
   const searchTimer = useRef(null)
+  // Bumped on every category/search/type change so a slow, stale getVodItems()
+  // response can't overwrite the grid after the user already moved on to a
+  // different category or search term.
+  const itemsTokenRef = useRef(0)
+  // Ref (not just the itemsLoading state) so loadMore's guard is checked
+  // synchronously — two clicks fired before a re-render lands could otherwise
+  // both read the same stale `itemsLoading` value and double-fetch the page.
+  const itemsLoadingRef = useRef(false)
 
   // Load Continue Watching on mount (this page remounts when returning from the player).
   useEffect(() => { setContinueList(getVodProgressList()) }, [])
@@ -314,6 +322,7 @@ export default function VodPage() {
 
   // Load categories on type change
   useEffect(() => {
+    itemsTokenRef.current++ // invalidate any in-flight item fetch from the previous type
     setCatsLoading(true)
     setCatsError('')
     setCategories([])
@@ -330,12 +339,14 @@ export default function VodPage() {
   }, [vodType, showAdult])
 
   // Load items when category / search changes
-  const loadItems = useCallback(async (catId, q, page) => {
+  const loadItems = useCallback(async (catId, q, page, token) => {
     if (!catId) return
+    itemsLoadingRef.current = true
     setItemsLoading(true)
     setItemsError('')
     try {
       const r = await getVodItems({ type: vodType, category: catId, page, search: q })
+      if (itemsTokenRef.current !== token) return // superseded by a newer category/search change
       if (page === 1) {
         setItems(r.items)
       } else {
@@ -346,9 +357,9 @@ export default function VodPage() {
       setCurrentPage(page)
       setHasMore(page < r.totalPages)
     } catch (e) {
-      setItemsError(e.message)
+      if (itemsTokenRef.current === token) setItemsError(e.message)
     } finally {
-      setItemsLoading(false)
+      if (itemsTokenRef.current === token) { itemsLoadingRef.current = false; setItemsLoading(false) }
     }
   }, [vodType])
 
@@ -357,7 +368,8 @@ export default function VodPage() {
     setSearch('')
     setItems([])
     setCurrentPage(1)
-    loadItems(cat.id, '', 1)
+    const token = ++itemsTokenRef.current
+    loadItems(cat.id, '', 1, token)
   }
 
   function handleSearchChange(q) {
@@ -367,14 +379,15 @@ export default function VodPage() {
       if (selectedCategory) {
         setItems([])
         setCurrentPage(1)
-        loadItems(selectedCategory.id, q, 1)
+        const token = ++itemsTokenRef.current
+        loadItems(selectedCategory.id, q, 1, token)
       }
     }, 400)
   }
 
   function loadMore() {
-    if (!selectedCategory || !hasMore || itemsLoading) return
-    loadItems(selectedCategory.id, search, currentPage + 1)
+    if (!selectedCategory || !hasMore || itemsLoadingRef.current) return
+    loadItems(selectedCategory.id, search, currentPage + 1, itemsTokenRef.current)
   }
 
   function handleItemClick(item) {
