@@ -114,22 +114,27 @@ export async function getCachedChannelData() {
   if (inflight) return inflight
 
   const gen = generation
-  inflight = Promise.all([getChannels(), getGroups(), getLogoMap()])
+  const promise = Promise.all([getChannels(), getGroups(), getLogoMap()])
     .then(([chRes, grpRes, logoMap]) => {
+      if (inflight === promise) inflight = null
+      // A portal switch invalidated the cache while this fetch was in
+      // flight — discard the stale result instead of resurrecting the old
+      // portal's channels, and let the (already re-triggered) fresh fetch win.
+      if (gen !== generation) return getCachedChannelData()
       cache = {
         channels: chRes.channels ?? [],
         groups:   grpRes.groups ?? [],
         logoMap,
         loading:  chRes.loading ?? false,
       }
-      inflight = null
       // If backend is still loading, start polling so subscribers get the
       // complete list once it arrives — without blocking the caller.
       if (cache.loading) startPolling(gen)
       return cache
     })
-    .catch(e => { inflight = null; throw e })
+    .catch(e => { if (inflight === promise) inflight = null; throw e })
 
+  inflight = promise
   return inflight
 }
 
@@ -144,5 +149,6 @@ export function subscribeChannelUpdates(fn) {
 // in-progress poller self-cancels rather than overwriting the cleared state.
 export function invalidateChannelCache() {
   cache = null
+  inflight = null
   generation++
 }

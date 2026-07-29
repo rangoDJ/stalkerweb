@@ -391,7 +391,7 @@ export default function EpgGridPage() {
           id="channel-col"
         >
           {channels.map(ch => {
-            const logoUrl = logoMap[ch.name] || getProxiedLogoUrl(ch.iconPath)
+            const logoUrl = logoMap[String(ch.uniqueId)] || getProxiedLogoUrl(ch.iconPath)
             return (
               <div
                 key={ch.uniqueId}

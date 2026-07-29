@@ -19,6 +19,7 @@ class GuideManager {
     this._cacheExpiry = 0;      // unix timestamp when cache expires
     this._useCache = true;
     this._cacheHours = 4;       // default cache duration
+    this._queue = null;         // serializes concurrent loadGuide() calls
   }
 
   setCacheOptions(useCache, hours) {
@@ -28,7 +29,23 @@ class GuideManager {
 
   // ── Load EPG ───────────────────────────────────────────────────────────────
   // Mirrors GuideManager::LoadGuide()
+  //
+  // Serialized behind `_queue` so concurrent callers with different periods
+  // (e.g. /api/epg/now requesting 3h alongside /api/epg requesting 24h) can't
+  // race — without this, whichever network response landed last would
+  // unconditionally overwrite `_epgData`/`_cacheExpiry`, silently truncating
+  // an already-cached larger window down to a smaller one. Once the first
+  // call populates the cache, queued calls resolve from it immediately
+  // instead of firing redundant requests.
   async loadGuide(periodHours = 24) {
+    this._queue = (this._queue || Promise.resolve()).then(
+      () => this._loadGuideOnce(periodHours),
+      () => this._loadGuideOnce(periodHours),
+    );
+    return this._queue;
+  }
+
+  async _loadGuideOnce(periodHours = 24) {
     const cacheFile = this.cacheDir ? path.join(this.cacheDir, 'epg_provider.json') : null;
     const now = Date.now();
 
