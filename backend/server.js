@@ -191,6 +191,11 @@ if (_summaryTimer.unref) _summaryTimer.unref();
 
 const vodRoutes    = require('./routes/vod')(appState, config);
 
+const DownloadManager = require('./downloads/DownloadManager');
+const downloadsCache = new (require('./cache/CacheManager'))(config.dataDir);
+const downloadManager = new DownloadManager(appState, () => downloadsCache.load()?.download_dir || config.downloadDir);
+const downloadsRoutes = require('./routes/downloads')(downloadManager, appState);
+
 const channelRoutes = require('./routes/channels')(appState);
 const epgRoutes = require('./routes/epg')(appState);
 const streamRoutes = require('./routes/stream')(appState, config);
@@ -205,6 +210,7 @@ const logsRoutes      = require('./routes/logs');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/vod', vodRoutes);
+app.use('/api/downloads', downloadsRoutes);
 app.use('/api/channels', channelRoutes);
 app.use('/api/epg', epgRoutes);
 app.use('/api/stream', streamRoutes);

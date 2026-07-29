@@ -36,12 +36,13 @@ module.exports = function settingsModule(config) {
       stbemu_stb_model:        saved.stbemu_stb_model        ?? DEFAULTS.stbemu_stb_model,
       stbemu_custom_firmware:  saved.stbemu_custom_firmware  ?? DEFAULTS.stbemu_custom_firmware,
       stbemu_firmware:         saved.stbemu_firmware         ?? DEFAULTS.stbemu_firmware,
+      download_dir:            saved.download_dir            || config.downloadDir,
     });
   });
 
   router.post('/', (req, res) => {
     const existing = cache.load() || {};
-    const { epg_enabled, vod_enabled, show_adult, disabled_genres, stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware, stbemu_firmware } = req.body;
+    const { epg_enabled, vod_enabled, show_adult, disabled_genres, stbemu_profile_name, stbemu_stb_model, stbemu_custom_firmware, stbemu_firmware, download_dir } = req.body;
     if (epg_enabled !== undefined)            existing.epg_enabled            = !!epg_enabled;
     if (vod_enabled !== undefined)            existing.vod_enabled            = !!vod_enabled;
     if (show_adult !== undefined)             existing.show_adult             = !!show_adult;
@@ -54,6 +55,11 @@ module.exports = function settingsModule(config) {
     if (stbemu_custom_firmware !== undefined) existing.stbemu_custom_firmware = String(stbemu_custom_firmware).trim();
     if (stbemu_firmware !== undefined && STB_FIRMWARES.includes(stbemu_firmware))
                                               existing.stbemu_firmware        = stbemu_firmware;
+    if (download_dir !== undefined) {
+      const dir = String(download_dir).trim();
+      if (!dir) return res.status(400).json({ error: 'download_dir cannot be empty' });
+      existing.download_dir = dir;
+    }
     cache.save(existing);
     res.json({ success: true, epg_enabled: existing.epg_enabled });
   });

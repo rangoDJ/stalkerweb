@@ -340,6 +340,9 @@ export default function SetupPage() {
 
   // ── App preferences / logos / genres / stbemu state ─────────────────────────
   const [epg, setEpg]               = useState(true)
+  const [downloadDir, setDownloadDir]           = useState('')
+  const [downloadDirSaving, setDownloadDirSaving] = useState(false)
+  const [downloadDirNotice, setDownloadDirNotice] = useState(null)
   const [logoStats, setLogoStats]   = useState(null)
   const [logoOverrides, setLogoOverrides] = useState({})
   const [logoRefreshing, setLogoRefreshing] = useState(false)
@@ -405,6 +408,7 @@ export default function SetupPage() {
 
       if (s) {
         setEpg(s.epg_enabled !== false)
+        setDownloadDir(s.download_dir || '')
       }
       if (logos) { setLogoOverrides(logos.overrides || {}); setLogoStats(logos.stats || null) }
       if (status?.device) setDeviceProfile(status.device)
@@ -601,6 +605,20 @@ export default function SetupPage() {
     setShowAdult(val)
     try { await saveSettings({ show_adult: val }) } catch { /* non-critical */ }
   }
+  async function handleSaveDownloadDir() {
+    if (!downloadDir.trim()) return
+    setDownloadDirSaving(true)
+    setDownloadDirNotice(null)
+    try {
+      await saveSettings({ download_dir: downloadDir.trim() })
+      setDownloadDirNotice({ type: 'success', msg: 'Saved.' })
+    } catch (err) {
+      setDownloadDirNotice({ type: 'error', msg: err.message })
+    } finally {
+      setDownloadDirSaving(false)
+      setTimeout(() => setDownloadDirNotice(null), 2500)
+    }
+  }
   // Genre filters are stored per-profile in localStorage. Persist to the
   // active profile and update the app context; the channel cache is
   // invalidated so the channel/player pages re-filter on next visit.
@@ -738,6 +756,32 @@ export default function SetupPage() {
               <p className="text-xs text-[var(--color-muted)] mt-0.5">Parental lock for categories like &quot;FOR ADULTS&quot;.</p>
             </div>
             <Switch checked={showAdult} onCheckedChange={handleAdultToggle} />
+          </div>
+          <div className="pt-4 border-t border-[var(--color-border)]">
+            <Field label="Download Directory" id="download-dir" hint="Where VOD downloads are saved on the server's disk. Changes apply to new downloads only.">
+              <div className="flex items-center gap-2">
+                <Input
+                  id="download-dir"
+                  value={downloadDir}
+                  onChange={e => setDownloadDir(e.target.value)}
+                  placeholder="/data/downloads"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  onClick={handleSaveDownloadDir}
+                  disabled={downloadDirSaving || !downloadDir.trim()}
+                  className="shrink-0 h-9 px-3 text-xs"
+                >
+                  {downloadDirSaving ? <Loader2 size={14} className="animate-spin" /> : 'Save'}
+                </Button>
+              </div>
+              {downloadDirNotice && (
+                <p className={cn('text-xs mt-1', downloadDirNotice.type === 'error' ? 'text-[var(--color-live)]' : 'text-[var(--color-success)]')}>
+                  {downloadDirNotice.msg}
+                </p>
+              )}
+            </Field>
           </div>
         </Card>
 

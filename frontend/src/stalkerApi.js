@@ -171,3 +171,8 @@ export const getVodStreamUrl = ({ videoId, cmd = '', series = 0, seasonId = '', 
   return _get(`/vod/stream?${p}`)
 }
 
+// ── Downloads (save VOD to server disk) ──────────────────────────────────
+export const getDownloads     = ()       => _get('/downloads')
+export const enqueueDownloads = (items)  => _post('/downloads', { items })
+export const cancelDownload   = (id)     => _delete(`/downloads/${encodeURIComponent(id)}`)
+
