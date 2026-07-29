@@ -14,11 +14,15 @@ const express = require('express');
 const sessionMiddleware = require('../middleware/session');
 
 // Enrich a list of uniqueId strings with channel objects from channelManager.
+// Falls back to a bare { uniqueId } stub for ids the channel manager doesn't
+// know about yet — e.g. right after connect, while the channel list is still
+// loading in the background. Dropping those ids entirely would make a
+// favorited channel silently vanish from every favorites-aware view (heart
+// icons, the favorites filter) for the rest of the session, since the
+// frontend caches this response and never retries on its own.
 function enrichChannels(ids, channelManager) {
   if (!channelManager) return ids.map(id => ({ uniqueId: id }));
-  return ids
-    .map(id => channelManager.getChannel(parseInt(id, 10)))
-    .filter(Boolean);
+  return ids.map(id => channelManager.getChannel(parseInt(id, 10)) ?? { uniqueId: id });
 }
 
 module.exports = function favoritesModule(favoritesManager, appState) {
