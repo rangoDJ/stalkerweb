@@ -96,7 +96,15 @@ module.exports = function channelRoutes(appState) {
       channelManager.loadChannels().catch(e => log.error(TAG, `SSE-triggered load failed: ${e.message}`));
     }
 
-    const cleanup = () => { clearInterval(iv); clearInterval(hb); clearTimeout(maxLife); };
+    // Pre-declared (not const) so `cleanup` can reference them even if `send()`
+    // calls it on its very first, synchronous invocation below — e.g. when
+    // channels are already loaded, which is true for nearly every request
+    // after the initial load. With `const` declarations after that call,
+    // this would throw a temporal-dead-zone ReferenceError on an already-
+    // flushed SSE response.
+    let iv, hb, maxLife;
+    let done = false;
+    const cleanup = () => { done = true; clearInterval(iv); clearInterval(hb); clearTimeout(maxLife); };
 
     const send = () => {
       const p = channelManager.getProgress();
@@ -105,11 +113,17 @@ module.exports = function channelRoutes(appState) {
     };
 
     send(); // send immediately
-    const iv = setInterval(send, 400);
-    // Heartbeat comment so proxies don't buffer/drop an otherwise-idle connection.
-    const hb = setInterval(() => res.write(': keepalive\n\n'), 15_000);
-    // Hard cap so a stuck load can't keep a connection (and its timers) alive forever.
-    const maxLife = setTimeout(() => { cleanup(); res.end(); }, 5 * 60 * 1000);
+
+    // If that first send() already finished (loading was already false —
+    // the common case), skip setting up polling entirely; otherwise these
+    // timers would fire res.write() on an already-ended response.
+    if (!done) {
+      iv = setInterval(send, 400);
+      // Heartbeat comment so proxies don't buffer/drop an otherwise-idle connection.
+      hb = setInterval(() => res.write(': keepalive\n\n'), 15_000);
+      // Hard cap so a stuck load can't keep a connection (and its timers) alive forever.
+      maxLife = setTimeout(() => { cleanup(); res.end(); }, 5 * 60 * 1000);
+    }
 
     req.on('close', cleanup);
   });

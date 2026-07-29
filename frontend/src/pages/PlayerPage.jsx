@@ -337,10 +337,18 @@ export default function PlayerPage() {
   const containerRef = useRef(null)
   const hideTimer    = useRef(null)
   const retryCount   = useRef(0)
+  // Distinct from retryCount (loadStream's own stream-URL-fetch retry) — hls.js
+  // error recovery has its own independent allowances so consuming one doesn't
+  // starve the others, which previously let a single shared counter cause an
+  // endless reconnect loop on some misclassified/extensionless streams.
+  const mediaErrorRetryRef  = useRef(0)
+  const hlsFallbackTriedRef = useRef(false)
+  const networkErrorRetriedRef = useRef(false)
   // Mid-playback auto-recovery: live links/tokens expire and CDN/ffmpeg pipes
   // drop, which used to freeze playback until a manual browser refresh. These
   // drive a re-attach (fresh create_link server-side) without user action.
   const reconnectAttempts = useRef(0)
+  const MAX_RECONNECT_ATTEMPTS = 8
   const recoveringRef     = useRef(false)
 
   const [rawData, setRawData]         = useState(null)
@@ -438,21 +446,31 @@ export default function PlayerPage() {
     setLogoMap(rawData.logoMap)
   }, [rawData, showAdult, disabledGenres])
 
+  // Bumped on every new channel selection so a slow, stale getStreamUrl()
+  // response (e.g. from a channel the user already navigated away from) can
+  // never overwrite state for whatever channel is active by the time it
+  // resolves — without this, rapid channel-switching could briefly (or, if
+  // the newer request's own response is further delayed, persistently) play
+  // the wrong channel's stream.
+  const loadTokenRef = useRef(0)
+
   // loadStream as a proper useCallback so deps are explicit
-  const loadStream = useCallback(async (channelId, isRetry = false) => {
+  const loadStream = useCallback(async (channelId, isRetry = false, token) => {
     setStatus('loading')
     setErrorMsg('')
     try {
       const { streamUrl: url, streamType: type } = await getStreamUrl(channelId)
+      if (loadTokenRef.current !== token) return // superseded by a newer channel switch
       setStreamType(type || 'hls')
       setStreamUrl(url)
       const ch = channels.find(c => String(c.uniqueId) === String(channelId)) || activeChannel
       if (ch) pushRecentlyWatched(ch, logoMap[String(ch.uniqueId)])
     } catch (e) {
+      if (loadTokenRef.current !== token) return
       if (!isRetry && retryCount.current < 1) {
         retryCount.current++
         setErrorMsg('Stream unavailable, retrying…')
-        setTimeout(() => loadStreamRef.current(channelId, true), 2000)
+        setTimeout(() => loadStreamRef.current(channelId, true, token), 2000)
       } else {
         setStatus('error')
         setErrorMsg(e.message)
@@ -468,7 +486,8 @@ export default function PlayerPage() {
     retryCount.current = 0
     reconnectAttempts.current = 0
     recoveringRef.current = false
-    loadStreamRef.current(activeChannel.uniqueId)
+    const token = ++loadTokenRef.current
+    loadStreamRef.current(activeChannel.uniqueId, false, token)
   }, [activeChannel?.uniqueId])
 
   // Re-attach the player after a mid-playback drop or stall. Bumps reloadKey so
@@ -478,6 +497,15 @@ export default function PlayerPage() {
   const recoverStream = useCallback(() => {
     if (recoveringRef.current) return
     if (typeof document !== 'undefined' && document.hidden) return // don't fight background-pause
+    if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+      // A permanently dead link (portal removed it, account expired) would
+      // otherwise retry every ~15s forever with no way for the user to tell
+      // the difference from a normal transient drop. Give up and surface an
+      // error instead — the Retry button resets the counter.
+      setStatus('error')
+      setErrorMsg('Lost connection to this channel. Try again or pick another channel.')
+      return
+    }
     recoveringRef.current = true
     reconnectAttempts.current++
     const delay = Math.min(1500 * 2 ** (reconnectAttempts.current - 1), 15000)
@@ -499,6 +527,12 @@ export default function PlayerPage() {
       if (mpegtsRef.current) { try { mpegtsRef.current.destroy() } catch { /* already gone */ } mpegtsRef.current = null }
     }
     teardown()
+
+    // Fresh allowances for this attach — each is independent so consuming one
+    // (e.g. a network-error retry) never starves the others.
+    mediaErrorRetryRef.current = 0
+    hlsFallbackTriedRef.current = false
+    networkErrorRetriedRef.current = false
 
     // Once media actually flows, clear the recovery state so the next drop gets
     // a fresh backoff sequence. 'playing' also fires when playback resumes after
@@ -591,22 +625,37 @@ export default function PlayerPage() {
           tryPlay()
         })
         hls.on(Hls.Events.ERROR, (_e, data) => {
-          if (data.fatal) {
-            if (data.type === Hls.ErrorTypes.MEDIA_ERROR && retryCount.current < 1) {
-              retryCount.current++
-              hls.recoverMediaError()
-            } else if (retryCount.current < 1) {
-              retryCount.current++
-              // Not a valid HLS playlist — the server may be piping raw MPEG-TS
-              // (extensionless link misclassified as HLS). Fall back to mpegts.js.
-              hls.destroy()
-              hlsRef.current = null
-              playMpegts(src)
-            } else {
-              // Live playlist/segment expired or the connection dropped —
-              // reconnect with a fresh create_link rather than stopping.
-              recoverStream()
-            }
+          if (!data.fatal) return
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && !networkErrorRetriedRef.current) {
+            // A transient network blip (manifest/segment timeout) on a real HLS
+            // stream — retry loading before assuming anything more drastic.
+            // Previously this fell straight into the "not a valid playlist, try
+            // mpegts.js" branch below, which destroys a perfectly good Hls
+            // instance to attempt mpegts.js against a genuine .m3u8 URL.
+            networkErrorRetriedRef.current = true
+            hls.startLoad()
+            return
+          }
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && mediaErrorRetryRef.current < 1) {
+            mediaErrorRetryRef.current++
+            hls.recoverMediaError()
+          } else if (!hlsFallbackTriedRef.current) {
+            hlsFallbackTriedRef.current = true
+            // Not a valid HLS playlist — the server may be piping raw MPEG-TS
+            // (extensionless link misclassified as HLS). Fall back to mpegts.js.
+            hls.destroy()
+            hlsRef.current = null
+            // Keep streamType in sync so a later recoverStream()-triggered
+            // re-attach picks mpegts.js directly instead of retrying playHls
+            // and hitting this same fallback in a loop.
+            setStreamType('mpegts')
+            playMpegts(src)
+          } else {
+            // Live playlist/segment expired or the connection dropped —
+            // reconnect with a fresh create_link rather than stopping.
+            recoverStream()
           }
         })
       } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
@@ -698,7 +747,7 @@ export default function PlayerPage() {
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     function onKey(e) {
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(e.target.tagName)) return
 
       // Digit keys: channel number jump
       if (/^\d$/.test(e.key)) {
@@ -833,7 +882,12 @@ export default function PlayerPage() {
             <p className="text-sm text-white/80">{errorMsg}</p>
             {activeChannel && (
               <button
-                onClick={(e) => { e.stopPropagation(); retryCount.current = 0; loadStream(activeChannel.uniqueId) }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  retryCount.current = 0
+                  reconnectAttempts.current = 0
+                  loadStream(activeChannel.uniqueId, false, ++loadTokenRef.current)
+                }}
                 className="px-4 py-2 rounded-[var(--radius-sm)] bg-[var(--color-primary)] text-white text-sm hover:bg-[var(--color-primary-hover)] transition-colors"
               >
                 Retry

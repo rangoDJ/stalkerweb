@@ -72,12 +72,14 @@ export default function GuidePage() {
 
   useEffect(() => {
     if (!activeChannel?.uniqueId) return
+    let cancelled = false
     setLoadingEpg(true)
     setEpg([])
     getChannelEpg(activeChannel.uniqueId, period)
-      .then(data => setEpg(data?.events || []))
-      .catch(() => setEpg([]))
-      .finally(() => setLoadingEpg(false))
+      .then(data => { if (!cancelled) setEpg(data?.events || []) })
+      .catch(() => { if (!cancelled) setEpg([]) })
+      .finally(() => { if (!cancelled) setLoadingEpg(false) })
+    return () => { cancelled = true }
   }, [activeChannel?.uniqueId, period])
 
   return (

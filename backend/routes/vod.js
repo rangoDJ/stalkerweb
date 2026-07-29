@@ -154,11 +154,20 @@ module.exports = function vodRoutes(appState, config) {
   });
 
   // ── Continue Watching progress (no session guard — persists across disconnects) ──
+  // The store itself is one shared file (not per-portal), but each entry is
+  // tagged with the portal it was saved under so switching portals doesn't
+  // surface (or let a client accidentally merge in) another portal's videoIds
+  // — which are meaningless outside the catalog they came from.
 
-  // GET /api/vod/progress
+  // GET /api/vod/progress — scoped to the currently connected portal, if any.
+  // While disconnected there's no "current portal" to filter by, so this
+  // falls back to the full list (best-effort, matches prior behavior).
   router.get('/progress', (req, res) => {
     if (!progressStore) return res.json([]);
-    res.json(progressStore.load());
+    const list = progressStore.load();
+    const portal = appState.client?.getBasePath?.();
+    if (!portal) return res.json(list);
+    res.json(list.filter(e => !e.portal || e.portal === portal));
   });
 
   // PUT /api/vod/progress — upsert a single entry { key, ... }
@@ -166,8 +175,9 @@ module.exports = function vodRoutes(appState, config) {
     if (!progressStore) return res.json({ ok: true });
     const entry = req.body;
     if (!entry?.key) return res.status(400).json({ error: 'key is required' });
+    const portal = appState.client?.getBasePath?.() || null;
     const list = progressStore.load().filter(e => e.key !== entry.key);
-    const next = [{ ...entry, updatedAt: entry.updatedAt ?? Date.now() }, ...list].slice(0, VOD_PROGRESS_MAX);
+    const next = [{ ...entry, portal, updatedAt: entry.updatedAt ?? Date.now() }, ...list].slice(0, VOD_PROGRESS_MAX);
     progressStore.save(next);
     res.json({ ok: true });
   });

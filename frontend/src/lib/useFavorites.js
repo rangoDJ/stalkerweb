@@ -22,9 +22,11 @@ export function useFavorites() {
   const [favoriteIds, setFavoriteIds] = useState(new Set())
 
   useEffect(() => {
+    let cancelled = false
     getCachedFavorites()
-      .then(r => setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId)))))
+      .then(r => { if (!cancelled) setFavoriteIds(new Set(r.channels.map(c => String(c.uniqueId)))) })
       .catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
   async function toggleFavorite(channel) {

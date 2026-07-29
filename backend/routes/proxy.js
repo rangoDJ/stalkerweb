@@ -350,6 +350,29 @@ module.exports = function proxyModule(appState) {
     }
   }
 
+  // Blocks SSRF into private/loopback/link-local networks (including the
+  // 169.254.169.254 cloud metadata address) regardless of the "trusted" flag.
+  // VodManager's stream resolution has a fallback path that can echo back a
+  // caller-supplied `cmd` query param verbatim as the resolved URL — a
+  // legitimate portal/CDN stream should never point at one of these ranges,
+  // so this check is safe to apply unconditionally without breaking real
+  // playback.
+  function isPrivateOrLoopbackHost(hostname) {
+    const h = (hostname || '').toLowerCase();
+    if (!h || h === 'localhost') return true;
+    const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (m) {
+      const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+      if (a === 127 || a === 10 || a === 0) return true;          // loopback / 10.0.0.0/8
+      if (a === 172 && b >= 16 && b <= 31) return true;            // 172.16.0.0/12
+      if (a === 192 && b === 168) return true;                     // 192.168.0.0/16
+      if (a === 169 && b === 254) return true;                     // link-local incl. cloud metadata
+      return false;
+    }
+    // IPv6 loopback / link-local / unique-local
+    return h === '::1' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd');
+  }
+
   function getHeadersForUrl(realUrl) {
     const { client } = appState;
     if (!client) return {};
@@ -440,8 +463,23 @@ module.exports = function proxyModule(appState) {
 
     log.info(TAG, `VOD proxy: videoId=${videoId} → ${streamUrl.slice(0, 80)}…`);
 
+    // Resolution has a fallback path that can echo back the caller-supplied
+    // `cmd` query param verbatim (see VodManager._resolveStreamUrl "Fallback
+    // 2") — so, unlike a real create_link response, streamUrl here is not
+    // fully trustworthy. Block private/loopback/link-local targets before
+    // treating it as "trusted" below, regardless of which branch handles it.
+    try {
+      const resolvedHost = new URL(streamUrl).hostname;
+      if (isPrivateOrLoopbackHost(resolvedHost)) {
+        log.warn(TAG, `blocked SSRF attempt via VOD stream resolution: ${streamUrl}`);
+        return res.status(403).send('Forbidden');
+      }
+    } catch {
+      return res.status(502).send('Invalid stream URL');
+    }
+
     // HLS playlist URL (extension-based fast path) — servePlaylist handles buffering + rewrite
-    // trusted=true: URL came from portal's own getStreamUrl(), not user-supplied
+    // trusted=true: private/loopback hosts already blocked above
     if (isPlaylistUrl(streamUrl)) {
       return servePlaylist(req, res, streamUrl, true);
     }

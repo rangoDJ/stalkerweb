@@ -9,9 +9,29 @@
 'use strict';
 
 const express = require('express');
+const sessionMiddleware = require('../middleware/session');
+
+// Blocks SSRF into private/loopback/link-local networks (including the
+// 169.254.169.254 cloud metadata address). A real channel/override logo is
+// always a public image URL, so this can't break legitimate use.
+function isPrivateOrLoopbackHost(hostname) {
+  const h = (hostname || '').toLowerCase();
+  if (!h || h === 'localhost') return true;
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const a = parseInt(m[1], 10), b = parseInt(m[2], 10);
+    if (a === 127 || a === 10 || a === 0) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 169 && b === 254) return true;
+    return false;
+  }
+  return h === '::1' || h.startsWith('fe80:') || h.startsWith('fc') || h.startsWith('fd');
+}
 
 module.exports = function logosModule(logoManager, appState) {
   const router = express.Router();
+  const guard = sessionMiddleware(appState);
 
   router.get('/', (_req, res) => {
     const stats = logoManager.getStats();
@@ -33,11 +53,17 @@ module.exports = function logosModule(logoManager, appState) {
   });
 
   // Proxy and cache a logo image
-  router.get('/render', async (req, res) => {
+  router.get('/render', guard, async (req, res) => {
     const { url } = req.query;
     if (!url) return res.status(400).send('url required');
 
     try {
+      let hostname;
+      try { hostname = new URL(url).hostname; } catch { return res.status(400).send('invalid url'); }
+      if (isPrivateOrLoopbackHost(hostname)) {
+        return res.status(403).send('Forbidden');
+      }
+
       const headers = {};
       const basePath = appState?.client?.getBasePath?.() || '';
       

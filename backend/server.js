@@ -126,6 +126,7 @@ function destroySession() {
   appState.client = null;
   appState.channelManager = null;
   appState.guideManager = null;
+  appState.vodManager = null;
   appState.identity = null;
 }
 
