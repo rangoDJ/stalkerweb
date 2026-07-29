@@ -20,7 +20,6 @@ const FavoritesPage  = lazy(() => import('./pages/FavoritesPage'))
 const VodPage        = lazy(() => import('./pages/VodPage'))
 const VodPlayerPage  = lazy(() => import('./pages/VodPlayerPage'))
 const EpgGridPage    = lazy(() => import('./pages/EpgGridPage'))
-const ProfilesPage   = lazy(() => import('./pages/ProfilesPage'))
 
 // ── Nav link style ────────────────────────────────────────────────────────
 function NavItem({ to, icon: Icon, label }) {
@@ -230,7 +229,6 @@ function AppInner() {
           <Suspense fallback={<div className="flex h-48 items-center justify-center"><Loader2 size={24} className="animate-spin text-[var(--color-primary-light)]" /></div>}>
           <Routes>
             <Route path="/settings" element={<SetupPage />} />
-            <Route path="/profiles" element={<ProfilesPage />} />
             <Route
               path="/channels"
               element={

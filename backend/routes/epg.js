@@ -1,7 +1,6 @@
 // routes/epg.js
 // GET /api/epg                              — full EPG data for all channels
 // GET /api/epg/:channelId                   — EPG events for a single channel
-// GET /api/epg/:channelId/catchup           — catch-up stream URL for a time window
 
 'use strict';
 
@@ -45,7 +44,11 @@ module.exports = function epgRoutes(appState) {
 
     if (refresh) guideManager.clearCache();
 
-    await guideManager.loadGuide(period);
+    try {
+      await guideManager.loadGuide(period);
+    } catch (_) {
+      return res.json({ period, channelCount: 0, epg: {} }); // EPG unavailable
+    }
 
     // Build per-channel event list
     const channels = channelManager.getChannels();
@@ -58,30 +61,6 @@ module.exports = function epgRoutes(appState) {
     res.json({ period, channelCount: Object.keys(result).length, epg: result });
   });
 
-  // GET /api/epg/:channelId/catchup?startTime=<unix>&endTime=<unix>
-  // Returns a stream URL that includes archive parameters for catch-up playback.
-  // The actual portal-side support is speculative; the plumbing routes it through
-  // the proxy so the archive params are forwarded to the Stalker portal on demand.
-  router.get('/:channelId/catchup', guard, async (req, res) => {
-    const { channelManager } = appState;
-    const uniqueId = String(req.params.channelId);
-    const { startTime, endTime } = req.query;
-
-    if (!startTime) {
-      return res.status(400).json({ error: 'startTime query param is required' });
-    }
-
-    const channel = channelManager.getChannel(uniqueId);
-    if (!channel) return res.status(404).json({ error: 'Channel not found' });
-
-    // Build a proxy URL that passes the startTime through to proxy.js,
-    // which will modify the cmd before resolving the stream URL.
-    const streamUrl = `/proxy/stream/${uniqueId}?startTime=${encodeURIComponent(startTime)}` +
-      (endTime ? `&endTime=${encodeURIComponent(endTime)}` : '');
-
-    return res.json({ streamUrl });
-  });
-
   // GET /api/epg/:channelId?period=<hours>
   router.get('/:channelId', guard, async (req, res) => {
     const { guideManager, channelManager } = appState;
@@ -91,7 +70,11 @@ module.exports = function epgRoutes(appState) {
     const channel = channelManager.getChannel(uniqueId);
     if (!channel) return res.status(404).json({ error: 'Channel not found' });
 
-    await guideManager.loadGuide(period);
+    try {
+      await guideManager.loadGuide(period);
+    } catch (_) {
+      return res.json({ channelId: uniqueId, channelName: channel.name, events: [] }); // EPG unavailable
+    }
     const events = guideManager.getChannelEvents(channel.channelId);
 
     res.json({ channelId: uniqueId, channelName: channel.name, events });

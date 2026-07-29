@@ -40,7 +40,7 @@ module.exports = function m3uModule(appState, logoManager) {
     const lines = ['#EXTM3U x-tvg-url=""'];
 
     for (const ch of channels) {
-      const group  = groupName.get(String(ch.tvGenreId)) || '';
+      const group  = groupName.get(String(ch.genreId)) || '';
       // Precedence: manual override → Stalker portal logo → iptv-org (manual fetch).
       const logo   = (logoManager ? logoManager.resolveOverride(ch.name) : '')
                   || ch.iconPath

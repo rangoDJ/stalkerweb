@@ -15,6 +15,7 @@ import {
 } from '../stalkerApi'
 import { useApp } from '@/lib/appContext'
 import { ChannelLogo } from '@/components/ChannelLogo'
+import { invalidateFavoritesCache } from '@/lib/useFavorites'
 
 // ── Drag-and-drop helpers ─────────────────────────────────────────────────
 function useDragReorder(items, setItems, onReorder) {
@@ -353,6 +354,10 @@ export default function FavoritesPage() {
   async function handleRemoveChannel(ch) {
     await removeFavoriteChannel(ch.uniqueId)
     setChannels(prev => prev.filter(c => String(c.uniqueId) !== String(ch.uniqueId)))
+    // Keep the heart icon on Channels/Player pages in sync — they read
+    // favorite status from the shared module-level cache, not this page's
+    // own fetch, so it must be told this channel changed.
+    invalidateFavoritesCache()
   }
 
   async function handleCreateGroup() {

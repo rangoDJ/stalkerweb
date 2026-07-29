@@ -71,6 +71,7 @@ class LogoManager {
     this._failureCacheFile  = path.join(dataDir, 'cache', 'logo-failures.json');
     this._cachedAt      = null;
     this._refreshing    = false;
+    this._refreshPromise = null;
     this._cacheDir      = path.join(dataDir, 'cache', 'logos');
     fs.mkdirSync(this._cacheDir, { recursive: true });
   }
@@ -298,21 +299,35 @@ class LogoManager {
   }
 
   async _loadOrDownload(forceDownload) {
-    if (this._refreshing) return;
-    this._refreshing = true;
-    try {
-      const diskExists = fs.existsSync(this._mapCacheFile);
-      const diskFresh  = diskExists &&
-        (Date.now() - fs.statSync(this._mapCacheFile).mtimeMs < CACHE_TTL);
-
-      if (!forceDownload && diskFresh) {
-        await this._loadFromDisk();
-      } else {
-        await this._download();
-      }
-    } finally {
-      this._refreshing = false;
+    // If a load/download is already in flight, wait for it instead of
+    // silently no-opping. A forced refresh (user-triggered) must still
+    // actually run afterward rather than piggyback on a non-forced result.
+    if (this._refreshPromise) {
+      await this._refreshPromise.catch(() => {});
+      if (!forceDownload) return;
     }
+
+    const run = async () => {
+      this._refreshing = true;
+      try {
+        const diskExists = fs.existsSync(this._mapCacheFile);
+        const diskFresh  = diskExists &&
+          (Date.now() - fs.statSync(this._mapCacheFile).mtimeMs < CACHE_TTL);
+
+        if (!forceDownload && diskFresh) {
+          await this._loadFromDisk();
+        } else {
+          await this._download();
+        }
+      } finally {
+        this._refreshing = false;
+        if (this._refreshPromise === promise) this._refreshPromise = null;
+      }
+    };
+
+    const promise = run();
+    this._refreshPromise = promise;
+    await promise;
   }
 
   async _loadFromDisk() {

@@ -11,12 +11,13 @@ import { Label }  from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { cn } from '@/lib/utils'
 import {
-  connect, disconnect, getConfig, getStatus, getSettings, saveSettings,
+  connect, disconnect, getConfig, saveConfig, getStatus, getSettings, saveSettings,
   getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb,
   downloadStbEmuBackup, getChannels, getLogoMap, getProxiedLogoUrl, getGroups,
   getLogoStripWords, addLogoStripWord, deleteLogoStripWord,
 } from '../stalkerApi'
 import { invalidateChannelCache } from '../lib/channelCache'
+import { invalidateFavoritesCache } from '../lib/useFavorites'
 import { useApp } from '@/lib/appContext'
 import {
   loadProfiles, saveProfiles, uid, normalizePortal, DEFAULT_FORM,
@@ -454,8 +455,22 @@ export default function SetupPage() {
     setTimeout(() => setNotice(null), 2500)
   }
 
-  function handleDeleteProfile(id) {
+  async function handleDeleteProfile(id) {
+    const target = profiles.find(p => p.id === id)
     setProfiles(prev => { const u = prev.filter(p => p.id !== id); saveProfiles(u); return u })
+    if (getActiveProfileId() === id) setActiveProfileId(null)
+
+    // If the backend still has this portal/mac saved as its current config,
+    // clear it too — otherwise the startup "import saved config" effect will
+    // resurrect this profile as a "new" one on the next reload.
+    if (target?.portal && target?.mac) {
+      try {
+        const cfg = await getConfig()
+        if (cfg?.portal === target.portal && cfg?.mac === target.mac) {
+          await saveConfig({ portal: '', mac: '' })
+        }
+      } catch { /* best effort */ }
+    }
   }
 
   async function handleConnect(profile) {
@@ -466,10 +481,11 @@ export default function SetupPage() {
       setConnected(true)
       setConnectedPortal({ portal: profile.portal, mac: profile.mac })
 
-      // Discard any channel list cached from a previously connected portal,
-      // so ChannelsPage re-fetches this portal's channels instead of
+      // Discard any channel list / favorites cached from a previously
+      // connected portal, so pages re-fetch this portal's data instead of
       // serving a stale snapshot.
       invalidateChannelCache()
+      invalidateFavoritesCache()
 
       // Mark this profile active and load ITS genre filters into the app
       // context so ChannelsPage / PlayerPage filter by the right list.

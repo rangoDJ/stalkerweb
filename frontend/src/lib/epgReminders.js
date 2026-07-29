@@ -1,12 +1,20 @@
 // epgReminders.js — localStorage-backed EPG reminder management
-// localStorage key: 'epg_reminders' → [{ id, channelId, channelName, title, startTime, notifiedAt }]
+// localStorage key: 'epg_reminders[_<profileId>]' → [{ id, channelId, channelName, title, startTime, notifiedAt }]
 
-const STORAGE_KEY = 'epg_reminders'
+import { getActiveProfileId } from './profiles'
+
 const NOTIFY_AHEAD_MS = 2 * 60 * 1000 // 2 minutes
+
+// Scoped per-profile — a reminder's channelId only means something on the
+// portal it was created for, so switching portals must not carry it over.
+function storageKey() {
+  const id = getActiveProfileId()
+  return id ? `epg_reminders_${id}` : 'epg_reminders'
+}
 
 function loadRaw() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    return JSON.parse(localStorage.getItem(storageKey()) || '[]')
   } catch {
     return []
   }
@@ -14,7 +22,7 @@ function loadRaw() {
 
 function saveRaw(items) {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items))
+    localStorage.setItem(storageKey(), JSON.stringify(items))
   } catch {
     // Storage full or unavailable — fail silently
   }

@@ -111,7 +111,7 @@ module.exports = function xmltvModule(appState) {
     for (const ch of channels) {
       const id       = String(ch.uniqueId);
       const name     = xmlEscape(ch.name);
-      const category = xmlEscape(groupName.get(String(ch.tvGenreId)) || '');
+      const category = xmlEscape(groupName.get(String(ch.genreId)) || '');
 
       // Try real EPG first: keyed by channelId (portal numeric ID)
       const epgEvents = epgData

@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue, useLayoutEffect, memo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, Tv2, AlertCircle, AlertTriangle, RefreshCw, Heart, Clock, X, Image, Check } from 'lucide-react'
+import { Search, Tv2, AlertCircle, AlertTriangle, RefreshCw, Heart, Clock, X, Image, Check, ChevronDown, ChevronUp } from 'lucide-react'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -21,6 +21,10 @@ const FLAKY_THRESHOLD = 2
 const GRID_GAP     = 12   // px (Tailwind gap-3 = 0.75rem)
 const MIN_COL      = 160  // px (minmax(160px, 1fr))
 const ROW_ESTIMATE = 210  // px initial row-height guess; dynamic measurement refines it
+
+// Above this many genre pills, the row is collapsed to a single line by default
+// so it can't crowd out the channel grid below it.
+const GENRE_COLLAPSE_THRESHOLD = 12
 
 function healthTitle(errors) {
   return `${errors} recent stream ${errors === 1 ? 'failure' : 'failures'} — may not play`
@@ -194,6 +198,7 @@ export default function ChannelsPage() {
   const [nowNext, setNowNext] = useState({})
   const [health, setHealth] = useState({})        // { uniqueId: { errors, lastError } }
   const [hideFlaky, setHideFlaky] = useState(false)
+  const [genresExpanded, setGenresExpanded] = useState(false)
 
   // Logo assignment modal
   const [logoChannel, setLogoChannel] = useState(null)
@@ -230,7 +235,16 @@ export default function ChannelsPage() {
 
   useEffect(() => {
     setRecentlyWatched(getRecentlyWatched())
-    getNowNext().then(setNowNext).catch(() => {})
+  }, [])
+
+  // Fetch now/next EPG and refresh it periodically so "now playing" titles
+  // and progress bars don't freeze during a long-lived session.
+  useEffect(() => {
+    let cancelled = false
+    const refresh = () => getNowNext().then(d => { if (!cancelled) setNowNext(d) }).catch(() => {})
+    refresh()
+    const id = setInterval(refresh, 5 * 60 * 1000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // Poll channel stream-health and refresh periodically (it self-heals on success).
@@ -473,19 +487,31 @@ export default function ChannelsPage() {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <button
-            onClick={() => selectGroup('')}
-            className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
-              !activeGroup ? 'btn-gradient text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
-          >All</button>
-          {groups.map(g => (
-            <button key={g.id} onClick={() => selectGroup(g.id)}
-              className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap',
-                activeGroup === String(g.id) ? 'btn-gradient text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
-            >{g.name}</button>
-          ))}
-      </div>
+        <div className="flex items-start gap-2">
+          <div className={cn('flex flex-wrap items-center gap-2 flex-1 min-w-0', !genresExpanded && 'max-h-9 overflow-hidden')}>
+            <button
+              onClick={() => selectGroup('')}
+              className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all',
+                !activeGroup ? 'btn-gradient text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
+            >All</button>
+            {groups.map(g => (
+              <button key={g.id} onClick={() => selectGroup(g.id)}
+                className={cn('px-4 py-1.5 rounded-full text-sm font-semibold transition-all whitespace-nowrap',
+                  activeGroup === String(g.id) ? 'btn-gradient text-white' : 'bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)]')}
+              >{g.name}</button>
+            ))}
+          </div>
+          {groups.length > GENRE_COLLAPSE_THRESHOLD && (
+            <button
+              onClick={() => setGenresExpanded(v => !v)}
+              title={genresExpanded ? 'Collapse genres' : 'Show all genres'}
+              className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)] transition-colors"
+            >
+              {genresExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+              {genresExpanded ? 'Less' : 'More'}
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Content */}
