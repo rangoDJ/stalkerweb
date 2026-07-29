@@ -21,6 +21,7 @@ export default [
         require: 'readonly',
         module: 'readonly',
         exports: 'readonly',
+        AbortController: 'readonly',
       },
     },
     rules: {

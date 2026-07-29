@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom'
-import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film, LayoutGrid } from 'lucide-react'
+import { Tv2, BookOpen, Settings, Heart, RefreshCw, Timer, Loader2, Film, LayoutGrid, Download } from 'lucide-react'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
@@ -20,6 +20,7 @@ const FavoritesPage  = lazy(() => import('./pages/FavoritesPage'))
 const VodPage        = lazy(() => import('./pages/VodPage'))
 const VodPlayerPage  = lazy(() => import('./pages/VodPlayerPage'))
 const EpgGridPage    = lazy(() => import('./pages/EpgGridPage'))
+const DownloadsPage  = lazy(() => import('./pages/DownloadsPage'))
 
 // ── Nav link style ────────────────────────────────────────────────────────
 function NavItem({ to, icon: Icon, label }) {
@@ -113,6 +114,7 @@ function TopNav({ connected, epgEnabled, lastPingAt, idleInfo }) {
         <nav className="flex items-center gap-1">
           <NavItem to="/channels"  icon={Tv2}         label="Channels" />
           <NavItem to="/vod"       icon={Film}        label="VOD" />
+          <NavItem to="/downloads" icon={Download}    label="Downloads" />
           <NavItem to="/favorites" icon={Heart}       label="Favorites" />
           {epgEnabled && <NavItem to="/guide"    icon={BookOpen}    label="Guide" />}
           {epgEnabled && <NavItem to="/epg-grid" icon={LayoutGrid}  label="EPG Grid" />}
@@ -282,6 +284,14 @@ function AppInner() {
               element={
                 <RequireAuth connected={connected}>
                   <VodPlayerPage />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/downloads"
+              element={
+                <RequireAuth connected={connected}>
+                  <DownloadsPage />
                 </RequireAuth>
               }
             />

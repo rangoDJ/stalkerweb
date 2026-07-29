@@ -1,11 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Film, Tv2, ChevronLeft, ChevronRight, Clock, X, Loader2, Play } from 'lucide-react'
+import { Search, Film, Tv2, ChevronLeft, ChevronRight, Clock, X, Loader2, Play, Download } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { isAdult } from '@/lib/adultFilter'
 import { useApp } from '@/lib/appContext'
 import { getVodCategories, getVodItems, getVodSeasons, getVodEpisodes } from '../stalkerApi'
 import { getVodProgressList, removeVodProgress } from '@/lib/vodProgress'
+import { queueDownload } from '@/lib/downloads'
+import { showToast } from '@/lib/toast'
 
 // ── Continue Watching row ─────────────────────────────────────────────────
 // Horizontally-scrolling shelf of in-progress titles, restored from localStorage.
@@ -82,7 +84,7 @@ function Thumb({ src, name, isHD }) {
 }
 
 // ── VOD item card ─────────────────────────────────────────────────────────
-function VodCard({ item, onClick }) {
+function VodCard({ item, onClick, onDownload }) {
   const hasSeries = item.episodes?.length > 0
   return (
     <button
@@ -94,6 +96,18 @@ function VodCard({ item, onClick }) {
         <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
           <Play size={32} className="text-white opacity-0 group-hover:opacity-90 transition-opacity drop-shadow-lg" fill="currentColor" />
         </div>
+        {!hasSeries && (
+          <div
+            role="button"
+            tabIndex={0}
+            title="Download to server"
+            onClick={e => { e.stopPropagation(); onDownload(item) }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onDownload(item) } }}
+            className="absolute top-1 right-1 p-1 rounded-full bg-black/60 text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/80 hover:text-white transition-all"
+          >
+            <Download size={13} />
+          </div>
+        )}
         {hasSeries && (
           <span className="absolute bottom-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-black/70 text-white leading-none">
             {item.episodes.length} ep
@@ -119,7 +133,7 @@ function VodCard({ item, onClick }) {
 // TV-show drill-down: show → seasons → episodes. Selecting a season fetches its
 // episodes; selecting an episode resolves and plays it (passing season/episode
 // ids so the backend can drill to the concrete file).
-function SeasonsSheet({ item, onClose, onPlayEpisode }) {
+function SeasonsSheet({ item, onClose, onPlayEpisode, onDownloadEpisode, onDownloadSeason }) {
   const [seasons, setSeasons] = useState(null)
   const [selectedSeason, setSelectedSeason] = useState(null)
   const [episodes, setEpisodes] = useState(null)
@@ -161,6 +175,15 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
               {selectedSeason ? selectedSeason.name : 'Select a season'}
             </p>
           </div>
+          {selectedSeason && episodes?.length > 0 && (
+            <button
+              onClick={() => onDownloadSeason(item, selectedSeason, episodes)}
+              title="Download whole season"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[var(--radius-sm)] text-xs font-medium bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-3)] transition-colors"
+            >
+              <Download size={13} /> Season
+            </button>
+          )}
           <button onClick={onClose} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors p-1">
             <X size={16} />
           </button>
@@ -212,7 +235,11 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
                 <Loader2 size={24} className="animate-spin text-[var(--color-primary-light)]" />
               </div>
             ) : (
-              <EpisodeList episodes={episodes} onPlay={(ep) => onPlayEpisode(item, selectedSeason, ep)} />
+              <EpisodeList
+                episodes={episodes}
+                onPlay={(ep) => onPlayEpisode(item, selectedSeason, ep)}
+                onDownload={(ep) => onDownloadEpisode(item, selectedSeason, ep)}
+              />
             )
           )}
         </div>
@@ -221,17 +248,17 @@ function SeasonsSheet({ item, onClose, onPlayEpisode }) {
   )
 }
 
-function EpisodeList({ episodes, onPlay }) {
+function EpisodeList({ episodes, onPlay, onDownload }) {
   if (!episodes || episodes.length === 0) {
     return <p className="px-4 py-6 text-sm text-[var(--color-muted)] text-center">No episodes found.</p>
   }
   return (
     <ul>
       {episodes.map((ep) => (
-        <li key={ep.episodeId}>
+        <li key={ep.episodeId} className="flex items-center group">
           <button
             onClick={() => onPlay(ep)}
-            className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--color-surface-2)] transition-colors group"
+            className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left hover:bg-[var(--color-surface-2)] transition-colors"
           >
             <div className="w-14 h-8 rounded bg-[var(--color-surface-2)] shrink-0 overflow-hidden relative flex items-center justify-center border border-[var(--color-border)]">
               {ep.screenshotUrl ? (
@@ -243,6 +270,13 @@ function EpisodeList({ episodes, onPlay }) {
             <div className="flex-1 min-w-0">
               <p className="text-sm text-[var(--color-text)] truncate">{ep.name || `Episode ${ep.seriesNumber}`}</p>
             </div>
+          </button>
+          <button
+            onClick={() => onDownload(ep)}
+            title="Download to server"
+            className="shrink-0 p-2 mr-2 rounded-md text-[var(--color-muted)] hover:text-[var(--color-primary-light)] hover:bg-[var(--color-surface-2)] transition-colors"
+          >
+            <Download size={14} />
           </button>
         </li>
       ))}
@@ -411,6 +445,50 @@ export default function VodPage() {
     })}`)
   }
 
+  async function downloadMovie(item) {
+    try {
+      await queueDownload([{ videoId: item.id, cmd: item.cmd || '', series: 0, title: item.name }])
+      showToast(`Queued "${item.name}" for download`, 'success')
+    } catch (e) {
+      showToast(e.message || 'Could not queue download', 'error')
+    }
+  }
+
+  async function downloadEpisode(show, season, ep) {
+    try {
+      await queueDownload([{
+        videoId:     show.id,
+        cmd:         show.cmd || '',
+        series:      ep.seriesNumber,
+        seasonId:    season.id,
+        episodeId:   ep.episodeId,
+        title:       ep.name || `Episode ${ep.seriesNumber}`,
+        seriesTitle: show.name,
+      }])
+      showToast(`Queued "${ep.name || `Episode ${ep.seriesNumber}`}" for download`, 'success')
+    } catch (e) {
+      showToast(e.message || 'Could not queue download', 'error')
+    }
+  }
+
+  async function downloadSeason(show, season, episodes) {
+    const items = episodes.map(ep => ({
+      videoId:     show.id,
+      cmd:         show.cmd || '',
+      series:      ep.seriesNumber,
+      seasonId:    season.id,
+      episodeId:   ep.episodeId,
+      title:       ep.name || `Episode ${ep.seriesNumber}`,
+      seriesTitle: show.name,
+    }))
+    try {
+      await queueDownload(items)
+      showToast(`Queued ${items.length} episode${items.length === 1 ? '' : 's'} from "${season.name}"`, 'success')
+    } catch (e) {
+      showToast(e.message || 'Could not queue season download', 'error')
+    }
+  }
+
   return (
     <div className="fade-in flex h-[calc(100vh-3.5rem)]">
 
@@ -506,7 +584,7 @@ export default function VodPage() {
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
                 {items.map(item => (
-                  <VodCard key={item.id} item={item} onClick={handleItemClick} />
+                  <VodCard key={item.id} item={item} onClick={handleItemClick} onDownload={downloadMovie} />
                 ))}
               </div>
 
@@ -549,6 +627,8 @@ export default function VodPage() {
           item={seriesSheet}
           onClose={() => setSeriesSheet(null)}
           onPlayEpisode={handlePlayEpisode}
+          onDownloadEpisode={downloadEpisode}
+          onDownloadSeason={downloadSeason}
         />
       )}
     </div>

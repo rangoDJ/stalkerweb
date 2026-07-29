@@ -17,5 +17,8 @@ const config = {
 
 config.cacheDir = path.join(config.dataDir, 'cache');
 config.configFile = path.join(config.dataDir, 'config.json');
+// Default VOD download destination — overridable per-install via env var, and
+// further overridable at runtime via Settings (see routes/settings.js).
+config.downloadDir = process.env.DOWNLOAD_DIR || path.join(config.dataDir, 'downloads');
 
 module.exports = config;
