@@ -7,8 +7,16 @@ services:
       - "8983:8983"
     volumes:
       - ./data:/app/data
+      # Where downloaded VOD movies/episodes are saved on the HOST. Point this
+      # at whatever path you want (a NAS mount, a media library folder, etc.)
+      # by setting DOWNLOADS_HOST_PATH in a .env file next to this compose
+      # file — it doesn't have to live under ./data.
+      - ${DOWNLOADS_HOST_PATH:-./data/downloads}:/app/downloads
     environment:
       - NODE_ENV=production
+      # Container-side path — must match the mount target above. No need to
+      # change this; change DOWNLOADS_HOST_PATH instead.
+      - DOWNLOAD_DIR=/app/downloads
       # Optional: pre-seed portal credentials so the UI is skipped
       # - PORTAL_URL=http://your-portal.example.com/c/
       # - PORTAL_MAC=00:1A:79:XX:XX:XX
