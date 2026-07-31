@@ -191,6 +191,20 @@ function _codecArgs(probe) {
   return args;
 }
 
+// ── Args for remuxing a stream (e.g. HLS) straight to a local file ──────────
+// Used by the download queue to save VOD titles that only expose an .m3u8
+// playlist — no browser can save that as a single file, but ffmpeg can remux
+// the segments into one .mp4 without re-encoding (cheap, near-instant per byte).
+// `probe` (optional, from probeCodecs) decides whether the ADTS→ASC bitstream
+// filter is needed; it only applies when the audio is actually AAC.
+function buildDownloadArgs(streamUrl, headers, outPath, probe = null) {
+  const inputArgs = _inputArgs(streamUrl, headers);
+  const args = ['-hide_banner', '-loglevel', 'warning', '-y', ...inputArgs, '-i', streamUrl, '-c', 'copy'];
+  if (!probe || probe.audio === 'aac') args.push('-bsf:a', 'aac_adtstoasc');
+  args.push(outPath);
+  return args;
+}
+
 // ── Main transcode entry point ────────────────────────────────────────────────
 // Probes the source, chooses copy vs re-encode, spawns FFmpeg, pipes to res.
 // Returns a Promise that resolves when the FFmpeg process has started (or rejects
@@ -260,4 +274,4 @@ async function transcode(streamUrl, req, res, headers = null) {
   });
 }
 
-module.exports = { isAvailable, transcode, probeCodecs, browserDirectPlayable };
+module.exports = { isAvailable, transcode, probeCodecs, browserDirectPlayable, buildDownloadArgs };

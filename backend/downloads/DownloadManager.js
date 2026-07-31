@@ -10,7 +10,9 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { spawn: spawnProcess } = require('child_process');
 const EventEmitter = require('events');
+const FfmpegService = require('../stalker/FfmpegService');
 const log = require('../logger');
 const TAG = 'downloads';
 
@@ -115,13 +117,14 @@ class DownloadManager extends EventEmitter {
       if (!streamUrl) throw new Error('Could not resolve stream URL');
 
       const cleanUrl = streamUrl.split('?')[0].split('#')[0];
-      if (/\.(m3u8?|m3u)$/i.test(cleanUrl)) {
-        throw new Error("This title streams as HLS and can't be saved as a single file.");
+      const isHls = /\.(m3u8?|m3u)$/i.test(cleanUrl);
+      if (isHls && !FfmpegService.isAvailable()) {
+        throw new Error('This title streams as HLS and needs FFmpeg installed on the server to save.');
       }
 
       const dir = this.getDownloadDir();
       fs.mkdirSync(dir, { recursive: true });
-      const ext  = (cleanUrl.match(/\.([a-z0-9]{2,4})$/i)?.[1] || 'mp4').toLowerCase();
+      const ext  = isHls ? 'mp4' : (cleanUrl.match(/\.([a-z0-9]{2,4})$/i)?.[1] || 'mp4').toLowerCase();
       const base = sanitizeFilename(job.seriesTitle ? `${job.seriesTitle} - ${job.title}` : job.title);
       let filePath = path.join(dir, `${base}.${ext}`);
       let n = 1;
@@ -129,29 +132,34 @@ class DownloadManager extends EventEmitter {
       tmpPath = filePath + '.part';
 
       const headers = client?.streamHeadersFor ? client.streamHeadersFor(streamUrl) : {};
-      const http    = client?.getHttpClient ? client.getHttpClient() : require('axios');
 
-      const response = await http.get(streamUrl, {
-        headers, responseType: 'stream', signal: controller.signal, validateStatus: () => true,
-      });
-      if (response.status >= 400) throw new Error(`Server returned HTTP ${response.status}`);
+      if (isHls) {
+        await this._downloadWithFfmpeg(streamUrl, headers, tmpPath, job, controller);
+      } else {
+        const http = client?.getHttpClient ? client.getHttpClient() : require('axios');
 
-      job.totalBytes = parseInt(response.headers['content-length'] || '0', 10) || 0;
-
-      const writeStream = fs.createWriteStream(tmpPath);
-      let lastEmit = 0;
-      await new Promise((resolve, reject) => {
-        response.data.on('data', chunk => {
-          job.bytesDownloaded += chunk.length;
-          const now = Date.now();
-          // Throttle progress broadcasts — don't flood every SSE subscriber per chunk.
-          if (now - lastEmit > 500) { lastEmit = now; this._emitUpdate(); }
+        const response = await http.get(streamUrl, {
+          headers, responseType: 'stream', signal: controller.signal, validateStatus: () => true,
         });
-        response.data.on('error', reject);
-        writeStream.on('error', reject);
-        writeStream.on('finish', resolve);
-        response.data.pipe(writeStream);
-      });
+        if (response.status >= 400) throw new Error(`Server returned HTTP ${response.status}`);
+
+        job.totalBytes = parseInt(response.headers['content-length'] || '0', 10) || 0;
+
+        const writeStream = fs.createWriteStream(tmpPath);
+        let lastEmit = 0;
+        await new Promise((resolve, reject) => {
+          response.data.on('data', chunk => {
+            job.bytesDownloaded += chunk.length;
+            const now = Date.now();
+            // Throttle progress broadcasts — don't flood every SSE subscriber per chunk.
+            if (now - lastEmit > 500) { lastEmit = now; this._emitUpdate(); }
+          });
+          response.data.on('error', reject);
+          writeStream.on('error', reject);
+          writeStream.on('finish', resolve);
+          response.data.pipe(writeStream);
+        });
+      }
 
       fs.renameSync(tmpPath, filePath);
       tmpPath = null;
@@ -175,6 +183,46 @@ class DownloadManager extends EventEmitter {
       this._emitUpdate();
       this._runNext();
     }
+  }
+
+  // Remuxes an HLS (.m3u8) stream straight to a local .mp4 without re-encoding.
+  // Progress has no known total (HLS doesn't expose a byte size up front), so
+  // we just report bytes written so far — the UI shows an indeterminate bar
+  // when totalBytes stays 0, same as any other unknown-length response.
+  async _downloadWithFfmpeg(streamUrl, headers, tmpPath, job, controller) {
+    const probe = await FfmpegService.probeCodecs(streamUrl, headers);
+    const args = FfmpegService.buildDownloadArgs(streamUrl, headers, tmpPath, probe);
+    log.info(TAG, `remuxing HLS via ffmpeg: ffmpeg ${args.join(' ')}`);
+
+    await new Promise((resolve, reject) => {
+      const ffmpeg = spawnProcess('ffmpeg', args, { stdio: ['ignore', 'ignore', 'pipe'] });
+
+      const statTimer = setInterval(() => {
+        fs.stat(tmpPath, (err, st) => { if (!err) { job.bytesDownloaded = st.size; this._emitUpdate(); } });
+      }, 1000);
+
+      let stderrTail = '';
+      ffmpeg.stderr.on('data', d => {
+        stderrTail = (stderrTail + d.toString()).slice(-4000);
+      });
+
+      const onAbort = () => { try { ffmpeg.kill('SIGKILL'); } catch { /* already dead */ } };
+      controller.signal.addEventListener('abort', onAbort);
+
+      const cleanup = () => {
+        clearInterval(statTimer);
+        controller.signal.removeEventListener('abort', onAbort);
+      };
+
+      ffmpeg.on('error', (err) => { cleanup(); reject(err); });
+      ffmpeg.on('close', (code) => {
+        cleanup();
+        if (controller.signal.aborted) { reject(new Error('aborted')); return; }
+        if (code === 0) { resolve(); return; }
+        const tail = stderrTail.split('\n').filter(Boolean).slice(-3).join(' | ');
+        reject(new Error(`ffmpeg exited with code ${code}${tail ? `: ${tail}` : ''}`));
+      });
+    });
   }
 }
 
