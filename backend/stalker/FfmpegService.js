@@ -201,7 +201,9 @@ function buildDownloadArgs(streamUrl, headers, outPath, probe = null) {
   const inputArgs = _inputArgs(streamUrl, headers);
   const args = ['-hide_banner', '-loglevel', 'warning', '-y', ...inputArgs, '-i', streamUrl, '-c', 'copy'];
   if (!probe || probe.audio === 'aac') args.push('-bsf:a', 'aac_adtstoasc');
-  args.push(outPath);
+  // outPath is a ".mp4.part" staging file — force the muxer explicitly since
+  // ffmpeg would otherwise guess it from the (unrecognized) ".part" extension.
+  args.push('-f', 'mp4', outPath);
   return args;
 }
 
