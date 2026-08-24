@@ -13,6 +13,13 @@ export const DEFAULT_FORM = {
   portal: '', mac: '', timezone: 'Europe/London', lang: 'en',
   login: '', password: '', token: '', serial_number: '0000000000000',
   device_id: '', device_id2: '', signature: '', portal_signature: '',
+  // Whether device_id / device_id2 are actually sent to the portal. STBEmu
+  // backups can carry a populated device_id that was never transmitted
+  // (send_device_id: false) — importing it verbatim without this flag would
+  // send an ID the portal never associated with the account, causing a
+  // "device id mismatch". Default true to match prior behavior for
+  // manually-created profiles.
+  send_device_id: true, send_device_id2: true,
   // STBEmu device (per-profile) — used for the STBEmu backup export
   stb_model: 'MAG250', firmware: '0.2.18-r14-pub-250', custom_firmware: '',
   connection_timeout: 10,
