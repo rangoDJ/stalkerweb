@@ -7,8 +7,8 @@ import com.squareup.moshi.JsonClass
 data class Channel(
     val uniqueId: String,
     val number: Int = 0,
-    val name: String,
-    val logo: String? = null,
+    val name: String = "", // favorites can return a bare-stub channel while the list is still loading
+    @param:Json(name = "iconPath") val logo: String? = null,
     val genre: String? = null,
     val genreId: String? = null,
 )
@@ -176,6 +176,7 @@ data class PortalConnectRequest(
 data class PortalActionResponse(
     val success: Boolean = false,
     val error: String? = null,
+    val token: String? = null, // present on /connect and /reconnect success
 )
 
 @JsonClass(generateAdapter = false)
