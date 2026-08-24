@@ -358,24 +358,6 @@ export default function VodPage() {
     setContinueList(list => list.filter(e => e.key !== key))
   }
 
-  // Load categories on type change
-  useEffect(() => {
-    itemsTokenRef.current++ // invalidate any in-flight item fetch from the previous type
-    setCatsLoading(true)
-    setCatsError('')
-    setCategories([])
-    setSelectedCategory(null)
-    setItems([])
-    getVodCategories(vodType)
-      .then(r => {
-        let cats = r.categories || []
-        if (!showAdult) cats = cats.filter(c => !isAdult(c.name))
-        setCategories(cats)
-        setCatsLoading(false)
-      })
-      .catch(e => { setCatsError(e.message); setCatsLoading(false) })
-  }, [vodType, showAdult])
-
   // Load items when category / search changes
   const loadItems = useCallback(async (catId, q, page, token) => {
     if (!catId) return
@@ -401,14 +383,40 @@ export default function VodPage() {
     }
   }, [vodType])
 
-  function selectCategory(cat) {
+  const selectCategory = useCallback((cat) => {
     setSelectedCategory(cat)
     setSearch('')
     setItems([])
     setCurrentPage(1)
     const token = ++itemsTokenRef.current
     loadItems(cat.id, '', 1, token)
-  }
+  }, [loadItems])
+
+  // Load categories on type change
+  useEffect(() => {
+    itemsTokenRef.current++ // invalidate any in-flight item fetch from the previous type
+    setCatsLoading(true)
+    setCatsError('')
+    setCategories([])
+    setSelectedCategory(null)
+    setItems([])
+    getVodCategories(vodType)
+      .then(r => {
+        let cats = r.categories || []
+        if (!showAdult) cats = cats.filter(c => !isAdult(c.name))
+        setCategories(cats)
+        setCatsLoading(false)
+        // Default to the portal's "All" category so titles load immediately
+        // instead of requiring the user to pick a category first.
+        if (cats.length > 0) {
+          const allCat = cats.find(c => c.id === '*') ||
+                         cats.find(c => c.title?.trim().toLowerCase() === 'all') ||
+                         cats[0]
+          selectCategory(allCat)
+        }
+      })
+      .catch(e => { setCatsError(e.message); setCatsLoading(false) })
+  }, [vodType, showAdult, selectCategory])
 
   function handleSearchChange(q) {
     setSearch(q)
