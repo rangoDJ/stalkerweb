@@ -66,6 +66,9 @@ logoManager.ensureLoadedBackground();
 const FavoritesManager = require('./favorites/FavoritesManager');
 const favoritesManager = new FavoritesManager(config.dataDir);
 
+const ProfilesManager = require('./profiles/ProfilesManager');
+const profilesManager = new ProfilesManager(config.dataDir);
+
 const { authRoutes, connectPortal } = require('./routes/auth')(appState, config);
 
 // ── Idle auto-disconnect ───────────────────────────────────────────────────
@@ -205,6 +208,7 @@ const m3uRoutes = require('./routes/m3u')(appState, logoManager);
 const xmltvRoutes = require('./routes/xmltv')(appState);
 const logosRoutes     = require('./routes/logos')(logoManager, appState);
 const favoritesRoutes = require('./routes/favorites')(favoritesManager, appState);
+const profilesRoutes  = require('./routes/profiles')(profilesManager);
 const exportRoutes    = require('./routes/export')(config);
 const logsRoutes      = require('./routes/logs');
 
@@ -217,6 +221,7 @@ app.use('/api/stream', streamRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/logos', logosRoutes);
 app.use('/api/favorites', favoritesRoutes);
+app.use('/api/profiles', profilesRoutes);
 app.use('/api/export', exportRoutes);
 app.use('/api/m3u', m3uRoutes);
 app.use('/api/xmltv', xmltvRoutes);

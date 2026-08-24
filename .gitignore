@@ -3,7 +3,5 @@ dist/
 .env
 data/cache/
 data/config.json
-data/vod-progress.json
-data/stream-health.json
+data/profiles.json
 *.log
-.claude/
