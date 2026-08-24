@@ -11,10 +11,6 @@ services:
       - ./data:/app/data
     environment:
       - NODE_ENV=production
-      # Optional pre-seed:
-      # - PORTAL_URL=http://your-portal.example.com/c/
-      # - PORTAL_MAC=00:1A:79:XX:XX:XX
-      # - PORTAL_TIMEZONE=Europe/London
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8983/api/health"]
       interval: 30s

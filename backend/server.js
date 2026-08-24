@@ -282,20 +282,11 @@ app.use((err, _req, res, _next) => {
 async function tryAutoConnect() {
   const CacheManager = require('./cache/CacheManager');
   const cache = new CacheManager(config.dataDir);
-  let saved = cache.load();
+  const saved = cache.load();
 
   if (!saved?.portal || !saved?.mac) {
-    // Fall back to env-provided portal credentials
-    if (config.preseeded.portal && config.preseeded.mac) {
-      saved = {
-        portal: config.preseeded.portal,
-        mac: config.preseeded.mac,
-        timezone: config.preseeded.timezone || 'Europe/London',
-      };
-    } else {
-      log.info('server', 'no saved portal config — waiting for POST /api/auth/connect');
-      return;
-    }
+    log.info('server', 'no saved portal config — waiting for POST /api/auth/connect');
+    return;
   }
 
   log.info('server', `auto-connecting to ${saved.portal} (${saved.mac})`);

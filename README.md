@@ -41,9 +41,6 @@ services:
       - ./data:/app/data
     environment:
       - NODE_ENV=production
-      # Optional: pre-seed portal credentials
-      # - PORTAL_URL=http://your-portal.example.com/c/
-      # - PORTAL_MAC=00:1A:79:XX:XX:XX
       # Optional: minutes of inactivity before the portal session is torn
       # down (default 30). The timer is held off while a stream is playing,
       # so this is only the grace window after the last viewer disconnects.
@@ -54,7 +51,7 @@ services:
 docker-compose up -d
 ```
 
-Then open **http://localhost:8983**, enter your portal URL and MAC address, and click **Connect**.
+Then open **http://localhost:8983** and use the **Setup** page to add a portal profile (URL, MAC, and optional advanced fields) and click **Connect**.
 
 The container includes:
 - **HEALTHCHECK** — pings `/api/health` every 30s; Docker marks unhealthy after 3 failures.
@@ -157,85 +154,6 @@ cd backend  && node server.js  # API at :8983
 cd frontend && npm run build
 cd ..       && node backend/server.js
 ```
-
-## Testing & Linting
-
-```bash
-# Backend
-cd backend
-npm test            # 17 tests (proxy helpers, cache operations)
-npm run lint        # ESLint 9 + Prettier check
-npm run audit       # Security audit
-
-# Frontend
-cd frontend
-npm test            # 4 tests (utility functions)
-npm run lint        # ESLint 9 (JSX + React + Hooks plugins)
-npm run audit       # Security audit
-```
-
-## API Reference
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/api/health` | Health check |
-| **Auth / Portal** ||
-| `POST` | `/api/auth/connect` | Connect to a portal (rate-limited: 5/min) |
-| `POST` | `/api/auth/reconnect` | Re-connect using saved config (rate-limited: 10/min) |
-| `GET` | `/api/auth/status` | Session status (connected, profile, watchdog/idle info) |
-| `DELETE` | `/api/auth/disconnect` | Tear down session |
-| `GET` | `/api/auth/config` | Get saved portal config (pre-fills Setup form) |
-| `PUT` | `/api/auth/config` | Persist portal config fields without connecting |
-| **Channels / EPG** ||
-| `GET` | `/api/channels` | List channels (`?group=` filter, `?refresh=1`) |
-| `GET` | `/api/channels/:id` | Single channel info |
-| `GET` | `/api/channels/groups/all` | List genre groups |
-| `GET` | `/api/channels/progress` | Channel load progress (poll while loading) |
-| `GET` | `/api/channels/events` | SSE stream of channel load progress |
-| `GET` | `/api/channels/health` | Recent per-channel stream errors |
-| `GET` | `/api/epg` | EPG for all channels (`?period=24`) |
-| `GET` | `/api/epg/:channelId` | EPG for a channel (`?period=24`) |
-| `GET` | `/api/epg/now` | Current + next programme for all channels |
-| **Streaming** ||
-| `GET` | `/api/stream/:channelId` | Resolve a live channel's stream URL |
-| `GET` | `/api/stream/keepalive` | Renew the idle timer while a stream plays |
-| `GET` | `/proxy/stream/:channelId` | Proxy the master HLS playlist for a channel |
-| `GET` | `/proxy/hls?url=` | Proxy an HLS sub-playlist |
-| `GET` | `/proxy/hls/seg/:encoded` | Proxy an HLS segment |
-| **VOD & Downloads** ||
-| `GET` | `/api/vod/categories` | VOD/series categories (`?type=vod\|series`) |
-| `GET` | `/api/vod/items` | Browse/search items in a category |
-| `GET` | `/api/vod/seasons/:movieId` | Seasons for a series |
-| `GET` | `/api/vod/episodes/:showId/:seasonId` | Episodes for a season |
-| `GET` | `/api/vod/stream` | Resolve a VOD/episode stream URL |
-| `GET`/`PUT`/`DELETE` | `/api/vod/progress` `/:key` | Continue-watching progress |
-| `GET` | `/api/downloads` | Current download job list |
-| `GET` | `/api/downloads/events` | SSE stream of download job updates |
-| `POST` | `/api/downloads` | Enqueue VOD downloads (`{ items: [...] }`) |
-| `DELETE` | `/api/downloads/:id` | Cancel/remove a download job |
-| **Favorites** ||
-| `GET` | `/api/favorites` | Get favorites (channels + groups) |
-| `POST`/`DELETE` | `/api/favorites/channels` `/:id` | Add/remove a favorite channel |
-| `POST`/`PUT`/`DELETE` | `/api/favorites/groups` `/:id` | Create/rename/delete a favorite group |
-| `POST`/`DELETE` | `/api/favorites/groups/:id/channels` `/:chId` | Add/remove a channel in a group |
-| `PUT` | `/api/favorites/channels/order`, `/groups/order` | Persist drag-and-drop order |
-| **Logos** ||
-| `GET` | `/api/logos` | List logo overrides + iptv-org DB stats |
-| `GET` | `/api/logos/check` | Test how a channel name resolves to a logo |
-| `GET` | `/api/logos/render` | Render/proxy a logo image |
-| `GET` | `/api/logos/map` | Full channel-name → logo URL map |
-| `POST` | `/api/logos/refresh` | Refresh the iptv-org logo database |
-| `GET`/`POST`/`DELETE` | `/api/logos/strip` `/:word` | List/add/remove logo-matching strip words |
-| `POST`/`DELETE` | `/api/logos` `/:name` | Add/remove a manual logo override |
-| **Export / External clients** ||
-| `GET`/`POST` | `/api/export/stbemu` | Download an STBEmu backup JSON (`POST` to export an arbitrary profile) |
-| `GET` | `/api/m3u` | M3U playlist for external clients |
-| `GET` | `/api/xmltv` | XMLTV guide feed |
-| **Settings & Logs** ||
-| `GET` | `/api/settings` | Get app preferences |
-| `POST` | `/api/settings` | Save app preferences (EPG, Parental Lock, download dir, etc.) |
-| `GET` | `/api/logs` | One-shot JSON snapshot of the log buffer |
-| `GET` | `/api/logs/stream` | SSE live-tail of backend logs (see [Live Log Monitor](#live-log-monitor)) |
 
 ## License
 
