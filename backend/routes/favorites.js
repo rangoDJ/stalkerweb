@@ -20,9 +20,12 @@ const sessionMiddleware = require('../middleware/session');
 // favorited channel silently vanish from every favorites-aware view (heart
 // icons, the favorites filter) for the rest of the session, since the
 // frontend caches this response and never retries on its own.
+// The stub always carries `name` (even empty) — some clients (Android/Moshi)
+// deserialize Channel with a required, non-nullable `name` field and would
+// throw on a bare { uniqueId } object.
 function enrichChannels(ids, channelManager) {
-  if (!channelManager) return ids.map(id => ({ uniqueId: id }));
-  return ids.map(id => channelManager.getChannel(parseInt(id, 10)) ?? { uniqueId: id });
+  if (!channelManager) return ids.map(id => ({ uniqueId: id, name: '' }));
+  return ids.map(id => channelManager.getChannel(parseInt(id, 10)) ?? { uniqueId: id, name: '' });
 }
 
 module.exports = function favoritesModule(favoritesManager, appState) {

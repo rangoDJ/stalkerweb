@@ -98,7 +98,7 @@ module.exports = function streamRoutes(appState, config) {
     }
 
     res.json({
-      channelId:   uniqueId,
+      channelId:   rawId, // string — some clients (Android) type this as String, not a number
       channelName: channel.name,
       streamUrl:   `/proxy/stream/${rawId}`,
       streamType,
