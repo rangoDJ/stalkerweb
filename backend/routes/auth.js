@@ -60,6 +60,8 @@ module.exports = function authModule(appState, config) {
       serial_number,
       device_id,
       device_id2,
+      send_device_id,
+      send_device_id2,
       signature,
       portal_signature,
       connection_timeout,
@@ -111,6 +113,12 @@ module.exports = function authModule(appState, config) {
       serial_number: serial_number || '0000000000000',
       device_id: device_id || '',
       device_id2: device_id2 || '',
+      // STBEmu can carry a populated device_id/device_id2 that it never
+      // actually sends to the portal (send_device_id: false in the backup) —
+      // respect that so we don't send an ID the portal never associated with
+      // this account. Default true when unset (manual profiles, old configs).
+      send_device_id: send_device_id !== false,
+      send_device_id2: send_device_id2 !== false,
       signature: signature || '',
       portal_signature: resolvedPortalSig,
     });
@@ -149,6 +157,8 @@ module.exports = function authModule(appState, config) {
       serial_number: serial_number || '0000000000000',
       device_id: device_id || '',
       device_id2: device_id2 || '',
+      send_device_id: send_device_id !== false,
+      send_device_id2: send_device_id2 !== false,
       signature: signature || '',
       connection_timeout: connection_timeout || 10,
       token: resolvedToken,
@@ -242,6 +252,7 @@ module.exports = function authModule(appState, config) {
     const existing = cache.load() || {};
     const allowed = ['portal', 'mac', 'timezone', 'lang', 'login',
                      'serial_number', 'device_id', 'device_id2',
+                     'send_device_id', 'send_device_id2',
                      'signature', 'connection_timeout'];
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
@@ -262,7 +273,8 @@ module.exports = function authModule(appState, config) {
 
     // Return only the flat setup fields; exclude internal stalker_* keys.
     const { portal, mac, timezone, lang, login, serial_number,
-            device_id, device_id2, signature, portal_signature,
+            device_id, device_id2, send_device_id, send_device_id2,
+            signature, portal_signature,
             connection_timeout, token } = saved;
 
     // Collect all stalker_HASH token entries
@@ -272,7 +284,8 @@ module.exports = function authModule(appState, config) {
     }
 
     res.json({ portal, mac, timezone, lang, login, serial_number,
-               device_id, device_id2, signature, portal_signature,
+               device_id, device_id2, send_device_id, send_device_id2,
+               signature, portal_signature,
                connection_timeout, token, tokens });
   });
 

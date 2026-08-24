@@ -21,6 +21,12 @@ function createIdentity(overrides = {}) {
     serial_number: randomSerial(),
     device_id: '',
     device_id2: '',
+    // Whether device_id / device_id2 are actually sent to the portal, even
+    // when populated. STBEmu backups can have send_device_id: false while
+    // device_id itself stays populated — the portal never saw that value, so
+    // sending it now looks like a spoofed device and triggers a mismatch.
+    send_device_id: true,
+    send_device_id2: true,
     signature: '',        // user-configured device signature (sent on first auth)
     portal_signature: '', // signature returned by the portal (used after first auth)
     // Extra STBemu fingerprint fields (sent to mimic the MAG250 STB exactly).

@@ -71,6 +71,13 @@ function parseStbEmuProfileEntry(entry) {
     serial_number:   profile.serial_number || '',
     device_id:       profile.device_id || '',
     device_id2:      profile.device_id2 || '',
+    // STBEmu keeps device_id/device_id2 populated internally even when it
+    // never sends them (send_device_id / device_custom_dev_id2 false) — the
+    // portal never saw the value, so sending it now would look like a
+    // spoofed/mismatched device. Default true (send) when the field is
+    // absent, since older/other exporters may not include it.
+    send_device_id:  profile.send_device_id !== false,
+    send_device_id2: profile.device_custom_dev_id2 !== false,
     signature:       profile.device_signature || '',
     token,
     stb_model:       model,
@@ -179,7 +186,8 @@ function ProfileSheet({ initial, onSave, onClose }) {
   const [form, setForm]       = useState({ ...DEFAULT_FORM, ...initial })
   const [showAdv, setShowAdv] = useState(false)
 
-  const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+  const set     = k => e => setForm(f => ({ ...f, [k]: e.target.value }))
+  const setBool = k => v => setForm(f => ({ ...f, [k]: v }))
 
   function handleSubmit(e) {
     e.preventDefault()
@@ -260,11 +268,21 @@ function ProfileSheet({ initial, onSave, onClose }) {
                   <Input id="prof-to" type="number" min={3} max={60} value={form.connection_timeout} onChange={set('connection_timeout')} />
                 </Field>
               </div>
-              <Field label="Device ID" id="prof-did">
-                <Input id="prof-did" value={form.device_id || ''} onChange={set('device_id')} className="font-mono text-xs" />
+              <Field label="Device ID" id="prof-did"
+                hint={form.send_device_id === false ? 'Stored but not sent to the portal.' : undefined}>
+                <div className="flex items-center gap-2">
+                  <Input id="prof-did" value={form.device_id || ''} onChange={set('device_id')} className="font-mono text-xs flex-1" />
+                  <Switch checked={form.send_device_id !== false} onCheckedChange={setBool('send_device_id')}
+                    title={form.send_device_id !== false ? 'Sent to the portal' : 'Not sent to the portal'} />
+                </div>
               </Field>
-              <Field label="Device ID 2" id="prof-did2">
-                <Input id="prof-did2" value={form.device_id2 || ''} onChange={set('device_id2')} className="font-mono text-xs" />
+              <Field label="Device ID 2" id="prof-did2"
+                hint={form.send_device_id2 === false ? 'Stored but not sent to the portal.' : undefined}>
+                <div className="flex items-center gap-2">
+                  <Input id="prof-did2" value={form.device_id2 || ''} onChange={set('device_id2')} className="font-mono text-xs flex-1" />
+                  <Switch checked={form.send_device_id2 !== false} onCheckedChange={setBool('send_device_id2')}
+                    title={form.send_device_id2 !== false ? 'Sent to the portal' : 'Not sent to the portal'} />
+                </div>
               </Field>
               <Field label="Signature" id="prof-sig">
                 <Input id="prof-sig" value={form.signature || ''} onChange={set('signature')} className="font-mono text-xs" />

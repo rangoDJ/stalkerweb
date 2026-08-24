@@ -451,7 +451,11 @@ class StalkerClient {
   async stbGetProfile(authSecondStep = false) {
     const id = this.identity;
     const sn  = id.serial_number || '0000000000000';
-    const uid = id.device_id || id.device_id2 || '';
+    // uid mirrors whichever device_id STBemu would actually transmit — same
+    // send_device_id/send_device_id2 gating as the request params below, so
+    // an ID the portal never associated with this account doesn't leak in here.
+    const uid = (id.send_device_id  !== false && id.device_id)  ||
+                (id.send_device_id2 !== false && id.device_id2) || '';
 
     // metrics JSON — STBemu sends mac with RAW colons inside this blob (unlike
     // the URL-encoded mac cookie). uid mirrors device_id; random is a stable hash.
@@ -485,8 +489,8 @@ class StalkerClient {
       prehash:          this.getPrehash(),
     };
 
-    if (id.device_id)  params.device_id  = id.device_id;
-    if (id.device_id2) params.device_id2 = id.device_id2;
+    if (id.device_id  && id.send_device_id  !== false) params.device_id  = id.device_id;
+    if (id.device_id2 && id.send_device_id2 !== false) params.device_id2 = id.device_id2;
     if (id.signature)  params.signature  = id.signature;
 
     return this._stalkerCall(params);
@@ -502,8 +506,8 @@ class StalkerClient {
       login:    id.login || id.mac, // fallback: use MAC as login (common pattern)
       password: id.password || '',
     };
-    if (id.device_id)  params.device_id  = id.device_id;
-    if (id.device_id2) params.device_id2 = id.device_id2;
+    if (id.device_id  && id.send_device_id  !== false) params.device_id  = id.device_id;
+    if (id.device_id2 && id.send_device_id2 !== false) params.device_id2 = id.device_id2;
 
     return this._stalkerCall(params);
   }
