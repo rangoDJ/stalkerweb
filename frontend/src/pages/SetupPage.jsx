@@ -20,8 +20,9 @@ import { invalidateChannelCache } from '../lib/channelCache'
 import { invalidateFavoritesCache } from '../lib/useFavorites'
 import { useApp } from '@/lib/appContext'
 import {
-  loadProfiles, saveProfiles, uid, normalizePortal, DEFAULT_FORM,
-  setActiveProfileId, setProfileGenres, getActiveProfileId,
+  fetchProfiles, createProfile, updateProfile, deleteProfile,
+  normalizePortal, DEFAULT_FORM,
+  setActiveProfile, setProfileGenres, getActiveProfileId,
 } from '@/lib/profiles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -466,7 +467,7 @@ export default function SetupPage() {
           disabledGenres, setDisabledGenres, setLastPingAt, setIdleInfo } = useApp()
 
   // ── Profiles ────────────────────────────────────────────────────────────────
-  const [profiles, setProfiles]     = useState(loadProfiles)
+  const [profiles, setProfiles]     = useState([])
   const [sheet, setSheet]           = useState(null)   // null | {} (new) | { id,... } (edit)
   const [connecting, setConnecting] = useState(null)   // profile id being connected
   const [notice, setNotice]         = useState(null)
@@ -511,41 +512,42 @@ export default function SetupPage() {
 
   // ── Startup: load status + saved config + logos ───────────────────────────
   useEffect(() => {
-    Promise.all([
-      getConfig().catch(() => null),
-      getSettings().catch(() => null),
-      getLogos().catch(() => ({ overrides: {}, stats: null })),
-      getStatus().catch(() => ({})),
-      getLogoStripWords().catch(() => ({ stripWords: [] })),
-    ]).then(([cfg, s, logos, status, sw]) => {
+    (async () => {
+      const [cfg, s, logos, status, sw, { profiles: serverProfiles }] = await Promise.all([
+        getConfig().catch(() => null),
+        getSettings().catch(() => null),
+        getLogos().catch(() => ({ overrides: {}, stats: null })),
+        getStatus().catch(() => ({})),
+        getLogoStripWords().catch(() => ({ stripWords: [] })),
+        fetchProfiles().catch(() => ({ profiles: [], activeProfileId: null })),
+      ])
+      let profileList = serverProfiles
+
       if (sw?.stripWords) setStripWords(sw.stripWords)
       // Track which portal is currently connected
       if (status?.connected && status?.portal && status?.mac) {
         setConnectedPortal({ portal: status.portal, mac: status.mac })
       }
 
-      // Import backend-saved config as a profile if it doesn't exist yet.
-      // Seed the imported profile's genre filters from the backend's old
-      // global disabled_genres list (one-time migration to per-profile).
+      // Import backend-saved single-config (config.json) as a profile if it
+      // doesn't already exist — a leftover path from before multi-profile
+      // support existed, kept so a very old install's connection isn't lost.
       if (cfg?.portal && cfg?.mac) {
-        const existing = loadProfiles()
-        const match    = existing.find(p => p.portal === cfg.portal && p.mac === cfg.mac)
+        const match = profileList.find(p => p.portal === cfg.portal && p.mac === cfg.mac)
         if (!match) {
-          const imported = {
-            ...DEFAULT_FORM, ...cfg, id: uid(), name: '',
-            disabledGenres: Array.isArray(s?.disabled_genres) ? s.disabled_genres : [],
-          }
-          const updated  = [imported, ...existing]
-          saveProfiles(updated)
-          setProfiles(updated)
-          // If this imported profile is the one currently connected, mark active
-          if (status?.connected && status?.portal === cfg.portal && status?.mac === cfg.mac) {
-            setActiveProfileId(imported.id)
-          }
+          try {
+            const imported = await createProfile({ ...DEFAULT_FORM, ...cfg, name: '' })
+            profileList = [imported, ...profileList]
+            if (status?.connected && status?.portal === cfg.portal && status?.mac === cfg.mac) {
+              await setActiveProfile(imported.id)
+            }
+          } catch { /* best effort */ }
         } else if (status?.connected && status?.portal === cfg.portal && status?.mac === cfg.mac && !getActiveProfileId()) {
-          setActiveProfileId(match.id)
+          await setActiveProfile(match.id).catch(() => {})
         }
       }
+
+      setProfiles(profileList)
 
       if (s) {
         setEpg(s.epg_enabled !== false)
@@ -553,7 +555,8 @@ export default function SetupPage() {
       }
       if (logos) { setLogoOverrides(logos.overrides || {}); setLogoStats(logos.stats || null) }
       if (status?.device) setDeviceProfile(status.device)
-    }).finally(() => setInitLoading(false))
+      setInitLoading(false)
+    })()
   }, [])
 
   useEffect(() => {
@@ -584,26 +587,33 @@ export default function SetupPage() {
   }, [logoSearchOpen])
 
   // ── Profile CRUD ─────────────────────────────────────────────────────────
-  function handleSaveProfile(form) {
+  async function handleSaveProfile(form) {
     const isNew = !form.id
-    const prof  = isNew ? { ...form, id: uid() } : form
-
-    setProfiles(prev => {
-      const updated = isNew
-        ? [prof, ...prev]
-        : prev.map(p => p.id === prof.id ? prof : p)
-      saveProfiles(updated)
-      return updated
-    })
-    setSheet(null)
-    setNotice({ type: 'success', msg: isNew ? 'Profile added.' : 'Profile updated.' })
-    setTimeout(() => setNotice(null), 2500)
+    try {
+      if (isNew) {
+        const created = await createProfile(form)
+        setProfiles(prev => [created, ...prev])
+      } else {
+        await updateProfile(form.id, form)
+        setProfiles(prev => prev.map(p => p.id === form.id ? form : p))
+      }
+      setSheet(null)
+      setNotice({ type: 'success', msg: isNew ? 'Profile added.' : 'Profile updated.' })
+      setTimeout(() => setNotice(null), 2500)
+    } catch (err) {
+      setNotice({ type: 'error', msg: err.message })
+    }
   }
 
   async function handleDeleteProfile(id) {
     const target = profiles.find(p => p.id === id)
-    setProfiles(prev => { const u = prev.filter(p => p.id !== id); saveProfiles(u); return u })
-    if (getActiveProfileId() === id) setActiveProfileId(null)
+    try {
+      await deleteProfile(id)
+      setProfiles(prev => prev.filter(p => p.id !== id))
+    } catch (err) {
+      setNotice({ type: 'error', msg: err.message })
+      return
+    }
 
     // If the backend still has this portal/mac saved as its current config,
     // clear it too — otherwise the startup "import saved config" effect will
@@ -634,7 +644,7 @@ export default function SetupPage() {
 
       // Mark this profile active and load ITS genre filters into the app
       // context so ChannelsPage / PlayerPage filter by the right list.
-      setActiveProfileId(profile.id)
+      await setActiveProfile(profile.id).catch(() => {})
       setDisabledGenres(new Set(
         Array.isArray(profile.disabledGenres) ? profile.disabledGenres : []
       ))
@@ -653,7 +663,7 @@ export default function SetupPage() {
       await disconnect()
       setConnected(false)
       setConnectedPortal(null)
-      setActiveProfileId(null)
+      await setActiveProfile(null).catch(() => {})
       setLastPingAt(null)
       setIdleInfo(null)
       setNotice({ type: 'success', msg: 'Disconnected.' })
@@ -760,15 +770,16 @@ export default function SetupPage() {
       setTimeout(() => setDownloadDirNotice(null), 2500)
     }
   }
-  // Genre filters are stored per-profile in localStorage. Persist to the
-  // active profile and update the app context; the channel cache is
-  // invalidated so the channel/player pages re-filter on next visit.
+  // Genre filters are stored per-profile on the backend. Update the app
+  // context and local profile list immediately (optimistic), persist to the
+  // server in the background, and invalidate the channel cache so the
+  // channel/player pages re-filter on next visit.
   function persistGenres(set) {
     setDisabledGenres(set)
     const activeId = getActiveProfileId()
     if (activeId) {
-      const updated = setProfileGenres(activeId, [...set])
-      setProfiles(updated)
+      setProfiles(prev => prev.map(p => p.id === activeId ? { ...p, disabledGenres: [...set] } : p))
+      setProfileGenres(activeId, [...set]).catch(() => {})
     }
     invalidateChannelCache()
   }
@@ -806,19 +817,21 @@ export default function SetupPage() {
     finally { setStbEmuExporting(false) }
   }
 
-  function addImportedProfiles(parsedProfiles) {
-    const added = parsedProfiles.map(p => ({ ...DEFAULT_FORM, ...p, id: uid() }))
-    setProfiles(prev => {
-      const updated = [...added, ...prev]
-      saveProfiles(updated)
-      return updated
-    })
-    setStbEmuNotice({
-      type: 'success',
-      msg: added.length === 1
-        ? `Imported "${added[0].name || added[0].portal}" as a new profile.`
-        : `Imported ${added.length} profiles.`,
-    })
+  async function addImportedProfiles(parsedProfiles) {
+    try {
+      const added = await Promise.all(
+        parsedProfiles.map(p => createProfile({ ...DEFAULT_FORM, ...p }))
+      )
+      setProfiles(prev => [...added, ...prev])
+      setStbEmuNotice({
+        type: 'success',
+        msg: added.length === 1
+          ? `Imported "${added[0].name || added[0].portal}" as a new profile.`
+          : `Imported ${added.length} profiles.`,
+      })
+    } catch (err) {
+      setStbEmuNotice({ type: 'error', msg: err.message || 'Failed to import profile(s).' })
+    }
   }
 
   async function handleStbEmuImportFile(e) {

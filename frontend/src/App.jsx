@@ -6,7 +6,7 @@ import { cn } from '@/lib/utils'
 import { AppContext } from '@/lib/appContext'
 import { getStatus, getSettings } from './stalkerApi'
 import { syncVodProgressFromBackend } from '@/lib/vodProgress'
-import { getActiveProfileId, getProfileGenres, migrateGlobalGenresToActiveProfile } from '@/lib/profiles'
+import { fetchProfiles, getActiveProfileId, getProfileGenres } from '@/lib/profiles'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import { ToastHost } from '@/components/ToastHost'
 import { ReminderBell } from '@/components/ReminderBell'
@@ -172,15 +172,16 @@ function AppInner() {
   useEffect(() => {
     async function load() {
       try {
-        const [status, settings] = await Promise.all([getStatus(), getSettings()])
+        // Profiles must be fetched (and any leftover localStorage profiles
+        // migrated in) before anything reads getActiveProfileId() — including
+        // syncVodProgressFromBackend()'s per-profile localStorage scoping below.
+        const [status, settings] = await Promise.all([getStatus(), getSettings(), fetchProfiles().catch(() => {})])
         setConnected(status.connected)
         syncVodProgressFromBackend().catch(() => {})
         setEpgEnabled(settings.epg_enabled !== false)
         setShowAdult(!!settings.show_adult)
-        // Genre filters are strictly per-profile (localStorage). Migrate the
-        // legacy global list onto the active profile once, then read only from
-        // the active profile — an empty list means "no filters", not "inherit".
-        migrateGlobalGenresToActiveProfile(settings.disabled_genres)
+        // Genre filters are strictly per-profile — an empty list means "no
+        // filters", not "inherit".
         const activeId = getActiveProfileId()
         setDisabledGenres(new Set(activeId ? getProfileGenres(activeId) : []))
         if (status.watchdog?.lastPingAt) setLastPingAt(status.watchdog.lastPingAt)

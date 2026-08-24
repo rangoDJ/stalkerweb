@@ -64,6 +64,15 @@ export const saveConfig = (body) => _put('/auth/config', body)
 export const getSettings = () => _get('/settings')
 export const saveSettings = (body) => _post('/settings', body)
 
+// ── Profiles ──────────────────────────────────────────────────────────────
+// Server-side portal connection profiles — same list on every browser/device
+// talking to this container (see lib/profiles.js).
+export const getProfilesRemote      = ()          => _get('/profiles')
+export const createProfileRemote    = (profile)   => _post('/profiles', profile)
+export const updateProfileRemote    = (id, patch) => _put(`/profiles/${id}`, patch)
+export const deleteProfileRemote    = (id)        => _delete(`/profiles/${id}`)
+export const setActiveProfileRemote = (id)        => _put('/profiles/active', { id })
+
 // ── Channels & Groups ─────────────────────────────────────────────────────
 export const getChannels = (group = null, refresh = false) => {
   const params = new URLSearchParams()
