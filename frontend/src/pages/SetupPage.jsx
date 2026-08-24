@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle,
-  Trash2, RefreshCw, Image, Download, Plus, Pencil, Plug, PlugZap,
+  Trash2, RefreshCw, Image, Download, Upload, Plus, Pencil, Plug, PlugZap,
   X, Wifi, WifiOff, Copy, Check, ExternalLink, ListVideo, CalendarDays,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,60 @@ const STB_FIRMWARES = ['0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic']
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
   return r.ok ? r.json() : null
+}
+
+// ── STBEmu backup import ──────────────────────────────────────────────────────
+// Reverse of routes/export.js's field mapping — turns one profile entry from
+// an STBEmu backup JSON back into a profile shaped like DEFAULT_FORM.
+
+// mag-250 → MAG250, custom → CUSTOM
+function stbSlugToModel(slug) {
+  if (!slug) return 'MAG250'
+  const s = String(slug).toLowerCase()
+  if (s === 'custom') return 'CUSTOM'
+  const m = s.match(/^mag-(\d+)$/)
+  return m ? `MAG${m[1]}` : 'CUSTOM'
+}
+
+function parseStbEmuProfileEntry(entry) {
+  const profile = entry?.profile
+  if (!profile || !profile.portal_url || !profile.mac_address) return null
+
+  const model        = STB_MODELS.includes(stbSlugToModel(profile.stb_model)) ? stbSlugToModel(profile.stb_model) : 'CUSTOM'
+  const firmwareDesc = profile.firmware_image_description
+  const firmware     = STB_FIRMWARES.includes(firmwareDesc) ? firmwareDesc : '0.2.18-r14-pub-250'
+
+  let token = ''
+  const tokenEntry = (entry.data || []).find(d => d.tag === 'user' && /^stalker_/.test(d.name || ''))
+  if (tokenEntry) {
+    try { token = JSON.parse(tokenEntry.value)?.token || '' } catch { /* not JSON — ignore */ }
+  }
+
+  return {
+    name:            profile.name || '',
+    portal:          normalizePortal(profile.portal_url),
+    mac:             profile.mac_address,
+    timezone:        profile.timezone || 'Europe/London',
+    lang:            profile.language || 'en',
+    serial_number:   profile.serial_number || '',
+    device_id:       profile.device_id || '',
+    device_id2:      profile.device_id2 || '',
+    signature:       profile.device_signature || '',
+    token,
+    stb_model:       model,
+    firmware,
+    custom_firmware: model === 'CUSTOM' ? (profile.firmware || '') : '',
+  }
+}
+
+// Returns the list of importable profiles found in a parsed backup JSON, or
+// throws if the file doesn't look like an STBEmu backup at all.
+function parseStbEmuBackup(json) {
+  const entries = Array.isArray(json?.profiles) ? json.profiles : []
+  if (!entries.length) throw new Error('Not a valid STBEmu backup file — no profiles found')
+  const parsed = entries.map(parseStbEmuProfileEntry).filter(Boolean)
+  if (!parsed.length) throw new Error('No importable profiles found — missing portal URL or MAC address')
+  return parsed
 }
 
 // ── Shared UI primitives ─────────────────────────────────────────────────────
@@ -251,6 +305,60 @@ function ProfileSheet({ initial, onSave, onClose }) {
   )
 }
 
+// ── STBEmu import picker (backup files with multiple profiles) ─────────────────
+
+function StbImportPicker({ candidates, onImport, onClose }) {
+  const [selected, setSelected] = useState(() => new Set(candidates.map((_, i) => i)))
+
+  function toggle(i) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(i) ? next.delete(i) : next.add(i)
+      return next
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="glass-strong relative z-10 w-full sm:max-w-lg max-h-[92vh] flex flex-col rounded-t-2xl sm:rounded-2xl overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)] shrink-0">
+          <h3 className="font-semibold text-[var(--color-text)]">Select Profiles to Import</h3>
+          <button onClick={onClose} className="text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors p-1 rounded">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4 flex flex-col gap-2">
+          <p className="text-xs text-[var(--color-muted)] mb-1">
+            This backup file contains {candidates.length} profiles. Choose which ones to import as new profiles.
+          </p>
+          {candidates.map((p, i) => (
+            <label key={i} className={cn(
+              'flex items-start gap-3 rounded-[var(--radius-sm)] border px-3 py-2.5 cursor-pointer transition-colors',
+              selected.has(i) ? 'border-[var(--color-primary)]/50 bg-[var(--color-primary)]/5' : 'border-[var(--color-border)]'
+            )}>
+              <input type="checkbox" checked={selected.has(i)} onChange={() => toggle(i)} className="mt-0.5 shrink-0" />
+              <div className="flex flex-col gap-0.5 min-w-0">
+                <span className="text-sm font-medium text-[var(--color-text)] truncate">{p.name || p.portal}</span>
+                <span className="text-xs text-[var(--color-muted)] truncate">{p.portal}</span>
+                <span className="text-xs font-mono text-[var(--color-muted)]">{p.mac} · {p.stb_model}</span>
+              </div>
+            </label>
+          ))}
+        </div>
+
+        <div className="flex gap-3 px-5 py-3 border-t border-[var(--color-border)] shrink-0">
+          <Button type="button" onClick={() => onImport(candidates.filter((_, i) => selected.has(i)))} disabled={selected.size === 0} className="flex-1">
+            Import {selected.size > 0 ? `${selected.size} ` : ''}Profile{selected.size === 1 ? '' : 's'}
+          </Button>
+          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Profile card ──────────────────────────────────────────────────────────────
 
 function ProfileCard({ profile, isConnected, onConnect, onEdit, onDelete, connecting }) {
@@ -367,6 +475,11 @@ export default function SetupPage() {
   const [exportProfileId, setExportProfileId] = useState('')
   const [stbEmuExporting, setStbEmuExporting] = useState(false)
   const [stbEmuNotice, setStbEmuNotice]   = useState(null)
+
+  // STBEmu import — file with one profile imports immediately; a file with
+  // several opens a picker so the user chooses which ones to bring in.
+  const stbImportInputRef = useRef(null)
+  const [stbImportCandidates, setStbImportCandidates] = useState(null) // null | [{...profile}]
 
   // ── Startup: load status + saved config + logos ───────────────────────────
   useEffect(() => {
@@ -653,6 +766,37 @@ export default function SetupPage() {
     finally { setStbEmuExporting(false) }
   }
 
+  function addImportedProfiles(parsedProfiles) {
+    const added = parsedProfiles.map(p => ({ ...DEFAULT_FORM, ...p, id: uid() }))
+    setProfiles(prev => {
+      const updated = [...added, ...prev]
+      saveProfiles(updated)
+      return updated
+    })
+    setStbEmuNotice({
+      type: 'success',
+      msg: added.length === 1
+        ? `Imported "${added[0].name || added[0].portal}" as a new profile.`
+        : `Imported ${added.length} profiles.`,
+    })
+  }
+
+  async function handleStbEmuImportFile(e) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file
+    if (!file) return
+    setStbEmuNotice(null)
+    try {
+      const text = await file.text()
+      const json = JSON.parse(text)
+      const candidates = parseStbEmuBackup(json)
+      if (candidates.length === 1) addImportedProfiles(candidates)
+      else setStbImportCandidates(candidates)
+    } catch (err) {
+      setStbEmuNotice({ type: 'error', msg: err.message || 'Failed to import backup file.' })
+    }
+  }
+
   if (initLoading) {
     return (
       <div className="flex h-48 items-center justify-center">
@@ -821,8 +965,8 @@ export default function SetupPage() {
           )}
         </Card>
 
-        {/* ── STBEmu Export ────────────────────────────────────────────────── */}
-        <Card title="STBEmu Export" description="Generate an STBEmu-compatible backup file you can restore directly in the app. Pick which profile to export — the STB model, firmware, and profile name come from that profile.">
+        {/* ── STBEmu Export / Import ──────────────────────────────────────── */}
+        <Card title="STBEmu Backup" description="Export a profile as an STBEmu-compatible backup, or import a backup file (from STBEmu or from this app) as new profiles.">
           <div className="flex flex-col gap-4">
             {stbEmuNotice && (
               <div className={cn('flex items-center gap-2 rounded-[var(--radius-sm)] px-3 py-2 text-xs',
@@ -834,22 +978,37 @@ export default function SetupPage() {
                 {stbEmuNotice.msg}
               </div>
             )}
-            <Field label="Profile to Export" id="stb-export-profile" hint="Select which profile to export. The name, STB model, firmware, and connection details come from the chosen profile.">
-              <select id="stb-export-profile" value={exportProfileId}
-                onChange={e => setExportProfileId(e.target.value)}
-                className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]">
-                <option value="">Current / Connected Config</option>
-                {profiles.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name || p.portal}{p.stb_model ? ` (${p.stb_model})` : ''}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="flex items-center gap-3 pt-1">
-              <Button type="button" onClick={handleStbEmuExport} disabled={stbEmuExporting} className="h-9 px-4 text-sm gap-2">
-                {stbEmuExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
-                Download Backup
+
+            <div>
+              <p className="text-sm font-medium text-[var(--color-text)]">Export</p>
+              <p className="text-xs text-[var(--color-muted)] mt-0.5 mb-3">Pick which profile to export — the STB model, firmware, and profile name come from that profile.</p>
+              <Field label="Profile to Export" id="stb-export-profile">
+                <select id="stb-export-profile" value={exportProfileId}
+                  onChange={e => setExportProfileId(e.target.value)}
+                  className="flex h-9 w-full rounded-[var(--radius-sm)] border border-[var(--color-border)] bg-[var(--color-surface-2)] px-3 text-sm text-[var(--color-text)] outline-none focus:border-[var(--color-primary-light)]">
+                  <option value="">Current / Connected Config</option>
+                  {profiles.map(p => (
+                    <option key={p.id} value={p.id}>
+                      {p.name || p.portal}{p.stb_model ? ` (${p.stb_model})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <div className="flex items-center gap-3 pt-3">
+                <Button type="button" onClick={handleStbEmuExport} disabled={stbEmuExporting} className="h-9 px-4 text-sm gap-2">
+                  {stbEmuExporting ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                  Download Backup
+                </Button>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-[var(--color-border)]">
+              <p className="text-sm font-medium text-[var(--color-text)]">Import</p>
+              <p className="text-xs text-[var(--color-muted)] mt-0.5 mb-3">Restore an STBEmu backup JSON file as one or more new profiles. If the file contains multiple profiles, you&apos;ll be asked which to import.</p>
+              <input ref={stbImportInputRef} type="file" accept="application/json,.json" className="hidden" onChange={handleStbEmuImportFile} />
+              <Button type="button" variant="outline" onClick={() => stbImportInputRef.current?.click()} className="h-9 px-4 text-sm gap-2">
+                <Upload size={14} />
+                Choose Backup File
               </Button>
             </div>
           </div>
@@ -1051,6 +1210,15 @@ export default function SetupPage() {
           initial={sheet}
           onSave={handleSaveProfile}
           onClose={() => setSheet(null)}
+        />
+      )}
+
+      {/* ── STBEmu import picker (multi-profile backup files) ────────────── */}
+      {stbImportCandidates !== null && (
+        <StbImportPicker
+          candidates={stbImportCandidates}
+          onImport={selected => { addImportedProfiles(selected); setStbImportCandidates(null) }}
+          onClose={() => setStbImportCandidates(null)}
         />
       )}
     </>
