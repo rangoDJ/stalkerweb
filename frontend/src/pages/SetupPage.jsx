@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ChevronDown, ChevronUp, Loader2, CheckCircle2, XCircle,
@@ -29,6 +29,15 @@ import {
 // STBEmu device options — kept in sync with backend routes/settings.js
 const STB_MODELS    = ['MAG200', 'MAG250', 'MAG254', 'MAG256', 'MAG270', 'MAG322', 'MAG352', 'CUSTOM']
 const STB_FIRMWARES = ['0.2.18-r14-pub-250', '0.2.18-r19-pub-250', 'Generic']
+
+// Portal genres are commonly named "LANGUAGE | CATEGORY" (e.g. "PUNJABI |
+// 24X7 MOVIES"). Group by the part before the pipe so a language with many
+// genres can be enabled/disabled in one click; genres without a "|" fall
+// into a shared "Other" bucket.
+function genreLanguage(name) {
+  const idx = String(name).indexOf('|')
+  return idx === -1 ? 'Other' : name.slice(0, idx).trim()
+}
 
 async function checkLogoName(name) {
   const r = await fetch(`/api/logos/check?name=${encodeURIComponent(name)}`)
@@ -487,6 +496,7 @@ export default function SetupPage() {
   const [stripApplying, setStripApplying] = useState(false)
   const [allGenres, setAllGenres]     = useState([])
   const [genresLoading, setGenresLoading] = useState(false)
+  const [collapsedGenreGroups, setCollapsedGenreGroups] = useState(() => new Set())
 
   // STBEmu export — the user picks ANY profile to export (connected or not).
   // Model/firmware/device come from the chosen profile.
@@ -773,6 +783,18 @@ export default function SetupPage() {
   function handleDisableAllGenres() {
     persistGenres(new Set(allGenres.map(g => g.name)))
   }
+  function handleToggleGenreGroup(names, enable) {
+    const next = new Set(disabledGenres)
+    names.forEach(n => enable ? next.delete(n) : next.add(n))
+    persistGenres(next)
+  }
+  function toggleGenreGroupCollapse(lang) {
+    setCollapsedGenreGroups(prev => {
+      const next = new Set(prev)
+      next.has(lang) ? next.delete(lang) : next.add(lang)
+      return next
+    })
+  }
   async function handleStbEmuExport() {
     setStbEmuExporting(true); setStbEmuNotice(null)
     try {
@@ -814,6 +836,22 @@ export default function SetupPage() {
       setStbEmuNotice({ type: 'error', msg: err.message || 'Failed to import backup file.' })
     }
   }
+
+  // Group genres by language ("LANGUAGE | CATEGORY" → "LANGUAGE"), sorted
+  // alphabetically with the ungrouped "Other" bucket last.
+  const genreGroups = useMemo(() => {
+    const map = new Map()
+    for (const g of allGenres) {
+      const lang = genreLanguage(g.name)
+      if (!map.has(lang)) map.set(lang, [])
+      map.get(lang).push(g)
+    }
+    return [...map.entries()].sort(([a], [b]) => {
+      if (a === 'Other') return 1
+      if (b === 'Other') return -1
+      return a.localeCompare(b)
+    })
+  }, [allGenres])
 
   if (initLoading) {
     return (
@@ -948,7 +986,7 @@ export default function SetupPage() {
         </Card>
 
         {/* ── Genre Filters ────────────────────────────────────────────────── */}
-        <Card title="Genre Filters" description="Choose which genres appear in your channel browser. These filters are saved per-profile — each portal connection keeps its own list.">
+        <Card title="Genre Filters" description="Choose which genres appear in your channel browser, grouped by language. These filters are saved per-profile — each portal connection keeps its own list.">
           {!connected ? (
             <p className="text-sm text-[var(--color-muted)]">Connect to a portal to manage genre filters.</p>
           ) : genresLoading ? (
@@ -964,18 +1002,49 @@ export default function SetupPage() {
                 <button type="button" onClick={handleDisableAllGenres} className="px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors">Disable all</button>
                 <span className="text-xs text-[var(--color-muted)] ml-1">{allGenres.length - disabledGenres.size} of {allGenres.length} enabled</span>
               </div>
-              <div className="flex flex-wrap gap-2">
-                {allGenres.map(g => {
-                  const disabled = disabledGenres.has(g.name)
+
+              <div className="flex flex-col gap-1 -mt-1">
+                {genreGroups.map(([lang, genres]) => {
+                  const names        = genres.map(g => g.name)
+                  const enabledCount = names.filter(n => !disabledGenres.has(n)).length
+                  const collapsed    = collapsedGenreGroups.has(lang)
                   return (
-                    <button key={g.id} type="button" onClick={() => handleToggleGenre(g.name)}
-                      className={cn('px-3 py-1.5 rounded-full text-xs font-semibold transition-all border',
-                        disabled
-                          ? 'bg-[var(--color-surface-2)] text-[var(--color-muted)] border-[var(--color-border)] opacity-50 line-through'
-                          : 'bg-[var(--color-primary)]/15 text-[var(--color-primary-light)] border-[var(--color-primary)]/30 hover:bg-[var(--color-primary)]/25'
-                      )}>
-                      {g.name}
-                    </button>
+                    <div key={lang} className="border-b border-[var(--color-border)] last:border-b-0 py-2.5">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => toggleGenreGroupCollapse(lang)}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-[var(--color-text)] hover:text-[var(--color-primary-light)] transition-colors min-w-0"
+                        >
+                          {collapsed ? <ChevronDown size={13} className="shrink-0" /> : <ChevronUp size={13} className="shrink-0" />}
+                          <span className="truncate">{lang}</span>
+                        </button>
+                        <span className="text-[10px] text-[var(--color-muted)] shrink-0">{enabledCount}/{names.length}</span>
+                        <div className="flex-1" />
+                        <button type="button" onClick={() => handleToggleGenreGroup(names, true)}
+                          className="text-[10px] font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors shrink-0">All</button>
+                        <span className="text-[10px] text-[var(--color-border)]">/</span>
+                        <button type="button" onClick={() => handleToggleGenreGroup(names, false)}
+                          className="text-[10px] font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors shrink-0">None</button>
+                      </div>
+                      {!collapsed && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {genres.map(g => {
+                            const disabled = disabledGenres.has(g.name)
+                            return (
+                              <button key={g.id} type="button" onClick={() => handleToggleGenre(g.name)}
+                                className={cn('px-3 py-1.5 rounded-full text-xs font-semibold transition-all border',
+                                  disabled
+                                    ? 'bg-[var(--color-surface-2)] text-[var(--color-muted)] border-[var(--color-border)] opacity-50 line-through'
+                                    : 'bg-[var(--color-primary)]/15 text-[var(--color-primary-light)] border-[var(--color-primary)]/30 hover:bg-[var(--color-primary)]/25'
+                                )}>
+                                {g.name}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   )
                 })}
               </div>
