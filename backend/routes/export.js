@@ -230,7 +230,7 @@ module.exports = function exportModule(config) {
       }],
     };
 
-    const filename = `stbemu_backup-${nowTimestamp()}.json`;
+    const filename = `stbemu.backup-${nowTimestamp()}.json`;
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('Content-Type', 'application/json');
     res.send(JSON.stringify(backup, null, 2));
