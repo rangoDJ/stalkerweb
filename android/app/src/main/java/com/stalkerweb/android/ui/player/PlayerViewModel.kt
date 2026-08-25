@@ -202,15 +202,18 @@ class PlayerViewModel(
         }
     }
 
+    // Cycle over the full channel list, not `displayedChannels` — that's
+    // pre-filtered to a single genre for the portrait genre-tab UI, so the
+    // active channel is often just not in it, silently no-opping up/down.
     fun previousChannel(): Boolean {
-        val channels = _state.value.displayedChannels
+        val channels = _state.value.channels
         val idx = channels.indexOfFirst { it.uniqueId == _state.value.activeChannelId }
         if (idx > 0) { selectChannel(channels[idx - 1].uniqueId); return true }
         return false
     }
 
     fun nextChannel(): Boolean {
-        val channels = _state.value.displayedChannels
+        val channels = _state.value.channels
         val idx = channels.indexOfFirst { it.uniqueId == _state.value.activeChannelId }
         if (idx >= 0 && idx < channels.size - 1) { selectChannel(channels[idx + 1].uniqueId); return true }
         return false

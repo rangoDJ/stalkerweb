@@ -269,7 +269,7 @@ module.exports = function authModule(appState, config) {
   // Returns saved portal config so the WebUI can pre-fill the Setup form.
   router.get('/config', (req, res) => {
     const saved = cache.load();
-    if (!saved) return res.json(null);
+    if (!saved) return res.json({});
 
     // Return only the flat setup fields; exclude internal stalker_* keys.
     const { portal, mac, timezone, lang, login, serial_number,

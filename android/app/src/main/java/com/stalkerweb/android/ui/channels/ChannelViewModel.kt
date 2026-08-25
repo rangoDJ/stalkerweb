@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 enum class ChannelTab { ALL, FAVORITES }
 
@@ -27,6 +28,10 @@ data class ChannelUiState(
     val tab: ChannelTab              = ChannelTab.ALL,
     val loading: Boolean             = true,
     val error: String?               = null,
+    // Backend returned 503 "not connected to a portal" — distinct from a
+    // network/server error so the UI can point the user at the Portal
+    // screen instead of just offering a dead-end "Retry".
+    val portalNotConnected: Boolean  = false,
 ) {
     val displayed: List<Channel>
         get() {
@@ -79,9 +84,10 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
         val cachedLogos = repository.getCachedLogoMap()
         val haveData    = cached.isNotEmpty() || _state.value.channels.isNotEmpty()
         _state.value = _state.value.copy(
-            loading        = !haveData,
-            error          = null,
-            recentChannels = repository.getWatched(),
+            loading            = !haveData,
+            error              = null,
+            portalNotConnected = false,
+            recentChannels     = repository.getWatched(),
             channels       = if (_state.value.channels.isEmpty()) cached else _state.value.channels,
             logoMap        = if (_state.value.logoMap.isEmpty()) cachedLogos else _state.value.logoMap,
         )
@@ -97,18 +103,23 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
             }.onSuccess { (triple, groups) ->
                 val (channels, logos, favs) = triple
                 _state.value = _state.value.copy(
-                    channels    = channels,
-                    logoMap     = logos,
-                    favoriteIds = favs,
-                    groups      = groups,
-                    loading     = false,
+                    channels           = channels,
+                    logoMap            = logos,
+                    favoriteIds        = favs,
+                    groups             = groups,
+                    loading            = false,
+                    portalNotConnected = false,
                 )
             }.onFailure { e ->
+                // Backend returns 503 when no portal is connected — point the user
+                // at the Portal screen instead of a dead-end "Retry" error.
+                val notConnected = e is HttpException && e.code() == 503
                 // Keep showing cached channels if we have them; only surface a hard
                 // error when there's nothing to display.
                 _state.value = _state.value.copy(
-                    loading = false,
-                    error   = if (_state.value.channels.isEmpty()) e.message else null,
+                    loading            = false,
+                    portalNotConnected = notConnected && _state.value.channels.isEmpty(),
+                    error              = if (!notConnected && _state.value.channels.isEmpty()) e.message else null,
                 )
             }
         }

@@ -55,6 +55,13 @@ interface StalkerApi {
     @GET("api/auth/config")
     suspend fun getPortalConfig(): PortalConfigResponse
 
+    // ── Portal profiles ────────────────────────────────────────────────────────
+    @GET("api/profiles")
+    suspend fun getProfiles(): ProfilesResponse
+
+    @PUT("api/profiles/active")
+    suspend fun setActiveProfile(@Body body: SetActiveProfileRequest)
+
     // ── VOD ───────────────────────────────────────────────────────────────────
     @GET("api/vod/categories")
     suspend fun getVodCategories(@Query("type") type: String): VodCategoriesResponse

@@ -31,6 +31,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.stalkerweb.android.data.prefs.AppPrefs
@@ -83,6 +84,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        // PIP is a phone/tablet convenience — never enter it on TV.
+        if (BuildConfig.IS_TV) return
         if (shouldEnterPipOnLeave && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val params = PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9))
@@ -109,8 +112,14 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             StalkerTheme {
-                Box(Modifier.fillMaxSize().background(appBackgroundBrush()).padding(if (isTV) 48.dp else 0.dp)) {
                 val navController = rememberNavController()
+                // Overscan padding keeps UI chrome clear of a TV's edge cutoff, but
+                // it must not inset the video itself — the player already draws its
+                // own edge-safe controls, so shrinking the video by 48dp on every
+                // side just makes playback look letterboxed/non-fullscreen.
+                val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
+                val overscanPadding = if (isTV && currentRoute != Screen.Player.route) 48.dp else 0.dp
+                Box(Modifier.fillMaxSize().background(appBackgroundBrush()).padding(overscanPadding)) {
                 val startDest     = if (repository.getServerUrl() != null) Screen.Channels.route
                                     else Screen.Setup.route
 
@@ -166,6 +175,19 @@ class MainActivity : ComponentActivity() {
                 var vodEnabled by remember { mutableStateOf(false) }
                 LaunchedEffect(Unit) {
                     runCatching { repository.isVodEnabled() }.onSuccess { vodEnabled = it }
+                }
+
+                // A saved server URL doesn't mean the portal itself is connected —
+                // it may have never been set up, or dropped since. Check once on
+                // launch and send the user straight to the Portal screen instead of
+                // dumping them on a dead Channels list full of 503 errors.
+                LaunchedEffect(Unit) {
+                    if (repository.getServerUrl() != null) {
+                        val status = runCatching { repository.testConnection() }.getOrNull()
+                        if (status?.connected != true) {
+                            navController.navigate(Screen.Portal.route)
+                        }
+                    }
                 }
 
                 // Collect install events from the ViewModel and handle them here

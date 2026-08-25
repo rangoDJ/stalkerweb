@@ -155,6 +155,31 @@ fun ChannelScreen(
                 state.loading -> {
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
                 }
+                state.portalNotConnected -> {
+                    Column(
+                        Modifier.align(Alignment.Center).padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Icon(
+                            Icons.Default.Router, null,
+                            Modifier.size(40.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            "No portal connected",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            "Connect a portal to load channels.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Button(onClick = onOpenPortal) { Text("Connect Portal") }
+                    }
+                }
                 state.error != null -> {
                     Column(
                         Modifier.align(Alignment.Center),

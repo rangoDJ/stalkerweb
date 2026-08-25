@@ -1,6 +1,7 @@
 package com.stalkerweb.android.ui.vod
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -9,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -18,6 +20,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
@@ -26,6 +31,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil.compose.AsyncImage
 import com.stalkerweb.android.data.api.VodItem
 import com.stalkerweb.android.data.api.VodSeason
+import com.stalkerweb.android.ui.utils.rememberIsTV
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -36,8 +42,18 @@ fun VodScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val isTV = rememberIsTV()
+    val firstCategoryFocusRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) { if (state.categories.isEmpty()) viewModel.loadCategories() }
+
+    // On TV, push initial focus into the category list so the remote is
+    // immediately useful — Compose gives nothing focus by default.
+    LaunchedEffect(state.loadingCategories, isTV) {
+        if (isTV && !state.loadingCategories && state.categories.isNotEmpty()) {
+            try { firstCategoryFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -88,8 +104,9 @@ fun VodScreen(
                     }
                 } else {
                     LazyColumn {
-                        items(state.categories, key = { it.id }) { cat ->
+                        itemsIndexed(state.categories, key = { _, c -> c.id }) { index, cat ->
                             val sel = cat.id == state.selectedCategory?.id
+                            var focused by remember { mutableStateOf(false) }
                             Text(
                                 text     = cat.title,
                                 style    = MaterialTheme.typography.bodySmall,
@@ -98,7 +115,22 @@ fun VodScreen(
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .background(if (sel) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else Color.Transparent)
+                                    .then(
+                                        if (index == 0) Modifier.focusRequester(firstCategoryFocusRequester)
+                                        else Modifier
+                                    )
+                                    .onFocusChanged { focused = it.isFocused }
+                                    .border(
+                                        width = if (focused) 2.dp else 0.dp,
+                                        color = if (focused) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    )
+                                    .background(
+                                        when {
+                                            sel     -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                            focused -> MaterialTheme.colorScheme.primary.copy(alpha = 0.06f)
+                                            else    -> Color.Transparent
+                                        }
+                                    )
                                     .clickable { viewModel.selectCategory(cat) }
                                     .padding(horizontal = 10.dp, vertical = 10.dp),
                             )
