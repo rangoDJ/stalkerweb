@@ -343,9 +343,13 @@ private fun ChannelRow(
     var focused by remember { mutableStateOf(false) }
     val primary = MaterialTheme.colorScheme.primary
 
-    val vertPad  = if (isTV) 14.dp else 10.dp
-    val logoSize = if (isTV) 46.dp else 38.dp
-    val numWidth = if (isTV) 36.dp else 28.dp
+    // TV doesn't need bigger touch targets (there's no touch) — legibility at
+    // a distance comes from the larger text style below, not from bloating
+    // row height/logo size, which just wastes vertical space and shows fewer
+    // channels per screen.
+    val vertPad  = 10.dp
+    val logoSize = if (isTV) 40.dp else 38.dp
+    val numWidth = if (isTV) 30.dp else 28.dp
 
     val modifier = Modifier
         .fillMaxWidth()

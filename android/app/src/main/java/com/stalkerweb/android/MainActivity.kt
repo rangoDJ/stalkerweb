@@ -118,7 +118,10 @@ class MainActivity : ComponentActivity() {
                 // own edge-safe controls, so shrinking the video by 48dp on every
                 // side just makes playback look letterboxed/non-fullscreen.
                 val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
-                val overscanPadding = if (isTV && currentRoute != Screen.Player.route) 48.dp else 0.dp
+                // 48dp was well past what TVs actually need for overscan safety
+                // (~5% of screen edge, ~24-27dp) and ate a visible chunk of every
+                // screen for no reason.
+                val overscanPadding = if (isTV && currentRoute != Screen.Player.route) 24.dp else 0.dp
                 Box(Modifier.fillMaxSize().background(appBackgroundBrush()).padding(overscanPadding)) {
                 val startDest     = if (repository.getServerUrl() != null) Screen.Channels.route
                                     else Screen.Setup.route

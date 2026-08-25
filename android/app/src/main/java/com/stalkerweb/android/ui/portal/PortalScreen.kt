@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.stalkerweb.android.data.api.Profile
+import com.stalkerweb.android.ui.utils.rememberIsTV
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -31,6 +32,7 @@ fun PortalScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
+    val isTV  = rememberIsTV()
     // Compose gives no element initial D-pad focus on its own — without this,
     // landing here via a TV remote (no touchscreen) leaves the screen looking
     // unresponsive since nothing is focused yet.
@@ -64,7 +66,7 @@ fun PortalScreen(
                             .fillMaxWidth()
                             .verticalScroll(rememberScrollState())
                             .padding(24.dp)
-                            .widthIn(max = 480.dp)
+                            .widthIn(max = if (isTV) 640.dp else 480.dp)
                             .align(Alignment.TopCenter),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp),
