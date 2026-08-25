@@ -7,6 +7,9 @@ import com.stalkerweb.android.data.api.NowNextEntry
 import com.stalkerweb.android.data.api.PortalActionResponse
 import com.stalkerweb.android.data.api.PortalConfigResponse
 import com.stalkerweb.android.data.api.PortalConnectRequest
+import com.stalkerweb.android.data.api.Profile
+import com.stalkerweb.android.data.api.ProfilesResponse
+import com.stalkerweb.android.data.api.SetActiveProfileRequest
 import com.stalkerweb.android.data.api.StalkerApi
 import com.stalkerweb.android.data.api.StatusResponse
 import com.stalkerweb.android.data.api.VodCategory
@@ -117,8 +120,39 @@ class ChannelRepository(private val prefs: AppPrefs) {
     suspend fun getPortalConfig(): PortalConfigResponse? =
         runCatching { requireApi().getPortalConfig() }.getOrNull()
 
-    suspend fun getChannels(): List<Channel> =
-        requireApi().getChannels().channels.also { prefs.cacheChannels(it) }
+    // ── Portal profiles ─────────────────────────────────────────────────────────
+
+    suspend fun getProfiles(): ProfilesResponse =
+        runCatching { requireApi().getProfiles() }.getOrDefault(ProfilesResponse())
+
+    suspend fun setActiveProfile(id: String?) =
+        runCatching { requireApi().setActiveProfile(SetActiveProfileRequest(id)) }
+
+    /** Connects using a saved profile and marks it active — mirrors the web
+     *  Setup page's "connect from a saved profile" flow. */
+    suspend fun connectProfile(profile: Profile): PortalActionResponse {
+        val resp = connectPortal(profile.portal, profile.mac, profile.timezone, profile.lang)
+        if (resp.success) setActiveProfile(profile.id)
+        return resp
+    }
+
+    /** Disabled-genre names for the currently active profile — channels/groups
+     *  in this set are hidden, same as the web UI's per-profile genre filter
+     *  (backend never filters these; every client applies it independently). */
+    private suspend fun getDisabledGenres(): Set<String> =
+        runCatching {
+            val resp = requireApi().getProfiles()
+            resp.profiles.find { it.id == resp.activeProfileId }?.disabledGenres?.toSet() ?: emptySet()
+        }.getOrDefault(emptySet())
+
+    suspend fun getChannels(): List<Channel> {
+        val channels = requireApi().getChannels().channels
+        val disabled = getDisabledGenres()
+        val filtered = if (disabled.isEmpty()) channels
+                       else channels.filter { it.genre == null || it.genre !in disabled }
+        prefs.cacheChannels(filtered)
+        return filtered
+    }
 
     /** Last-known channel list from disk — lets the UI render instantly on cold
      *  start while the network refresh runs in the background. */
@@ -128,7 +162,11 @@ class ChannelRepository(private val prefs: AppPrefs) {
     fun getCachedLogoMap(): Map<String, String> = prefs.getCachedLogoMap()
 
     suspend fun getGroups(): List<Group> =
-        runCatching { requireApi().getGroups().groups }.getOrDefault(emptyList())
+        runCatching {
+            val groups   = requireApi().getGroups().groups
+            val disabled = getDisabledGenres()
+            if (disabled.isEmpty()) groups else groups.filter { it.name !in disabled }
+        }.getOrDefault(emptyList())
 
     // The backend returns relative logo URLs (e.g. "/api/logos/render?url=…"),
     // which work for the same-origin web UI but not for Coil in the app — it

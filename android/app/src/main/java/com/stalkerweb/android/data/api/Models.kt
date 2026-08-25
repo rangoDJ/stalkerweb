@@ -186,3 +186,28 @@ data class PortalConfigResponse(
     val timezone: String? = null,
     val lang: String? = null,
 )
+
+// ── Portal profiles ────────────────────────────────────────────────────────
+// Saved portal connections, shared across every client via the backend
+// (see backend/profiles/ProfilesManager.js) — picking one here does the same
+// thing the web UI's Setup page does: connect + mark it the active profile.
+
+@JsonClass(generateAdapter = false)
+data class Profile(
+    val id: String,
+    val name: String = "",
+    val portal: String = "",
+    val mac: String = "",
+    val timezone: String = "Europe/London",
+    val lang: String = "en",
+    val disabledGenres: List<String> = emptyList(),
+)
+
+@JsonClass(generateAdapter = false)
+data class ProfilesResponse(
+    val profiles: List<Profile> = emptyList(),
+    val activeProfileId: String? = null,
+)
+
+@JsonClass(generateAdapter = false)
+data class SetActiveProfileRequest(val id: String?)

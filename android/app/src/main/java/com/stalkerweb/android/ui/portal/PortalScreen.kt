@@ -14,11 +14,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.stalkerweb.android.data.api.Profile
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -28,6 +31,10 @@ fun PortalScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
+    // Compose gives no element initial D-pad focus on its own — without this,
+    // landing here via a TV remote (no touchscreen) leaves the screen looking
+    // unresponsive since nothing is focused yet.
+    val firstFocusRequester = remember { FocusRequester() }
 
     Scaffold(
         topBar = {
@@ -49,6 +56,9 @@ fun PortalScreen(
             when {
                 state.loading -> CircularProgressIndicator(Modifier.align(Alignment.Center))
                 else -> {
+                    LaunchedEffect(Unit) {
+                        try { firstFocusRequester.requestFocus() } catch (_: Exception) {}
+                    }
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -99,6 +109,32 @@ fun PortalScreen(
                             }
                         }
 
+                        // Saved profiles — one-tap connect, same list the web UI shows.
+                        if (!state.connected && state.profiles.isNotEmpty()) {
+                            Text(
+                                "Available portals",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            state.profiles.forEachIndexed { index, profile ->
+                                ProfileRow(
+                                    profile        = profile,
+                                    connecting     = state.connectingProfileId == profile.id,
+                                    enabled        = !state.busy,
+                                    onClick        = { viewModel.connectProfile(profile) },
+                                    focusRequester = if (index == 0) firstFocusRequester else null,
+                                )
+                            }
+                            HorizontalDivider(Modifier.padding(vertical = 4.dp))
+                            Text(
+                                "Or connect manually",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+
                         // Portal URL field
                         OutlinedTextField(
                             value = state.portalUrl,
@@ -113,7 +149,12 @@ fun PortalScreen(
                                 imeAction = ImeAction.Next,
                             ),
                             keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (state.profiles.isEmpty()) Modifier.focusRequester(firstFocusRequester)
+                                    else Modifier
+                                ),
                         )
 
                         // MAC address field
@@ -195,6 +236,42 @@ fun PortalScreen(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProfileRow(
+    profile: Profile,
+    connecting: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+) {
+    OutlinedButton(
+        onClick  = onClick,
+        enabled  = enabled,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(52.dp)
+            .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier),
+    ) {
+        if (connecting) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Spacer(Modifier.width(8.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(
+                profile.name.ifBlank { profile.portal },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (profile.name.isNotBlank()) {
+                Text(
+                    profile.portal,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
         }
     }

@@ -2,6 +2,7 @@ package com.stalkerweb.android.ui.portal
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.stalkerweb.android.data.api.Profile
 import com.stalkerweb.android.data.repository.ChannelRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,6 +19,10 @@ data class PortalUiState(
     val busy: Boolean = false,
     val error: String? = null,
     val hasSavedConfig: Boolean = false,
+    // Saved portal profiles from the server (shared with the web UI) — offered
+    // as one-tap connect options instead of making the user retype portal/MAC.
+    val profiles: List<Profile> = emptyList(),
+    val connectingProfileId: String? = null,
 )
 
 class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
@@ -30,8 +35,9 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
     fun refresh() {
         _state.value = _state.value.copy(loading = true, error = null)
         viewModelScope.launch {
-            val status = runCatching { repository.testConnection() }.getOrNull()
-            val config = repository.getPortalConfig()
+            val status   = runCatching { repository.testConnection() }.getOrNull()
+            val config   = repository.getPortalConfig()
+            val profiles = repository.getProfiles().profiles
             val connected = status?.connected == true
             _state.value = _state.value.copy(
                 loading         = false,
@@ -41,7 +47,29 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
                 timezone        = config?.timezone ?: "Europe/London",
                 lang            = config?.lang     ?: "en",
                 hasSavedConfig  = !config?.portal.isNullOrBlank() && !config?.mac.isNullOrBlank(),
+                profiles        = profiles,
             )
+        }
+    }
+
+    /** Connect using a saved profile — one tap, no retyping portal/MAC. */
+    fun connectProfile(profile: Profile) {
+        _state.value = _state.value.copy(busy = true, error = null, connectingProfileId = profile.id)
+        viewModelScope.launch {
+            runCatching { repository.connectProfile(profile) }
+                .onSuccess { resp ->
+                    if (resp.success) refresh()
+                    else _state.value = _state.value.copy(
+                        busy = false, connectingProfileId = null,
+                        error = resp.error ?: "Connect failed",
+                    )
+                }
+                .onFailure { e ->
+                    _state.value = _state.value.copy(
+                        busy = false, connectingProfileId = null,
+                        error = e.message ?: "Connect failed",
+                    )
+                }
         }
     }
 
