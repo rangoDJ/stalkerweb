@@ -18,6 +18,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.stalkerweb.android.data.repository.ChannelRepository
+import com.stalkerweb.android.ui.utils.rememberIsTV
 import kotlinx.coroutines.launch
 import java.net.URI
 
@@ -49,6 +50,7 @@ fun SetupScreen(
     val scope   = rememberCoroutineScope()
     val focus   = LocalFocusManager.current
     val hostFocusRequester = remember { FocusRequester() }
+    val isTV    = rememberIsTV()
 
     // Auto-focus the host field on load — essential on TV where there's no tap to focus
     LaunchedEffect(Unit) {
@@ -105,7 +107,9 @@ fun SetupScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier
                 .padding(32.dp)
-                .widthIn(max = 400.dp),
+                // A phone-width form centered in a TV screen leaves huge empty
+                // gutters either side — give it more room to breathe there.
+                .widthIn(max = if (isTV) 560.dp else 400.dp),
         ) {
             Icon(
                 Icons.Default.Tv,
