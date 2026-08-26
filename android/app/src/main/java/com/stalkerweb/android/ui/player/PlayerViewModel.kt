@@ -20,6 +20,7 @@ import com.stalkerweb.android.data.repository.ChannelRepository
 import com.stalkerweb.android.service.PlaybackService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -115,10 +116,15 @@ class PlayerViewModel(
 
         viewModelScope.launch {
             runCatching {
-                val channels = async { repository.getChannels() }
-                val logos    = async { repository.getLogoMap() }
-                val favs     = async { repository.getFavoriteIds() }
-                Triple(channels.await(), logos.await(), favs.await())
+                // coroutineScope keeps an `async` failure (e.g. a 503 when no
+                // portal is connected) inside runCatching's reach — without it the
+                // failure propagates to the parent job and crashes the app.
+                coroutineScope {
+                    val channels = async { repository.getChannels() }
+                    val logos    = async { repository.getLogoMap() }
+                    val favs     = async { repository.getFavoriteIds() }
+                    Triple(channels.await(), logos.await(), favs.await())
+                }
             }.onSuccess { (channels, logos, favs) ->
                 val firstGenre = channels.mapNotNull { it.genre }
                     .filter { it.isNotBlank() }.distinct().sorted().firstOrNull()

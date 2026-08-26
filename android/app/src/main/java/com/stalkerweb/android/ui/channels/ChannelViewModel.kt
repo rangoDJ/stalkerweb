@@ -8,6 +8,7 @@ import com.stalkerweb.android.data.api.NowNextEntry
 import com.stalkerweb.android.data.prefs.WatchedChannel
 import com.stalkerweb.android.data.repository.ChannelRepository
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -93,13 +94,22 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
         )
         viewModelScope.launch {
             runCatching {
-                val channels = async { repository.getChannels() }
-                val logos    = async { repository.getLogoMap() }
-                val favs     = async { repository.getFavoriteIds() }
-                val groups   = async { repository.getGroups() }
-                val data = Triple(channels.await(), logos.await(), favs.await())
-                val grps = groups.await()
-                data to grps
+                // coroutineScope is load-bearing: a failing `async` propagates to
+                // its parent job immediately, so catching only at `await()` still
+                // cancels this launch and hands the exception to viewModelScope's
+                // (default, crashing) handler. Inside coroutineScope the failure is
+                // rethrown here instead, where runCatching can actually catch it —
+                // which is what turns a portal-not-connected 503 into the empty
+                // state below rather than a crash on launch.
+                coroutineScope {
+                    val channels = async { repository.getChannels() }
+                    val logos    = async { repository.getLogoMap() }
+                    val favs     = async { repository.getFavoriteIds() }
+                    val groups   = async { repository.getGroups() }
+                    val data = Triple(channels.await(), logos.await(), favs.await())
+                    val grps = groups.await()
+                    data to grps
+                }
             }.onSuccess { (triple, groups) ->
                 val (channels, logos, favs) = triple
                 _state.value = _state.value.copy(
