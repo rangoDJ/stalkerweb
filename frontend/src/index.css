@@ -1,46 +1,46 @@
 @import "tailwindcss";
 
 @theme {
-  /* ── Base / surfaces (warm-tinted dark, layered for depth) ── */
-  --color-bg:        #0a0807;
-  --color-surface:   #16120e;
-  --color-surface-2: #221c16;
-  --color-surface-3: #2f2820;
-  --color-border:    #342c23;
+  /* ── Base / surfaces (Midnight Cinema — near-black, cool-neutral) ── */
+  --color-bg:        #141417;
+  --color-surface:   #1c1c20;
+  --color-surface-2: #232328;
+  --color-surface-3: #28282e;
+  --color-border:    #28282e;
 
-  --color-text:      #faf7f2;
-  --color-muted:     #a89f92;
+  --color-text:      #e8e8ec;
+  --color-muted:     #9696a0;
 
-  /* ── Accent (warm amber → orange gradient pair) ── */
-  --color-primary:        #f59e0b;
-  --color-primary-hover:  #d97706;
-  --color-primary-light:  #fbbf24;
-  --color-primary-glow:   rgba(245, 158, 11, 0.45);
-  --color-accent:         #f97316;
-  --color-accent-light:   #fb923c;
+  /* ── Accent (monochrome white — content, not chrome, is the star) ── */
+  --color-primary:        #e8e8ec;
+  --color-primary-hover:  #c8c8ce;
+  --color-primary-light:  #ffffff;
+  --color-primary-glow:   rgba(232, 232, 236, 0.35);
+  --color-accent:         #e8e8ec;
+  --color-accent-light:   #ffffff;
 
-  --color-live:    #f43f5e;
-  --color-success: #34d399;
+  --color-live:    #ef4444;
+  --color-success: #5bc39d;
 
   --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
 
   /* ── Glass ── */
-  --glass-bg:        rgba(255, 248, 240, 0.045);
-  --glass-bg-strong: rgba(255, 248, 240, 0.07);
-  --glass-blur:      blur(20px) saturate(150%);
-  --glass-border:    rgba(255, 255, 255, 0.08);
-  --glass-highlight: rgba(255, 255, 255, 0.10);
+  --glass-bg:        rgba(232, 232, 236, 0.04);
+  --glass-bg-strong: rgba(232, 232, 236, 0.07);
+  --glass-blur:      blur(20px) saturate(120%);
+  --glass-border:    rgba(232, 232, 236, 0.08);
+  --glass-highlight: rgba(255, 255, 255, 0.06);
 
   /* ── Elevation ── */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.45);
   --shadow-md: 0 8px 28px -8px rgba(0, 0, 0, 0.6);
   --shadow-lg: 0 20px 56px -14px rgba(0, 0, 0, 0.7);
-  --shadow-glow: 0 0 0 1px rgba(245, 158, 11, 0.18), 0 10px 40px -12px rgba(245, 158, 11, 0.35);
+  --shadow-glow: 0 0 0 1px rgba(232, 232, 236, 0.14), 0 10px 40px -12px rgba(0, 0, 0, 0.55);
 
   /* ── Type ── */
-  --font-display: 'Space Grotesk', 'Inter', system-ui, sans-serif;
+  --font-display: 'Outfit', system-ui, sans-serif;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -50,17 +50,18 @@ html, body, #root {
   margin: 0;
   padding: 0;
   color: var(--color-text);
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: 'Outfit', system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 html { background: var(--color-bg); }
 #root { background: transparent; }
 
-/* Cinematic warm backdrop — amber/orange glows over warm-black. Painted on a
+/* Cinematic near-black backdrop with a faint cool-white ambient wash — content
+   artwork, not chrome color, is meant to carry visual interest. Painted on a
    fixed pseudo-element (rather than `background-attachment: fixed`, which forces
    an expensive repaint under backdrop-filter blur) so frosted-glass surfaces
-   have something rich to refract without tanking scroll/compositing perf. */
+   have something subtle to refract without tanking scroll/compositing perf. */
 body { background: var(--color-bg); }
 body::before {
   content: '';
@@ -69,13 +70,13 @@ body::before {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(1000px 560px at 80% -10%, rgba(245, 158, 11, 0.18), transparent 60%),
-    radial-gradient(820px 520px at 6% 2%, rgba(249, 115, 22, 0.12), transparent 55%),
-    radial-gradient(700px 700px at 50% 120%, rgba(217, 119, 6, 0.10), transparent 60%);
+    radial-gradient(1000px 560px at 80% -10%, rgba(232, 232, 236, 0.06), transparent 60%),
+    radial-gradient(820px 520px at 6% 2%, rgba(232, 232, 236, 0.04), transparent 55%),
+    radial-gradient(700px 700px at 50% 120%, rgba(232, 232, 236, 0.03), transparent 60%);
 }
 
 /* ── Display type ── */
-.font-display { font-family: var(--font-display); letter-spacing: -0.02em; }
+.font-display { font-family: var(--font-display); letter-spacing: -0.01em; }
 
 /* ── Frosted glass surface ── */
 .glass {
@@ -96,7 +97,7 @@ body::before {
 /* ── Elevated glass-look cards (translucent frost + top highlight + hover glow) ──
    Deliberately NO backdrop-filter here: these are used by every list tile, and
    per-tile blur layers (hundreds at once) wreck compositing perf. The
-   translucent warm fill + inner highlight evoke frosted glass cheaply; real blur
+   translucent fill + inner highlight evoke frosted glass cheaply; real blur
    is reserved for the few large chrome surfaces via .glass / .glass-strong. */
 .surface-card {
   background: var(--glass-bg-strong);
@@ -105,26 +106,28 @@ body::before {
   transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease, background-color 0.22s ease;
 }
 .surface-card:hover {
-  background: rgba(255, 248, 240, 0.10);
-  border-color: rgba(245, 158, 11, 0.30);
+  background: rgba(232, 232, 236, 0.09);
+  border-color: rgba(232, 232, 236, 0.22);
   box-shadow: var(--shadow-glow), inset 0 1px 0 var(--glass-highlight);
   transform: translateY(-3px);
 }
 
-/* ── Gradient accent surfaces ── */
+/* ── Solid accent surfaces (monochrome — no gradient) ── */
 .btn-gradient {
-  background-image: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-  box-shadow: 0 6px 20px -6px var(--color-primary-glow), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  background: var(--color-primary);
+  color: var(--color-bg);
+  box-shadow: 0 6px 20px -6px var(--color-primary-glow), inset 0 1px 0 rgba(255, 255, 255, 0.3);
 }
 .badge-live {
-  background-image: linear-gradient(135deg, #f43f5e, #f97316);
-  box-shadow: 0 0 16px -2px rgba(244, 63, 94, 0.6);
+  background: var(--color-live);
+  box-shadow: 0 0 16px -2px rgba(239, 68, 68, 0.55);
 }
 
-/* Soft amber text/edge glow helpers */
+/* Soft edge glow / gradient-text helpers (kept monochrome to match the
+   cinematic, content-first look — no hue on chrome). */
 .glow-accent { box-shadow: var(--shadow-glow); }
 .text-gradient {
-  background-image: linear-gradient(120deg, var(--color-primary-light), var(--color-accent-light));
+  background-image: linear-gradient(120deg, var(--color-primary-light), var(--color-muted));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -137,7 +140,7 @@ body::before {
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.06), transparent);
   animation: shimmer 1.6s infinite;
 }
 @keyframes shimmer { 100% { transform: translateX(100%); } }
@@ -149,7 +152,7 @@ body::before {
   to   { opacity: 1; transform: none; }
 }
 
-::selection { background: var(--color-primary); color: #1a1206; }
+::selection { background: var(--color-primary); color: var(--color-bg); }
 
 :focus-visible { outline: 2px solid var(--color-primary-light); outline-offset: 2px; }
 
@@ -160,6 +163,22 @@ body::before {
 
 /* Hide browser-native datalist picker indicator */
 input[list]::-webkit-calendar-picker-indicator { display: none !important; }
+
+/* ── App sidebar (mobile drawer + desktop rail) ──
+   Plain `transform` here, deliberately not Tailwind's translate-x utilities:
+   the shared --tw-translate-x custom property fought with the lg: breakpoint
+   override when toggled at runtime, leaving the drawer stuck off-canvas. */
+.app-sidebar {
+  transform: translateX(-100%);
+}
+.app-sidebar[data-open="true"] {
+  transform: translateX(0);
+}
+@media (min-width: 1024px) {
+  .app-sidebar {
+    transform: translateX(0) !important;
+  }
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
