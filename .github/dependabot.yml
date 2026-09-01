@@ -16,6 +16,13 @@ updates:
     groups:
       frontend-deps:
         patterns: ["*"]
+    # eslint-plugin-react (7.37.5, latest as of writing) caps its eslint peer
+    # dependency at ^9.7, so an eslint 10 bump makes `npm ci` fail with
+    # ERESOLVE. Drop this once eslint-plugin-react ships a 10.x-compatible
+    # release.
+    ignore:
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
     labels: ["dependencies"]
 
   - package-ecosystem: "gradle"

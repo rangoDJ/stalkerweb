@@ -235,6 +235,7 @@ module.exports = function authModule(appState, config) {
     const watchdog = appState.sessionManager?._watchdog;
     res.json({
       connected,
+      version: process.env.APP_VERSION || 'dev',
       portal: saved?.portal || null,
       mac: saved?.mac || null,
       profile: connected ? appState.sessionManager.getProfile() : null,

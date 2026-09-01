@@ -120,7 +120,7 @@ function LogoMark({ collapsed }) {
 }
 
 // ── Sidebar ───────────────────────────────────────────────────────────────
-function Sidebar({ connected, epgEnabled, lastPingAt, idleInfo, collapsed, onToggle, mobileOpen, onCloseMobile }) {
+function Sidebar({ connected, epgEnabled, lastPingAt, idleInfo, version, collapsed, onToggle, mobileOpen, onCloseMobile }) {
   const { reminders, removeReminder } = useReminders()
 
   const navItems = connected && (
@@ -185,6 +185,12 @@ function Sidebar({ connected, epgEnabled, lastPingAt, idleInfo, collapsed, onTog
             {!collapsed && (connected ? 'Connected' : 'Disconnected')}
           </span>
 
+          {version && !collapsed && (
+            <span className="text-[10px] text-[var(--color-muted)] opacity-50">
+              {/^v?\d/.test(version) ? (version.startsWith('v') ? version : `v${version}`) : version}
+            </span>
+          )}
+
           <NavItem to="/settings" icon={Settings} label="Profiles" collapsed={collapsed} onNavigate={onCloseMobile} />
         </div>
       </aside>
@@ -205,6 +211,7 @@ function AppInner() {
   const [disabledGenres, setDisabledGenres] = useState(new Set())
   const [lastPingAt, setLastPingAt] = useState(null)
   const [idleInfo, setIdleInfo] = useState(null) // { lastActivityAt, idleTimeoutMs }
+  const [version, setVersion] = useState(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem('sw:sidebarCollapsed') === '1')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
 
@@ -234,6 +241,7 @@ function AppInner() {
         // syncVodProgressFromBackend()'s per-profile localStorage scoping below.
         const [status, settings] = await Promise.all([getStatus(), getSettings(), fetchProfiles().catch(() => {})])
         setConnected(status.connected)
+        if (status.version) setVersion(status.version)
         syncVodProgressFromBackend().catch(() => {})
         setEpgEnabled(settings.epg_enabled !== false)
         setShowAdult(!!settings.show_adult)
@@ -289,6 +297,7 @@ function AppInner() {
           epgEnabled={epgEnabled}
           lastPingAt={lastPingAt}
           idleInfo={idleInfo}
+          version={version}
           collapsed={sidebarCollapsed}
           onToggle={toggleSidebar}
           mobileOpen={mobileNavOpen}
