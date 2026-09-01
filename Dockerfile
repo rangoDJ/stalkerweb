@@ -32,9 +32,14 @@ RUN mkdir -p /app/data/cache
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://localhost:8983/api/health').then(r=>{process.exit(r.ok?0:1)}).catch(()=>process.exit(1))"
 
+# Set at build time via `--build-arg APP_VERSION=v1.2.3` (release.yml does this
+# from the pushed git tag); defaults to "dev" for local/manual builds.
+ARG APP_VERSION=dev
+
 ENV NODE_ENV=production \
     PORT=8983 \
-    DATA_DIR=/app/data
+    DATA_DIR=/app/data \
+    APP_VERSION=$APP_VERSION
 
 EXPOSE 8983
 
