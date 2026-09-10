@@ -22,11 +22,6 @@ class GuideManager {
     this._queue = null;         // serializes concurrent loadGuide() calls
   }
 
-  setCacheOptions(useCache, hours) {
-    this._useCache = useCache;
-    this._cacheHours = hours || 4;
-  }
-
   // ── Load EPG ───────────────────────────────────────────────────────────────
   // Mirrors GuideManager::LoadGuide()
   //

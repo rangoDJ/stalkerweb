@@ -62,10 +62,6 @@ class CastManager(context: Context) {
         if (session.isConnected) loadMediaOnSession(session, url, title)
     }
 
-    fun stopCasting() {
-        castContext?.sessionManager?.endCurrentSession(true)
-    }
-
     fun release() {
         castContext?.sessionManager?.removeSessionManagerListener(sessionListener, CastSession::class.java)
     }

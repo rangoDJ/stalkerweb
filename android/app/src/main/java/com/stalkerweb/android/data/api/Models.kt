@@ -85,7 +85,6 @@ data class NowNextEntry(
 data class SettingsResponse(
     @param:Json(name = "epg_enabled") val epgEnabled: Boolean = true,
     @param:Json(name = "vod_enabled") val vodEnabled: Boolean = true,
-    @param:Json(name = "show_adult")  val showAdult: Boolean = false,
 )
 
 // ── VOD ───────────────────────────────────────────────────────────────────────

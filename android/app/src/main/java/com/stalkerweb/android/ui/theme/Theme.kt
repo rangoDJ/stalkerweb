@@ -1,19 +1,13 @@
 package com.stalkerweb.android.ui.theme
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.unit.dp
 
 // ── Palette — mirrors the web app's warm amber/orange glass design tokens ──
 private val Amber       = Color(0xFFF59E0B)  // --color-primary
@@ -58,9 +52,8 @@ private val DarkColors = darkColorScheme(
 
 /**
  * Warm "cinematic" app backdrop — amber/orange glows fading into warm-black,
- * matching the web app's fixed radial-gradient backdrop. Apply behind screen
- * content (e.g. as a full-screen Box background) so translucent glass surfaces
- * have something rich to sit on.
+ * matching the web app's fixed radial-gradient backdrop. Applied behind screen
+ * content as a full-screen Box background (see MainActivity).
  */
 fun appBackgroundBrush(): Brush = Brush.linearGradient(
     colors = listOf(
@@ -71,17 +64,6 @@ fun appBackgroundBrush(): Brush = Brush.linearGradient(
     start = Offset(0f, 0f),
     end = Offset(0f, Float.POSITIVE_INFINITY),
 )
-
-/**
- * Frosted-glass-look surface, mirroring the web `.surface-card`: a translucent
- * warm fill, hairline highlight border, and rounded corners. No real backdrop
- * blur (expensive/unsupported broadly on Android) — the translucency over the
- * warm backdrop reads as glass while staying cheap to draw.
- */
-fun Modifier.glassSurface(cornerRadius: Int = 18): Modifier = this
-    .clip(RoundedCornerShape(cornerRadius.dp))
-    .background(Color(0x12FFF8F0))                       // ~7% warm-white fill
-    .border(1.dp, Color(0x1FFFFFFF), RoundedCornerShape(cornerRadius.dp))
 
 @Composable
 fun StalkerTheme(content: @Composable () -> Unit) {

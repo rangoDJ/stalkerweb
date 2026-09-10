@@ -93,10 +93,6 @@ class FavoritesManager {
 
   getFavoriteChannelIds() { return this._load().channels; }
 
-  isChannelFavorite(uniqueId) {
-    return this._load().channels.includes(String(uniqueId));
-  }
-
   addChannel(uniqueId) {
     const d = this._load();
     const id = String(uniqueId);

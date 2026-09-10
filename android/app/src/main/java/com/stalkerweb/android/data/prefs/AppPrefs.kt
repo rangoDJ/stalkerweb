@@ -19,8 +19,6 @@ class AppPrefs(context: Context) {
         get() = prefs.getString(KEY_SERVER_URL, null)
         set(value) = prefs.edit().putString(KEY_SERVER_URL, value).apply()
 
-    fun clear() = prefs.edit().clear().apply()
-
     // ── Watch history ─────────────────────────────────────────────────────────
 
     fun pushWatchedChannel(uniqueId: String, name: String, logoUrl: String?) {
