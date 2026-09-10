@@ -34,10 +34,12 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.stalkerweb.android.crash.CrashReporter
 import com.stalkerweb.android.data.prefs.AppPrefs
 import com.stalkerweb.android.data.repository.ChannelRepository
 import com.stalkerweb.android.data.update.UpdateManager
 import com.stalkerweb.android.ui.channels.ChannelViewModel
+import com.stalkerweb.android.ui.crash.CrashReportDialog
 import com.stalkerweb.android.ui.player.PlayerViewModel
 import com.stalkerweb.android.ui.setup.SetupScreen
 import com.stalkerweb.android.ui.channels.ChannelScreen
@@ -203,6 +205,19 @@ class MainActivity : ComponentActivity() {
 
                 LaunchedEffect(Unit) { updateViewModel.check() }
                 UpdateDialog(updateViewModel)
+
+                // Surface a stack trace recorded by the previous run. Read once
+                // on first composition so dismissing it doesn't bring it back.
+                var crashReport by remember { mutableStateOf(CrashReporter.pendingReport(this@MainActivity)) }
+                crashReport?.let { report ->
+                    CrashReportDialog(
+                        report    = report,
+                        onDismiss = {
+                            CrashReporter.clear(this@MainActivity)
+                            crashReport = null
+                        },
+                    )
+                }
 
                 NavHost(navController = navController, startDestination = startDest) {
 

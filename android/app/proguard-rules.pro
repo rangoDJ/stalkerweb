@@ -38,3 +38,10 @@
 -keepclassmembers class com.stalkerweb.android.** {
     <fields>;
 }
+
+# Crash reports (see crash/CrashReporter.kt) are read off the device screen, not
+# de-obfuscated against a mapping file, so a release trace has to be readable as
+# captured: keep line numbers, real source file names, and our own class/method
+# names. -keepnames still allows shrinking — only renaming is disabled.
+-keepattributes SourceFile,LineNumberTable
+-keepnames class com.stalkerweb.android.** { *; }
