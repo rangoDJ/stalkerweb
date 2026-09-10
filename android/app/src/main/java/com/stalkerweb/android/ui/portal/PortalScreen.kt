@@ -2,8 +2,6 @@ package com.stalkerweb.android.ui.portal
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -13,12 +11,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.stalkerweb.android.data.api.Profile
@@ -31,7 +25,6 @@ fun PortalScreen(
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val focus = LocalFocusManager.current
     val isTV  = rememberIsTV()
     // Compose gives no element initial D-pad focus on its own — without this,
     // landing here via a TV remote (no touchscreen) leaves the screen looking
@@ -111,73 +104,35 @@ fun PortalScreen(
                             }
                         }
 
-                        // Saved profiles — one-tap connect, same list the web UI shows.
-                        if (!state.connected && state.profiles.isNotEmpty()) {
-                            Text(
-                                "Available portals",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            state.profiles.forEachIndexed { index, profile ->
-                                ProfileRow(
-                                    profile        = profile,
-                                    connecting     = state.connectingProfileId == profile.id,
-                                    enabled        = !state.busy,
-                                    onClick        = { viewModel.connectProfile(profile) },
-                                    focusRequester = if (index == 0) firstFocusRequester else null,
+                        // Saved profiles — one-tap connect, same list the web
+                        // UI shows. Portal setup itself is a web-UI job, so
+                        // there's deliberately no manual portal/MAC entry here.
+                        if (!state.connected) {
+                            if (state.profiles.isNotEmpty()) {
+                                Text(
+                                    "Available portals",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                state.profiles.forEachIndexed { index, profile ->
+                                    ProfileRow(
+                                        profile        = profile,
+                                        connecting     = state.connectingProfileId == profile.id,
+                                        enabled        = !state.busy,
+                                        onClick        = { viewModel.connectProfile(profile) },
+                                        focusRequester = if (index == 0) firstFocusRequester else null,
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    "No saved portals. Add one from the stalkerweb web UI.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    modifier = Modifier.fillMaxWidth(),
                                 )
                             }
-                            HorizontalDivider(Modifier.padding(vertical = 4.dp))
-                            Text(
-                                "Or connect manually",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                                modifier = Modifier.fillMaxWidth(),
-                            )
                         }
-
-                        // Portal URL field
-                        OutlinedTextField(
-                            value = state.portalUrl,
-                            onValueChange = viewModel::setPortalUrl,
-                            label = { Text("Portal URL") },
-                            placeholder = { Text("http://portal.example.com") },
-                            singleLine = true,
-                            enabled = !state.busy,
-                            isError = state.error != null,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Uri,
-                                imeAction = ImeAction.Next,
-                            ),
-                            keyboardActions = KeyboardActions(onNext = { focus.moveFocus(FocusDirection.Down) }),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .then(
-                                    if (state.profiles.isEmpty()) Modifier.focusRequester(firstFocusRequester)
-                                    else Modifier
-                                ),
-                        )
-
-                        // MAC address field
-                        OutlinedTextField(
-                            value = state.mac,
-                            onValueChange = viewModel::setMac,
-                            label = { Text("MAC address") },
-                            placeholder = { Text("00:1A:79:XX:XX:XX") },
-                            singleLine = true,
-                            enabled = !state.busy,
-                            isError = state.error != null,
-                            keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Ascii,
-                                imeAction = ImeAction.Go,
-                            ),
-                            keyboardActions = KeyboardActions(onGo = {
-                                focus.clearFocus()
-                                if (!state.connected) viewModel.connect()
-                            }),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
 
                         // Error message
                         if (state.error != null) {
@@ -189,12 +144,16 @@ fun PortalScreen(
                             )
                         }
 
-                        // Action buttons
+                        // Action buttons. Both act on config the backend already
+                        // holds — nothing here composes a connection by hand.
                         if (state.connected) {
                             OutlinedButton(
                                 onClick = viewModel::disconnect,
                                 enabled = !state.busy,
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .focusRequester(firstFocusRequester),
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     contentColor = MaterialTheme.colorScheme.error,
                                 ),
@@ -209,31 +168,25 @@ fun PortalScreen(
                                 }
                                 Text("Disconnect")
                             }
-                        } else {
-                            Button(
-                                onClick = viewModel::connect,
+                        } else if (state.hasSavedConfig) {
+                            OutlinedButton(
+                                onClick = viewModel::reconnect,
                                 enabled = !state.busy,
-                                modifier = Modifier.fillMaxWidth().height(48.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .then(
+                                        // Only claim initial focus when no profile
+                                        // row above already took it.
+                                        if (state.profiles.isEmpty()) Modifier.focusRequester(firstFocusRequester)
+                                        else Modifier
+                                    ),
                             ) {
                                 if (state.busy) {
-                                    CircularProgressIndicator(
-                                        Modifier.size(18.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                    )
+                                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
                                     Spacer(Modifier.width(8.dp))
                                 }
-                                Text("Connect")
-                            }
-
-                            if (state.hasSavedConfig) {
-                                OutlinedButton(
-                                    onClick = viewModel::reconnect,
-                                    enabled = !state.busy,
-                                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                                ) {
-                                    Text("Reconnect with saved config")
-                                }
+                                Text("Reconnect with saved config")
                             }
                         }
                     }

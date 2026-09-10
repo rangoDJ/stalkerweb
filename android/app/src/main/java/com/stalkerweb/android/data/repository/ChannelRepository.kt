@@ -108,9 +108,6 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     // ── Portal management ─────────────────────────────────────────────────────
 
-    suspend fun connectPortal(portal: String, mac: String, timezone: String = "Europe/London", lang: String = "en"): PortalActionResponse =
-        requireApi().connectPortal(PortalConnectRequest(portal, mac, timezone, lang))
-
     suspend fun disconnectPortal(): PortalActionResponse =
         requireApi().disconnectPortal()
 

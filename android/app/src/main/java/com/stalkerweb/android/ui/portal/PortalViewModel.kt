@@ -16,13 +16,11 @@ data class PortalUiState(
     val connected: Boolean = false,
     val portalUrl: String = "",
     val mac: String = "",
-    val timezone: String = "Europe/London",
-    val lang: String = "en",
     val busy: Boolean = false,
     val error: String? = null,
     val hasSavedConfig: Boolean = false,
-    // Saved portal profiles from the server (shared with the web UI) — offered
-    // as one-tap connect options instead of making the user retype portal/MAC.
+    // Saved portal profiles from the server (shared with the web UI). These are
+    // the only way to connect from the app — portal setup itself is a web-UI job.
     val profiles: List<Profile> = emptyList(),
     val connectingProfileId: String? = null,
 )
@@ -43,9 +41,9 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
             val connected = status?.connected == true
             _state.value = _state.value.copy(
                 loading         = false,
-                // Every action here (connect / connectProfile / reconnect /
-                // disconnect) hands off to refresh() on success while busy is
-                // still true, so this is the only place that can clear it.
+                // Every action here (connectProfile / reconnect / disconnect)
+                // hands off to refresh() on success while busy is still true,
+                // so this is the only place that can clear it.
                 // Without it the screen latches: `enabled = !state.busy`
                 // disables every button for good and the tapped profile row
                 // keeps spinning, so a second tap does nothing at all.
@@ -54,8 +52,6 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
                 connected       = connected,
                 portalUrl       = (if (connected) status?.portal else config?.portal) ?: config?.portal ?: "",
                 mac             = (if (connected) status?.mac    else config?.mac)    ?: config?.mac    ?: "",
-                timezone        = config?.timezone ?: "Europe/London",
-                lang            = config?.lang     ?: "en",
                 hasSavedConfig  = !config?.portal.isNullOrBlank() && !config?.mac.isNullOrBlank(),
                 profiles        = profiles,
             )
@@ -80,30 +76,6 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
                         error = e.backendMessage("Connect failed"),
                     )
                 }
-        }
-    }
-
-    fun setPortalUrl(url: String) { _state.value = _state.value.copy(portalUrl = url, error = null) }
-    fun setMac(mac: String)       { _state.value = _state.value.copy(mac = mac, error = null) }
-
-    fun connect() {
-        val portal = _state.value.portalUrl.trim()
-        val mac    = _state.value.mac.trim()
-        if (portal.isBlank()) { _state.value = _state.value.copy(error = "Portal URL is required"); return }
-        if (mac.isBlank())    { _state.value = _state.value.copy(error = "MAC address is required"); return }
-        _state.value = _state.value.copy(busy = true, error = null)
-        viewModelScope.launch {
-            runCatching {
-                repository.connectPortal(portal, mac, _state.value.timezone, _state.value.lang)
-            }.onSuccess { resp ->
-                if (resp.success) {
-                    refresh()
-                } else {
-                    _state.value = _state.value.copy(busy = false, error = resp.error ?: "Connect failed")
-                }
-            }.onFailure { e ->
-                _state.value = _state.value.copy(busy = false, error = e.backendMessage("Connect failed"))
-            }
         }
     }
 
