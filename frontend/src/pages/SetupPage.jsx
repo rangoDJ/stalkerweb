@@ -14,7 +14,7 @@ import {
   connect, disconnect, getConfig, saveConfig, getStatus, getSettings, saveSettings,
   getLogos, addLogoOverride, deleteLogoOverride, refreshLogosDb,
   downloadStbEmuBackup, getChannels, getLogoMap, getProxiedLogoUrl, getGroups,
-  getLogoStripWords, addLogoStripWord, deleteLogoStripWord,
+  getLogoStripWords, addLogoStripWord, deleteLogoStripWord, getLanguages,
 } from '../stalkerApi'
 import { invalidateChannelCache } from '../lib/channelCache'
 import { invalidateFavoritesCache } from '../lib/useFavorites'
@@ -22,7 +22,7 @@ import { useApp } from '@/lib/appContext'
 import {
   fetchProfiles, createProfile, updateProfile, deleteProfile,
   normalizePortal, DEFAULT_FORM,
-  setActiveProfile, setProfileGenres, getActiveProfileId,
+  setActiveProfile, setProfileGenres, setProfileLanguages, getActiveProfileId,
 } from '@/lib/profiles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -464,7 +464,7 @@ function ProfileCard({ profile, isConnected, onConnect, onEdit, onDelete, connec
 export default function SetupPage() {
   const navigate = useNavigate()
   const { connected, setConnected, setEpgEnabled, showAdult, setShowAdult,
-          disabledGenres, setDisabledGenres, setLastPingAt, setIdleInfo } = useApp()
+          disabledGenres, setDisabledGenres, disabledLanguages, setDisabledLanguages, setLastPingAt, setIdleInfo } = useApp()
 
   // ── Profiles ────────────────────────────────────────────────────────────────
   const [profiles, setProfiles]     = useState([])
@@ -496,6 +496,7 @@ export default function SetupPage() {
   const [newStripWord, setNewStripWord]   = useState('')
   const [stripApplying, setStripApplying] = useState(false)
   const [allGenres, setAllGenres]     = useState([])
+  const [allLanguages, setAllLanguages] = useState([])
   const [genresLoading, setGenresLoading] = useState(false)
   const [collapsedGenreGroups, setCollapsedGenreGroups] = useState(() => new Set())
 
@@ -566,6 +567,11 @@ export default function SetupPage() {
       .then(r => setAllGenres((r.groups ?? []).filter(g => g.name?.toLowerCase() !== 'all')))
       .catch(() => {})
       .finally(() => setGenresLoading(false))
+    // Union of channel genres and VOD categories, so a language that only
+    // appears in VOD (portals spell them inconsistently) is still togglable.
+    getLanguages()
+      .then(r => setAllLanguages(r.languages ?? []))
+      .catch(() => {})
   }, [connected])
 
   useEffect(() => {
@@ -647,6 +653,9 @@ export default function SetupPage() {
       await setActiveProfile(profile.id).catch(() => {})
       setDisabledGenres(new Set(
         Array.isArray(profile.disabledGenres) ? profile.disabledGenres : []
+      ))
+      setDisabledLanguages(new Set(
+        Array.isArray(profile.disabledLanguages) ? profile.disabledLanguages : []
       ))
 
       setNotice({ type: 'success', msg: `Connected to ${profile.name || profile.portal}` })
@@ -794,6 +803,26 @@ export default function SetupPage() {
   function handleDisableAllGenres() {
     persistGenres(new Set(allGenres.map(g => g.name)))
   }
+  // Languages are a separate, coarser filter than genres: they also drive the
+  // VOD category list, which genres cannot — VOD category names share the
+  // "LANGUAGE | SECTION" shape but never the section half.
+  function persistLanguages(set) {
+    setDisabledLanguages(set)
+    const activeId = getActiveProfileId()
+    if (activeId) {
+      setProfiles(prev => prev.map(p => p.id === activeId ? { ...p, disabledLanguages: [...set] } : p))
+      setProfileLanguages(activeId, [...set]).catch(() => {})
+    }
+    invalidateChannelCache()
+  }
+  function handleToggleLanguage(lang) {
+    const next = new Set(disabledLanguages)
+    next.has(lang) ? next.delete(lang) : next.add(lang)
+    persistLanguages(next)
+  }
+  function handleEnableAllLanguages() { persistLanguages(new Set()) }
+  function handleDisableAllLanguages() { persistLanguages(new Set(allLanguages)) }
+
   function handleToggleGenreGroup(names, enable) {
     const next = new Set(disabledGenres)
     names.forEach(n => enable ? next.delete(n) : next.add(n))
@@ -1010,6 +1039,43 @@ export default function SetupPage() {
             <p className="text-sm text-[var(--color-muted)]">No genres found on this portal.</p>
           ) : (
             <>
+              {allLanguages.length > 0 && (
+                <div className="pb-3 mb-1 border-b border-[var(--color-border)]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-semibold text-[var(--color-text)]">Languages</span>
+                    <span className="text-[10px] text-[var(--color-muted)]">
+                      {allLanguages.length - disabledLanguages.size} of {allLanguages.length} enabled
+                    </span>
+                    <div className="flex-1" />
+                    <button type="button" onClick={handleEnableAllLanguages}
+                      className="text-[10px] font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">All</button>
+                    <span className="text-[10px] text-[var(--color-border)]">/</span>
+                    <button type="button" onClick={handleDisableAllLanguages}
+                      className="text-[10px] font-medium text-[var(--color-muted)] hover:text-[var(--color-text)] transition-colors">None</button>
+                  </div>
+                  <p className="text-[11px] text-[var(--color-muted)] mt-1">
+                    Hides a language everywhere at once — channels, groups and On&nbsp;Demand.
+                    Portals sometimes spell the same language differently between the two, so
+                    each spelling is listed separately.
+                  </p>
+                  <div className="flex flex-wrap gap-2 mt-2">
+                    {allLanguages.map(lang => {
+                      const disabled = disabledLanguages.has(lang)
+                      return (
+                        <button key={lang} type="button" onClick={() => handleToggleLanguage(lang)}
+                          className={cn('px-3 py-1.5 rounded-full text-xs font-semibold transition-all border',
+                            disabled
+                              ? 'bg-[var(--color-surface-2)] text-[var(--color-muted)] border-[var(--color-border)] opacity-50 line-through'
+                              : 'bg-[var(--color-primary)]/15 text-[var(--color-primary-light)] border-[var(--color-primary)]/30 hover:bg-[var(--color-primary)]/25'
+                          )}>
+                          {lang}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center gap-2">
                 <button type="button" onClick={handleEnableAllGenres} className="px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors">Enable all</button>
                 <button type="button" onClick={handleDisableAllGenres} className="px-3 py-1 rounded-[var(--radius-sm)] text-xs font-medium bg-[var(--color-surface-2)] text-[var(--color-muted)] hover:text-[var(--color-text)] border border-[var(--color-border)] transition-colors">Disable all</button>

@@ -68,6 +68,9 @@ const favoritesManager = new FavoritesManager(config.dataDir);
 
 const ProfilesManager = require('./profiles/ProfilesManager');
 const profilesManager = new ProfilesManager(config.dataDir);
+// Exposed on appState so routes that filter by the active profile's hidden
+// languages (VOD categories) can reach it without a second constructor arg.
+appState.profilesManager = profilesManager;
 
 const { authRoutes, connectPortal } = require('./routes/auth')(appState, config);
 

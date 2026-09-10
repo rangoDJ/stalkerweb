@@ -209,6 +209,7 @@ function AppInner() {
   const [epgEnabled, setEpgEnabled] = useState(true)
   const [showAdult, setShowAdult]   = useState(false)
   const [disabledGenres, setDisabledGenres] = useState(new Set())
+  const [disabledLanguages, setDisabledLanguages] = useState(new Set())
   const [lastPingAt, setLastPingAt] = useState(null)
   const [idleInfo, setIdleInfo] = useState(null) // { lastActivityAt, idleTimeoutMs }
   const [version, setVersion] = useState(null)
@@ -277,8 +278,8 @@ function AppInner() {
   // (e.g. the 30s poll updating local idle/ping badges). Must run before any
   // early return to keep hook order stable.
   const ctxValue = useMemo(
-    () => ({ connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, disabledGenres, setDisabledGenres, setLastPingAt, setIdleInfo }),
-    [connected, epgEnabled, showAdult, disabledGenres]
+    () => ({ connected, setConnected, epgEnabled, setEpgEnabled, showAdult, setShowAdult, disabledGenres, setDisabledGenres, disabledLanguages, setDisabledLanguages, setLastPingAt, setIdleInfo }),
+    [connected, epgEnabled, showAdult, disabledGenres, disabledLanguages]
   )
 
   if (!statusLoaded) {

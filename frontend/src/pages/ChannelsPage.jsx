@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue, useLayoutEffect, memo } from 'react'
+import { isLanguageDisabled } from '../lib/languages'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Search, Tv2, AlertCircle, AlertTriangle, RefreshCw, Heart, Clock, X, Image, Check, ChevronDown, ChevronUp } from 'lucide-react'
@@ -183,7 +184,7 @@ function ChannelLoadProgress({ active, onDone }) {
 
 export default function ChannelsPage() {
   const navigate = useNavigate()
-  const { showAdult, disabledGenres } = useApp()
+  const { showAdult, disabledGenres, disabledLanguages } = useApp()
   const [searchParams, setSearchParams] = useSearchParams()
 
   const [rawData, setRawData]         = useState(null) // unfiltered snapshot from cache
@@ -305,10 +306,17 @@ export default function ChannelsPage() {
       gr = gr.filter(g => !disabledGenres.has(g.name))
     }
 
+    // Coarser than the genre filter and independent of it: hides every genre of
+    // a language at once, and is the same list VOD categories are filtered by.
+    if (disabledLanguages.size > 0) {
+      ch = ch.filter(c => !c.genre || !isLanguageDisabled(c.genre, disabledLanguages))
+      gr = gr.filter(g => !isLanguageDisabled(g.name, disabledLanguages))
+    }
+
     setChannels(ch)
     setGroups(gr)
     setLogoMap(rawData.logoMap)
-  }, [rawData, showAdult, disabledGenres])
+  }, [rawData, showAdult, disabledGenres, disabledLanguages])
 
   const openChannel = useCallback((channel) => {
     navigate(`/player?channel=${channel.uniqueId}&name=${encodeURIComponent(channel.name)}`)

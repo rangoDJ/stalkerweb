@@ -168,3 +168,17 @@ export function getProfileGenres(id) {
 export async function setProfileGenres(id, genres) {
   return updateProfile(id, { disabledGenres: genres })
 }
+
+// ── Per-profile language filters ─────────────────────────────────────────────
+// Coarser than genres and applied to VOD as well, which genres cannot be:
+// VOD category names share the "LANGUAGE | SECTION" shape but never the
+// section half, so only the language matches across the two.
+
+export function getProfileLanguages(id) {
+  const p = _profiles.find(x => x.id === id)
+  return Array.isArray(p?.disabledLanguages) ? p.disabledLanguages : []
+}
+
+export async function setProfileLanguages(id, languages) {
+  return updateProfile(id, { disabledLanguages: languages })
+}

@@ -13,6 +13,7 @@
 const express = require('express');
 const router = express.Router();
 const sessionMiddleware = require('../middleware/session');
+const { collectLanguages } = require('../lib/languages');
 const log = require('../logger');
 const TAG = 'channels';
 
@@ -57,6 +58,31 @@ module.exports = function channelRoutes(appState) {
     const { channelManager } = appState;
     if (!channelManager) return res.json({ loading: false, page: 0, totalPages: 0, channelCount: 0 });
     res.json(channelManager.getProgress());
+  });
+
+  // GET /api/channels/languages — togglable languages for the Setup page.
+  //
+  // Built from channel genres AND VOD categories together, because the same
+  // portal spells a language differently between the two ("BENGALI | TV" as a
+  // channel genre, "BANGALI | MOVIES" as a VOD category). Offering both
+  // spellings as their own entries lets the user disable each, which beats
+  // maintaining a per-portal alias table that would silently rot.
+  router.get('/languages', guard, async (_req, res) => {
+    const { channelManager, vodManager } = appState;
+    const names = channelManager.getGroups().map(g => g.name);
+
+    // Best-effort: VOD may be disabled, or the portal may reject the call. A
+    // partial language list is far better than failing the whole request.
+    for (const type of ['vod', 'series']) {
+      try {
+        const cats = await vodManager?.getCategories(type);
+        for (const c of cats || []) names.push(c.title);
+      } catch (e) {
+        log.debug(TAG, `languages: ${type} categories unavailable: ${e.message}`);
+      }
+    }
+
+    res.json({ languages: collectLanguages(names) });
   });
 
   // GET /api/channels/groups/all — MUST be registered before /:id

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { isLanguageDisabled } from '../lib/languages'
 import { useSearchParams } from 'react-router-dom'
 import Hls from 'hls.js'
 import mpegts from 'mpegts.js'
@@ -356,7 +357,7 @@ export default function PlayerPage() {
   const [groups, setGroups]           = useState([])
   const [logoMap, setLogoMap]         = useState({})
   const [nowNext, setNowNext]         = useState({})
-  const { showAdult, disabledGenres }  = useApp()
+  const { showAdult, disabledGenres, disabledLanguages }  = useApp()
   const { favoriteIds, toggleFavorite } = useFavorites()
 
   const prefs = useMemo(() => loadPlayerPrefs(), [])
@@ -441,10 +442,17 @@ export default function PlayerPage() {
       ch = ch.filter(c => !c.genre || !disabledGenres.has(c.genre))
       gr = gr.filter(g => !disabledGenres.has(g.name))
     }
+
+    // Coarser than the genre filter and independent of it: hides every genre of
+    // a language at once, and is the same list VOD categories are filtered by.
+    if (disabledLanguages.size > 0) {
+      ch = ch.filter(c => !c.genre || !isLanguageDisabled(c.genre, disabledLanguages))
+      gr = gr.filter(g => !isLanguageDisabled(g.name, disabledLanguages))
+    }
     setChannels(ch)
     setGroups(gr)
     setLogoMap(rawData.logoMap)
-  }, [rawData, showAdult, disabledGenres])
+  }, [rawData, showAdult, disabledGenres, disabledLanguages])
 
   // Bumped on every new channel selection so a slow, stale getStreamUrl()
   // response (e.g. from a channel the user already navigated away from) can

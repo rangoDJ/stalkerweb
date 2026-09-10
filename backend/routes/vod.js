@@ -14,6 +14,10 @@ const path    = require('path');
 const express = require('express');
 const router  = express.Router();
 const sessionMiddleware = require('../middleware/session');
+const { isLanguageDisabled } = require('../lib/languages');
+
+// The portal's "show everything" pseudo-category.
+const ALL_CATEGORIES_ID = '*';
 const log = require('../logger');
 const TAG = 'vod';
 
@@ -49,11 +53,27 @@ module.exports = function vodRoutes(appState, config) {
   const guard = sessionMiddleware(appState);
 
   // GET /api/vod/categories?type=vod|series
+  //
+  // Filtered by the active profile's hidden languages. Done here rather than in
+  // each client because every client would otherwise need the same mapping, and
+  // because the portal's own catch-all category has to be dropped alongside it
+  // (see below) — a decision better made once.
   router.get('/categories', guard, async (req, res) => {
     const { vodManager } = appState;
     const type = req.query.type === 'series' ? 'series' : 'vod';
     const categories = await vodManager.getCategories(type);
-    res.json({ categories });
+
+    const hidden = appState.profilesManager?.activeDisabledLanguages() ?? new Set();
+    if (hidden.size === 0) return res.json({ categories });
+
+    // VOD items carry no category, so items fetched through the portal's "All"
+    // pseudo-category (id "*") can't be filtered individually — leaving it in
+    // would let every hidden language straight back in through one tap. Drop it
+    // whenever a language is hidden.
+    const visible = categories.filter(c =>
+      String(c.id) !== ALL_CATEGORIES_ID && !isLanguageDisabled(c.title, hidden)
+    );
+    res.json({ categories: visible });
   });
 
   // GET /api/vod/items?type=vod|series&category=X&page=1&search=&fav=0

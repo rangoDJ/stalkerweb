@@ -22,6 +22,30 @@ import android.os.SystemClock
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+/**
+ * The active profile's hide rules. Genres match by exact name; languages match
+ * the "LANGUAGE | SECTION" prefix, which is the only part that lines up between
+ * channel genres and VOD categories.
+ */
+private data class ProfileFilters(
+    val genres: Set<String> = emptySet(),
+    val languages: Set<String> = emptySet(),
+) {
+    fun isEmpty() = genres.isEmpty() && languages.isEmpty()
+
+    /** True when a genre/group name survives both filters. A channel with no
+     *  genre is always kept — there's nothing to match it against. */
+    fun allows(name: String?): Boolean {
+        if (name == null) return true
+        return name !in genres && languageOf(name) !in languages
+    }
+}
+
+/** The language half of a "LANGUAGE | SECTION" name, normalised for comparison.
+ *  Portal titles carry stray whitespace and inconsistent case, hence both. */
+private fun languageOf(name: String): String =
+    name.substringBefore('|').trim().uppercase()
+
 /** A resolved live stream: its absolute URL and the engine hint for the player. */
 data class StreamInfo(val url: String, val type: String)
 
@@ -151,35 +175,43 @@ class ChannelRepository(private val prefs: AppPrefs) {
         return resp
     }
 
-    /** Disabled-genre names for the currently active profile — channels/groups
-     *  in this set are hidden, same as the web UI's per-profile genre filter
-     *  (backend never filters these; every client applies it independently).
+    /** The active profile's hide rules — genre names and whole languages.
+     *
+     *  Applied client-side, as the backend never filters channels (every client
+     *  applies it independently). VOD categories are the exception: the backend
+     *  filters those, because clients would otherwise each need the same
+     *  language mapping and the portal's catch-all category has to be dropped
+     *  alongside them.
      *
      *  Briefly cached behind a mutex because getChannels() and getGroups() both
      *  need it and run concurrently: without this, one channel-list load fetched
      *  the (large) profiles payload twice. The mutex makes the second caller wait
      *  for the first rather than duplicating the request, and the short TTL keeps
      *  it fresh; anything that changes the active profile clears it outright. */
-    private suspend fun getDisabledGenres(): Set<String> = genresMutex.withLock {
+    private suspend fun getProfileFilters(): ProfileFilters = genresMutex.withLock {
         val now = SystemClock.elapsedRealtime()
-        disabledGenresCache?.let { (cachedAt, genres) ->
-            if (now - cachedAt < DISABLED_GENRES_TTL_MS) return@withLock genres
+        filtersCache?.let { (cachedAt, filters) ->
+            if (now - cachedAt < DISABLED_GENRES_TTL_MS) return@withLock filters
         }
         val fresh = runCatching {
             val resp = requireApi().getProfiles()
-            resp.profiles.find { it.id == resp.activeProfileId }?.disabledGenres?.toSet() ?: emptySet()
-        }.getOrDefault(emptySet())
-        disabledGenresCache = now to fresh
+            val active = resp.profiles.find { it.id == resp.activeProfileId }
+            ProfileFilters(
+                genres    = active?.disabledGenres.orEmpty().toSet(),
+                languages = active?.disabledLanguages.orEmpty().map(::languageOf).filter { it.isNotEmpty() }.toSet(),
+            )
+        }.getOrDefault(ProfileFilters())
+        filtersCache = now to fresh
         fresh
     }
 
-    private fun invalidateDisabledGenres() { disabledGenresCache = null }
+    private fun invalidateDisabledGenres() { filtersCache = null }
 
     suspend fun getChannels(): List<Channel> {
         val channels = requireApi().getChannels().channels
-        val disabled = getDisabledGenres()
-        val filtered = (if (disabled.isEmpty()) channels
-                        else channels.filter { it.genre == null || it.genre !in disabled })
+        val filters  = getProfileFilters()
+        val filtered = (if (filters.isEmpty()) channels
+                        else channels.filter { filters.allows(it.genre) })
             // The channel and player lists key by uniqueId; a portal returning the
             // same id twice would crash them with "Key was already used".
             .distinctBy { it.uniqueId }
@@ -205,8 +237,8 @@ class ChannelRepository(private val prefs: AppPrefs) {
                 // chips — and the portal's did not work: no channel carries
                 // genreId "*", so selecting it filtered the list down to nothing.
                 .filter { it.id != ALL_GENRES_ID }
-            val disabled = getDisabledGenres()
-            if (disabled.isEmpty()) groups else groups.filter { it.name !in disabled }
+            val filters = getProfileFilters()
+            if (filters.isEmpty()) groups else groups.filter { filters.allows(it.name) }
         }.getOrDefault(emptyList())
 
     // The backend returns relative logo URLs (e.g. "/api/logos/render?url=…"),
@@ -292,7 +324,7 @@ class ChannelRepository(private val prefs: AppPrefs) {
     fun getWatched(): List<WatchedChannel> = prefs.getWatchedChannels()
 
     private val genresMutex = Mutex()
-    private var disabledGenresCache: Pair<Long, Set<String>>? = null
+    private var filtersCache: Pair<Long, ProfileFilters>? = null
 
     private fun requireApi(): StalkerApi =
         api ?: throw IllegalStateException("No server URL configured")

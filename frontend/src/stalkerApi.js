@@ -57,6 +57,9 @@ export async function disconnect() {
   return result
 }
 export const getStatus = () => _get('/auth/status')
+// Languages offered for the per-profile hide filter — union of channel genres
+// and VOD categories, so portal spelling variants are each togglable.
+export const getLanguages = () => _get('/channels/languages')
 export const getConfig = () => _get('/auth/config')
 export const saveConfig = (body) => _put('/auth/config', body)
 
