@@ -249,6 +249,20 @@ class ChannelManager {
         useLoadBalancing: !!parseInt(item.use_load_balancing, 10),
       };
 
+      // Pages are fetched in parallel and the portal's list can shift between
+      // requests, so the same channel can arrive on two pages; uniqueId is also
+      // a 32-bit hash of name+number, which can collide outright. The index is a
+      // Map and absorbed both silently, but _channels did not — leaving the array
+      // holding duplicates the index never showed. Clients that key a list by
+      // uniqueId (the Android channel list does) then crash outright on it.
+      // Pages are fetched in parallel and the portal's list can shift between
+      // requests, so the same channel can arrive on two pages; uniqueId is also
+      // a 32-bit hash of name+number, which can collide outright. The index is a
+      // Map and absorbed both silently, but _channels did not — leaving the array
+      // holding duplicates the index never showed. Clients that key a list by
+      // uniqueId (the Android channel list does) then crash outright on it.
+      if (this._channelIndex.has(channel.uniqueId)) continue;
+
       this._channels.push(channel);
       // Keep index in sync as each page arrives so getChannel() works
       // immediately — even while loading is still in progress.

@@ -90,6 +90,11 @@ class AppPrefs(context: Context) {
                     genreId  = if (o.has("genreId")) o.getString("genreId") else null,
                 )
             }
+            // The lists that render these key by uniqueId, and a LazyColumn throws
+            // on a duplicate key. De-duplicating only on fetch isn't enough: a cache
+            // written by an earlier build is already on disk and is rendered first,
+            // so it would crash before the network refresh could replace it.
+            .distinctBy { it.uniqueId }
         }.getOrDefault(emptyList())
     }
 
