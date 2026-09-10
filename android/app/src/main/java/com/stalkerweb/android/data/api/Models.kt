@@ -164,12 +164,36 @@ data class StreamResponse(
 
 // ── Portal connect / disconnect ───────────────────────────────────────────────
 
+/**
+ * Mirrors the body the web Setup page posts, which is the whole saved profile.
+ *
+ * Sending only portal/mac/timezone/lang is not equivalent: the backend fills
+ * the absent fields with defaults that contradict the profile — most damagingly
+ * `send_device_id: undefined !== false` becomes true, and serial_number/device_id
+ * fall back to a generic STB identity. A portal that has the account bound to a
+ * specific device then rejects the handshake, so a profile that connects fine
+ * from the web UI fails here with a 401.
+ *
+ * The defaults below reproduce the backend's own defaults, so the manual
+ * portal+MAC form behaves exactly as it did before.
+ */
 @JsonClass(generateAdapter = false)
 data class PortalConnectRequest(
     val portal: String,
     val mac: String,
     val timezone: String = "Europe/London",
     val lang: String = "en",
+    val login: String = "",
+    val password: String = "",
+    val token: String = "",
+    @param:Json(name = "serial_number")    val serialNumber: String = "",
+    @param:Json(name = "device_id")        val deviceId: String = "",
+    @param:Json(name = "device_id2")       val deviceId2: String = "",
+    val signature: String = "",
+    @param:Json(name = "portal_signature") val portalSignature: String = "",
+    @param:Json(name = "send_device_id")   val sendDeviceId: Boolean = true,
+    @param:Json(name = "send_device_id2")  val sendDeviceId2: Boolean = true,
+    @param:Json(name = "connection_timeout") val connectionTimeout: Int = 10,
 )
 
 @JsonClass(generateAdapter = false)
@@ -192,6 +216,10 @@ data class PortalConfigResponse(
 // (see backend/profiles/ProfilesManager.js) — picking one here does the same
 // thing the web UI's Setup page does: connect + mark it the active profile.
 
+// The device-identity fields matter as much as portal/mac: a portal can bind an
+// account to a specific STB identity, and connecting without them (or with
+// send_device_id flipped on) is rejected. They're carried through to
+// PortalConnectRequest verbatim — see ChannelRepository.connectProfile.
 @JsonClass(generateAdapter = false)
 data class Profile(
     val id: String,
@@ -200,6 +228,17 @@ data class Profile(
     val mac: String = "",
     val timezone: String = "Europe/London",
     val lang: String = "en",
+    val login: String = "",
+    val password: String = "",
+    val token: String = "",
+    @param:Json(name = "serial_number")    val serialNumber: String = "",
+    @param:Json(name = "device_id")        val deviceId: String = "",
+    @param:Json(name = "device_id2")       val deviceId2: String = "",
+    val signature: String = "",
+    @param:Json(name = "portal_signature") val portalSignature: String = "",
+    @param:Json(name = "send_device_id")   val sendDeviceId: Boolean = true,
+    @param:Json(name = "send_device_id2")  val sendDeviceId2: Boolean = true,
+    @param:Json(name = "connection_timeout") val connectionTimeout: Int = 10,
     val disabledGenres: List<String> = emptyList(),
 )
 

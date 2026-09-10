@@ -258,7 +258,15 @@ class MainActivity : ComponentActivity() {
                         val portalViewModel: PortalViewModel = viewModel(factory = portalVmFactory)
                         PortalScreen(
                             viewModel = portalViewModel,
-                            onBack    = { navController.popBackStack() },
+                            onBack    = {
+                                // Connecting a portal doesn't touch ChannelViewModel,
+                                // which is created once and never reloaded on
+                                // navigation — so without this the user returns to
+                                // the same "Connect a portal to load channels" empty
+                                // state they just came here to fix.
+                                channelViewModel.load()
+                                navController.popBackStack()
+                            },
                         )
                     }
 

@@ -129,9 +129,30 @@ class ChannelRepository(private val prefs: AppPrefs) {
         runCatching { requireApi().setActiveProfile(SetActiveProfileRequest(id)) }
 
     /** Connects using a saved profile and marks it active — mirrors the web
-     *  Setup page's "connect from a saved profile" flow. */
+     *  Setup page's "connect from a saved profile" flow, which posts the whole
+     *  profile. Passing only portal/mac/timezone/lang lets the backend
+     *  substitute a generic STB identity, which portals that bind an account to
+     *  a device reject — see PortalConnectRequest. */
     suspend fun connectProfile(profile: Profile): PortalActionResponse {
-        val resp = connectPortal(profile.portal, profile.mac, profile.timezone, profile.lang)
+        val resp = requireApi().connectPortal(
+            PortalConnectRequest(
+                portal            = profile.portal,
+                mac               = profile.mac,
+                timezone          = profile.timezone,
+                lang              = profile.lang,
+                login             = profile.login,
+                password          = profile.password,
+                token             = profile.token,
+                serialNumber      = profile.serialNumber,
+                deviceId          = profile.deviceId,
+                deviceId2         = profile.deviceId2,
+                signature         = profile.signature,
+                portalSignature   = profile.portalSignature,
+                sendDeviceId      = profile.sendDeviceId,
+                sendDeviceId2     = profile.sendDeviceId2,
+                connectionTimeout = profile.connectionTimeout,
+            )
+        )
         if (resp.success) setActiveProfile(profile.id)
         return resp
     }

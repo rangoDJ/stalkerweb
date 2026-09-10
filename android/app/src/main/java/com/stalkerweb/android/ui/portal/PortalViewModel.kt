@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import org.json.JSONObject
+import retrofit2.HttpException
 
 data class PortalUiState(
     val loading: Boolean = true,
@@ -41,6 +43,14 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
             val connected = status?.connected == true
             _state.value = _state.value.copy(
                 loading         = false,
+                // Every action here (connect / connectProfile / reconnect /
+                // disconnect) hands off to refresh() on success while busy is
+                // still true, so this is the only place that can clear it.
+                // Without it the screen latches: `enabled = !state.busy`
+                // disables every button for good and the tapped profile row
+                // keeps spinning, so a second tap does nothing at all.
+                busy               = false,
+                connectingProfileId = null,
                 connected       = connected,
                 portalUrl       = (if (connected) status?.portal else config?.portal) ?: config?.portal ?: "",
                 mac             = (if (connected) status?.mac    else config?.mac)    ?: config?.mac    ?: "",
@@ -67,7 +77,7 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
                 .onFailure { e ->
                     _state.value = _state.value.copy(
                         busy = false, connectingProfileId = null,
-                        error = e.message ?: "Connect failed",
+                        error = e.backendMessage("Connect failed"),
                     )
                 }
         }
@@ -92,7 +102,7 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
                     _state.value = _state.value.copy(busy = false, error = resp.error ?: "Connect failed")
                 }
             }.onFailure { e ->
-                _state.value = _state.value.copy(busy = false, error = e.message ?: "Connect failed")
+                _state.value = _state.value.copy(busy = false, error = e.backendMessage("Connect failed"))
             }
         }
     }
@@ -106,7 +116,7 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
                     else _state.value = _state.value.copy(busy = false, error = resp.error ?: "Reconnect failed")
                 }
                 .onFailure { e ->
-                    _state.value = _state.value.copy(busy = false, error = e.message ?: "Reconnect failed")
+                    _state.value = _state.value.copy(busy = false, error = e.backendMessage("Reconnect failed"))
                 }
         }
     }
@@ -117,8 +127,25 @@ class PortalViewModel(private val repository: ChannelRepository) : ViewModel() {
             runCatching { repository.disconnectPortal() }
                 .onSuccess { refresh() }
                 .onFailure { e ->
-                    _state.value = _state.value.copy(busy = false, error = e.message ?: "Disconnect failed")
+                    _state.value = _state.value.copy(busy = false, error = e.backendMessage("Disconnect failed"))
                 }
         }
     }
+}
+
+/**
+ * The backend reports why a connect failed in the response body
+ * (`{"error": "…"}`, see routes/auth.js), but Retrofit's HttpException.message
+ * is only "HTTP 401 Unauthorized" — so the actual reason never reached the
+ * screen and every failure looked alike. Prefer the body's message.
+ */
+private fun Throwable.backendMessage(fallback: String): String {
+    if (this is HttpException) {
+        val body = runCatching { response()?.errorBody()?.string() }.getOrNull()
+        val fromBody = body?.let {
+            runCatching { JSONObject(it).optString("error").takeIf(String::isNotBlank) }.getOrNull()
+        }
+        return fromBody ?: "HTTP ${code()}"
+    }
+    return message ?: fallback
 }
