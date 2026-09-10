@@ -205,6 +205,11 @@ class ChannelRepository(private val prefs: AppPrefs) {
     suspend fun getGroups(): List<Group> =
         runCatching {
             val groups   = requireApi().getGroups().groups
+                // Stalker's catch-all pseudo-genre (id "*"). The UI already offers
+                // its own "All" chip, so keeping this one showed two identical
+                // chips — and the portal's did not work: no channel carries
+                // genreId "*", so selecting it filtered the list down to nothing.
+                .filter { it.id != ALL_GENRES_ID }
             val disabled = getDisabledGenres()
             if (disabled.isEmpty()) groups else groups.filter { it.name !in disabled }
         }.getOrDefault(emptyList())
@@ -299,5 +304,6 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     private companion object {
         const val DISABLED_GENRES_TTL_MS = 15_000L
+        const val ALL_GENRES_ID = "*"
     }
 }

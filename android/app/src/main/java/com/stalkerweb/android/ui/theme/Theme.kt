@@ -3,9 +3,11 @@ package com.stalkerweb.android.ui.theme
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
@@ -86,6 +88,14 @@ fun StalkerTheme(content: @Composable () -> Unit) {
     MaterialTheme(
         colorScheme = DarkColors,
         typography  = StalkerTypography,
-        content     = content,
-    )
+    ) {
+        // MaterialTheme does not provide LocalContentColor — normally a Surface or
+        // Scaffold supplies it from its container colour. This app paints its own
+        // gradient backdrop instead and gives Scaffold a transparent container, so
+        // contentColorFor() finds no matching role, returns Unspecified, and falls
+        // through to LocalContentColor's default of Color.Black. Every Text without
+        // an explicit colour then renders black on a near-black background. Provide
+        // the theme foreground so unstyled text is legible by default.
+        CompositionLocalProvider(LocalContentColor provides TextPrimary, content = content)
+    }
 }
