@@ -18,6 +18,7 @@ class ChannelManager {
     this._healthSaveTimer = null;
     this._channels = [];
     this._channelIndex = new Map();   // uniqueId → channel, for O(1) lookups
+    this._legacyIndex  = new Map();   // pre-portal-id hash → channel (compat shim)
     this._groups = [];
     this._genreMap = new Map();
     this._loadGroupsPromise = null;    // deduplicates concurrent loadGroups calls
@@ -116,6 +117,7 @@ class ChannelManager {
     const t0 = Date.now();
     this._channels = [];
     this._channelIndex = new Map();   // reset so stale entries don't linger during reload
+    this._legacyIndex  = new Map();
     this._progress = { loading: true, page: 0, totalPages: 0, channelCount: 0 };
 
     log.info(TAG, 'channel load: starting');
@@ -198,7 +200,7 @@ class ChannelManager {
       pagesOk     = maxPages - pagesFailed;
     }
 
-    // Deduplicate by channelId
+    // Deduplicate by uniqueId
     const beforeDedup = this._channels.length;
     const seen = new Set();
     this._channels = this._channels.filter((ch) => {
@@ -211,6 +213,9 @@ class ChannelManager {
     this._progress = { loading: false, page: this._progress.totalPages, totalPages: this._progress.totalPages, channelCount: this._channels.length };
     // Build O(1) lookup index
     this._channelIndex = new Map(this._channels.map((c) => [String(c.uniqueId), c]));
+    this._legacyIndex  = new Map(this._channels
+      .filter((c) => c.legacyId && c.legacyId !== c.uniqueId)
+      .map((c) => [String(c.legacyId), c]));
     const withGenre = this._channels.filter((c) => c.genre).length;
     const dur = ((Date.now() - t0) / 1000).toFixed(1);
     log.info(TAG, `channel load: complete in ${dur}s — ${this._channels.length} channels (${withGenre} with genre, ${this._groups.length} groups, ${dupes} dupes removed, pages ${pagesOk} ok/${pagesFailed} failed)`);
@@ -237,7 +242,13 @@ class ChannelManager {
 
       const rawGenreId = item.tv_genre_id || '';
       const channel = {
-        uniqueId: String(_channelId(item.name, item.number)),
+        uniqueId: _uniqueIdFor(item),
+        // What uniqueId used to be: a 32-bit hash of name+number. Two distinct
+        // channels could hash alike, and the de-duplication below then dropped
+        // one of them outright. Retained so ids minted by older builds —
+        // favorites, per-channel stream overrides, bookmarked /proxy/stream
+        // URLs, M3U tvg-ids — still resolve. See getChannel().
+        legacyId: String(_channelId(item.name, item.number)),
         number: parseInt(item.number, 10) || 0,
         name: item.name,
         channelId: parseInt(item.id, 10) || 0,
@@ -264,9 +275,10 @@ class ChannelManager {
       if (this._channelIndex.has(channel.uniqueId)) continue;
 
       this._channels.push(channel);
-      // Keep index in sync as each page arrives so getChannel() works
+      // Keep indexes in sync as each page arrives so getChannel() works
       // immediately — even while loading is still in progress.
       this._channelIndex.set(channel.uniqueId, channel);
+      if (channel.legacyId !== channel.uniqueId) this._legacyIndex.set(channel.legacyId, channel);
     }
   }
 
@@ -308,8 +320,17 @@ class ChannelManager {
   getChannels() { return this._channels; }
   getGroups() { return this._groups; }
 
+  // Accepts a current uniqueId or an id minted by an older build (the legacy
+  // name+number hash), so stored favorites, overrides and bookmarked stream
+  // URLs keep resolving after the switch to portal ids.
   getChannel(uniqueId) {
-    return this._channelIndex.get(String(uniqueId)) ?? null;
+    const id = String(uniqueId);
+    return this._channelIndex.get(id) ?? this._legacyIndex.get(id) ?? null;
+  }
+
+  /** Maps a legacy hash id to the current uniqueId, or null if unknown. */
+  resolveLegacyId(legacyId) {
+    return this._legacyIndex.get(String(legacyId))?.uniqueId ?? null;
   }
 
   // Resolves to the channel as soon as it is indexed, or null on timeout.
@@ -319,7 +340,7 @@ class ChannelManager {
     const id = String(uniqueId);
 
     // Fast path — already in index
-    const immediate = this._channelIndex.get(id);
+    const immediate = this.getChannel(id);
     if (immediate) return immediate;
 
     // If the list is empty and not loading, trigger a background load now
@@ -332,11 +353,11 @@ class ChannelManager {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline && this._progress.loading) {
       await new Promise(r => setTimeout(r, 500));
-      const found = this._channelIndex.get(id);
+      const found = this.getChannel(id);
       if (found) return found;
     }
 
-    return this._channelIndex.get(id) ?? null;
+    return this.getChannel(id);
   }
 
   // ── Stream resolution (cached) ────────────────────────────────────────────
@@ -518,6 +539,16 @@ function classifyStreamType(url) {
 }
 
 // Mirrors ChannelManager::GetChannelId() — djb2 hash of name+number
+// The portal's own channel id is unique by construction, so prefer it. Some
+// portals omit it; fall back to the historical name+number hash there rather
+// than minting a colliding zero. Kept numeric so /api/epg/:channelId, which
+// parseInt()s the path segment, still works.
+function _uniqueIdFor(item) {
+  const portalId = String(item.id ?? '').trim();
+  if (/^\d+$/.test(portalId) && portalId !== '0') return portalId;
+  return String(_channelId(item.name, item.number));
+}
+
 function _channelId(name, number) {
   const str = String(name) + String(number);
   let id = 0;

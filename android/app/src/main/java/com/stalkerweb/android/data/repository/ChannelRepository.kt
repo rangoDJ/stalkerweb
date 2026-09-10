@@ -191,6 +191,9 @@ class ChannelRepository(private val prefs: AppPrefs) {
             // The channel and player lists key by uniqueId; a portal returning the
             // same id twice would crash them with "Key was already used".
             .distinctBy { it.uniqueId }
+        // Runs off the network list, which is the only place legacyId appears —
+        // the on-disk cache doesn't store it. One-shot; see AppPrefs.
+        prefs.migrateLegacyChannelIds(filtered)
         prefs.cacheChannels(filtered)
         return filtered
     }

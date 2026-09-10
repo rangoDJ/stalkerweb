@@ -5,7 +5,9 @@ import ChannelManager from '../stalker/ChannelManager.js'
 const stubClient = { getBasePath: () => 'http://portal.example.com/c/' }
 
 const page = (items) => ({ js: { data: items } })
-const channel = (name, number) => ({ name, number, id: '1', cmd: 'ffmpeg http://x', tv_genre_id: '1' })
+// `id` is the portal's own channel id and is what uniqueId is derived from,
+// so it has to vary per channel the way a real portal's does.
+const channel = (name, number) => ({ name, number, id: String(number), cmd: 'ffmpeg http://x', tv_genre_id: '1' })
 
 describe('ChannelManager channel de-duplication', () => {
   let cm
@@ -50,5 +52,56 @@ describe('ChannelManager channel de-duplication', () => {
 
     expect(cm.getChannels()).toHaveLength(1)
     expect(cm.getChannels()[0].name).toBe('Real')
+  })
+})
+
+describe('ChannelManager uniqueId derivation', () => {
+  let cm
+
+  beforeEach(() => {
+    cm = new ChannelManager(stubClient)
+  })
+
+  it('uses the portal channel id as uniqueId', () => {
+    cm._parseChannels(page([{ ...channel('BBC One', 101), id: '90210' }]))
+
+    expect(cm.getChannels()[0].uniqueId).toBe('90210')
+  })
+
+  it('keeps the old name+number hash as legacyId', () => {
+    cm._parseChannels(page([{ ...channel('BBC One', 101), id: '90210' }]))
+    const ch = cm.getChannels()[0]
+
+    expect(ch.legacyId).toMatch(/^\d+$/)
+    expect(ch.legacyId).not.toBe(ch.uniqueId)
+  })
+
+  it('resolves a channel by either its new or its legacy id', () => {
+    cm._parseChannels(page([{ ...channel('BBC One', 101), id: '90210' }]))
+    const ch = cm.getChannels()[0]
+
+    expect(cm.getChannel('90210')).toBe(ch)
+    expect(cm.getChannel(ch.legacyId)).toBe(ch)
+    expect(cm.resolveLegacyId(ch.legacyId)).toBe('90210')
+    expect(cm.getChannel('does-not-exist')).toBeNull()
+  })
+
+  it('separates channels that the legacy hash would have collapsed', () => {
+    // Same name and number, different portal ids: under the old scheme both
+    // hashed alike and de-duplication silently dropped one.
+    cm._parseChannels(page([
+      { ...channel('Dup', 7), id: '111' },
+      { ...channel('Dup', 7), id: '222' },
+    ]))
+
+    expect(cm.getChannels().map((c) => c.uniqueId)).toEqual(['111', '222'])
+  })
+
+  it('falls back to the hash when the portal omits an id', () => {
+    cm._parseChannels(page([{ name: 'No Id', number: 5 }]))
+    const ch = cm.getChannels()[0]
+
+    expect(ch.uniqueId).toBe(ch.legacyId)
+    expect(ch.uniqueId).toMatch(/^\d+$/)
   })
 })

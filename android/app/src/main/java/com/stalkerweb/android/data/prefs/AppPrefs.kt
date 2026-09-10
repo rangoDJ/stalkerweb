@@ -27,9 +27,12 @@ class AppPrefs(context: Context) {
         val list = getWatchedChannels().toMutableList()
         list.removeAll { it.uniqueId == uniqueId }
         list.add(0, WatchedChannel(uniqueId, name, logoUrl, System.currentTimeMillis()))
-        val trimmed = list.take(MAX_HISTORY)
+        prefs.edit().putString(KEY_WATCH_HISTORY, historyToJson(list.take(MAX_HISTORY))).apply()
+    }
+
+    private fun historyToJson(list: List<WatchedChannel>): String {
         val arr = JSONArray()
-        trimmed.forEach { ch ->
+        list.forEach { ch ->
             arr.put(JSONObject().apply {
                 put("uniqueId", ch.uniqueId)
                 put("name", ch.name)
@@ -37,7 +40,7 @@ class AppPrefs(context: Context) {
                 put("watchedAt", ch.watchedAt)
             })
         }
-        prefs.edit().putString(KEY_WATCH_HISTORY, arr.toString()).apply()
+        return arr.toString()
     }
 
     fun getWatchedChannels(): List<WatchedChannel> {
@@ -116,6 +119,53 @@ class AppPrefs(context: Context) {
         prefs.edit().remove(KEY_CHANNEL_CACHE).remove(KEY_LOGO_CACHE).apply()
     }
 
+    // ── Legacy channel-id migration ───────────────────────────────────────────
+
+    /**
+     * One-shot: moves locally-keyed data from the old channel-id scheme (a hash
+     * of name+number) onto the portal's own ids.
+     *
+     * The backend tolerates a legacy id on lookup, but data keyed by id *here*
+     * needs rewriting rather than tolerance: a stream override is found by
+     * building a key from the channel's current uniqueId, so an override stored
+     * under the old id would simply never be found again, and watch history
+     * would stop matching the channel list.
+     *
+     * No-ops against a backend too old to send legacyId, and re-runs on a later
+     * load in that case rather than burning the flag.
+     */
+    fun migrateLegacyChannelIds(channels: List<Channel>) {
+        if (prefs.getBoolean(KEY_LEGACY_IDS_MIGRATED, false)) return
+
+        val legacyToCurrent = channels.mapNotNull { ch ->
+            val legacy = ch.legacyId
+            if (legacy.isNullOrBlank() || legacy == ch.uniqueId) null else legacy to ch.uniqueId
+        }.toMap()
+        // Older backend (or a portal whose ids never changed) — nothing to do,
+        // and nothing proven, so leave the flag unset and try again next load.
+        if (legacyToCurrent.isEmpty()) return
+
+        val editor = prefs.edit()
+
+        for ((legacy, current) in legacyToCurrent) {
+            val stored = prefs.getString("$KEY_OVERRIDE_PREFIX$legacy", null) ?: continue
+            // Don't clobber an override already set against the new id.
+            if (prefs.getString("$KEY_OVERRIDE_PREFIX$current", null) == null) {
+                editor.putString("$KEY_OVERRIDE_PREFIX$current", stored)
+            }
+            editor.remove("$KEY_OVERRIDE_PREFIX$legacy")
+        }
+
+        val history = getWatchedChannels()
+        val remapped = history.map { w ->
+            legacyToCurrent[w.uniqueId]?.let { w.copy(uniqueId = it) } ?: w
+        }
+        if (remapped != history) editor.putString(KEY_WATCH_HISTORY, historyToJson(remapped))
+
+        editor.putBoolean(KEY_LEGACY_IDS_MIGRATED, true)
+        editor.apply()
+    }
+
     // ── Per-channel stream URL overrides ─────────────────────────────────────
 
     fun getStreamOverride(uniqueId: String): String? =
@@ -136,5 +186,6 @@ class AppPrefs(context: Context) {
         private const val KEY_CHANNEL_CACHE   = "channel_cache"
         private const val KEY_LOGO_CACHE      = "logo_cache"
         private const val MAX_HISTORY         = 10
+        private const val KEY_LEGACY_IDS_MIGRATED = "legacy_channel_ids_migrated"
     }
 }

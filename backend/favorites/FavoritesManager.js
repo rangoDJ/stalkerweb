@@ -54,6 +54,39 @@ class FavoritesManager {
     }
   }
 
+  /**
+   * Rewrites stored ids from the pre-portal-id scheme to current uniqueIds.
+   *
+   * getChannel() tolerates a legacy id, but favorites need more than lookup
+   * tolerance: clients decide whether a channel is starred by testing its
+   * uniqueId against this list, so a list still holding old hashes would show
+   * every favorite as unstarred. `resolve` maps legacy → current and returns
+   * null for ids it doesn't recognise, which are left untouched (a channel may
+   * simply be missing from a partial load — dropping it would lose the star).
+   *
+   * Idempotent: ids that are already current don't resolve as legacy, so a
+   * second run is a no-op and writes nothing.
+   */
+  migrateLegacyIds(resolve) {
+    const d = this._load();
+    let changed = 0;
+
+    const remap = (ids) => ids.map((id) => {
+      const mapped = resolve(String(id));
+      if (mapped && mapped !== String(id)) { changed++; return mapped; }
+      return String(id);
+    });
+
+    d.channels = remap(d.channels);
+    for (const g of d.groups) g.channels = remap(g.channels || []);
+
+    if (changed > 0) {
+      this._save(d);
+      log.info(TAG, `migrated ${changed} favorite id(s) to portal channel ids`);
+    }
+    return changed;
+  }
+
   // ── Channel favorites ──────────────────────────────────────────────────────
 
   getRaw() { return this._load(); }

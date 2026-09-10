@@ -12,6 +12,8 @@
 
 const express = require('express');
 const sessionMiddleware = require('../middleware/session');
+const log = require('../logger');
+const TAG = 'favorites';
 
 // Enrich a list of uniqueId strings with channel objects from channelManager.
 // Falls back to a bare { uniqueId } stub for ids the channel manager doesn't
@@ -25,15 +27,40 @@ const sessionMiddleware = require('../middleware/session');
 // throw on a bare { uniqueId } object.
 function enrichChannels(ids, channelManager) {
   if (!channelManager) return ids.map(id => ({ uniqueId: id, name: '' }));
-  return ids.map(id => channelManager.getChannel(parseInt(id, 10)) ?? { uniqueId: id, name: '' });
+  // No parseInt: getChannel() stringifies and also accepts legacy ids, and
+  // coercing to a number would turn any non-numeric id into NaN.
+  return ids.map(id => channelManager.getChannel(id) ?? { uniqueId: id, name: '' });
 }
 
 module.exports = function favoritesModule(favoritesManager, appState) {
   const router = express.Router();
   const guard = sessionMiddleware(appState);
 
+  // uniqueId used to be a hash of name+number and is now the portal's own id,
+  // so favorites saved by an older build hold ids the client will never match
+  // against the current channel list — every star would read as unset. Rewrite
+  // them once the channel list is complete enough to map them.
+  //
+  // Deferred to here rather than done at load time because ChannelManager has
+  // no reference to favorites. Flagged per ChannelManager instance, so a
+  // reconnect (which builds a new one) retries; the migration is idempotent.
+  function migrateFavoriteIdsOnce() {
+    const cm = appState?.channelManager;
+    if (!cm || cm._favoriteIdsMigrated) return;
+    // A partial list would leave genuinely-unknown ids untouched, which is
+    // right, but don't mark it done until the full list is in.
+    if (cm.getProgress?.().loading || cm.getChannels().length === 0) return;
+    try {
+      favoritesManager.migrateLegacyIds(id => cm.resolveLegacyId(id));
+      cm._favoriteIdsMigrated = true;
+    } catch (e) {
+      log.warn(TAG, `favorite id migration failed: ${e.message}`);
+    }
+  }
+
   // GET /api/favorites
   router.get('/', guard, (_req, res) => {
+    migrateFavoriteIdsOnce();
     const raw = favoritesManager.getRaw();
     const cm  = appState?.channelManager;
     res.json({

@@ -11,6 +11,11 @@ data class Channel(
     @param:Json(name = "iconPath") val logo: String? = null,
     val genre: String? = null,
     val genreId: String? = null,
+    // The id this channel had before uniqueId became the portal's own id. Sent
+    // by newer backends only, hence the default. Used once, on first run after
+    // the switch, to move locally-keyed data (stream overrides, watch history)
+    // onto the new ids — see AppPrefs.migrateLegacyChannelIds.
+    val legacyId: String? = null,
 )
 
 @JsonClass(generateAdapter = false)

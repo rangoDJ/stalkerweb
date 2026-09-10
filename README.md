@@ -163,6 +163,13 @@ Set the M3U URL to: `http://your-host:8983/api/m3u`
 ### 2. Add XMLTV Guide
 Set the XMLTV URL to: `http://your-host:8983/api/xmltv`
 
+> **Upgrading from a build before channel ids moved to portal ids:** `tvg-id`
+> values in the M3U changed, so Jellyfin (or Kodi) needs one guide refresh /
+> tuner re-scan to re-map its channels. Stream URLs minted by older builds still
+> resolve — the backend accepts the old ids — so existing recordings and
+> bookmarks keep working. Favorites, and the Android app's stream overrides and
+> watch history, migrate themselves on first run.
+
 ---
 
 ## Building from Source
