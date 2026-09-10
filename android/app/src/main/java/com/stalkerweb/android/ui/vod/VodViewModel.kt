@@ -7,6 +7,7 @@ import com.stalkerweb.android.data.api.VodEpisode
 import com.stalkerweb.android.data.api.VodItem
 import com.stalkerweb.android.data.api.VodSeason
 import com.stalkerweb.android.data.repository.ChannelRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,10 @@ class VodViewModel(private val repository: ChannelRepository) : ViewModel() {
     val state: StateFlow<VodUiState> = _state.asStateFlow()
 
     private var searchJob: Job? = null
+    // Tracked so a newer request supersedes an in-flight one instead of
+    // racing it — otherwise a slow response for a category or search term
+    // the user has already moved on from can land last and win.
+    private var itemsJob: Job? = null
 
     fun setType(type: String) {
         if (type == _state.value.type) return
@@ -86,18 +91,29 @@ class VodViewModel(private val repository: ChannelRepository) : ViewModel() {
     }
 
     private fun loadItems(categoryId: String, search: String, page: Int) {
+        itemsJob?.cancel()
         _state.value = _state.value.copy(loadingItems = true, error = null)
-        viewModelScope.launch {
+        itemsJob = viewModelScope.launch {
             runCatching { repository.getVodItems(_state.value.type, categoryId, page, search) }
                 .onSuccess { r ->
+                    // Pages come from a server-side list whose order isn't stable,
+                    // so the same item can arrive on two pages. LazyVerticalGrid
+                    // keys by id and throws on a duplicate, so de-dupe on append.
+                    val merged = if (page == 1) r.items else _state.value.items + r.items
                     _state.value = _state.value.copy(
-                        items        = if (page == 1) r.items else _state.value.items + r.items,
+                        items        = merged.distinctBy { it.id },
                         page         = r.page,
                         totalPages   = r.totalPages,
                         loadingItems = false,
                     )
                 }
-                .onFailure { _state.value = _state.value.copy(loadingItems = false, error = it.message) }
+                .onFailure { e ->
+                    // Cancellation means a newer request replaced this one; it is
+                    // not a failure and must not clear its loading state or show
+                    // an error over the request that superseded it.
+                    if (e is CancellationException) return@onFailure
+                    _state.value = _state.value.copy(loadingItems = false, error = e.message)
+                }
         }
     }
 

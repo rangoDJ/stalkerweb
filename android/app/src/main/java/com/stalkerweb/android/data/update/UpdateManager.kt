@@ -61,6 +61,15 @@ class UpdateManager(private val context: Context) {
             .header("User-Agent", "StalkerWeb-Android/${com.stalkerweb.android.BuildConfig.VERSION_NAME}")
             .build()
         val response = client.newCall(req).execute()
+        // A 403 (rate limit) or 404 still carries a body — the error page — so
+        // checking only for null would happily write HTML into update.apk and
+        // then offer it as an installable update on every launch until some
+        // other build replaces it.
+        if (!response.isSuccessful) {
+            val code = response.code
+            response.close()
+            throw Exception("Download failed: HTTP $code")
+        }
         val body     = response.body ?: throw Exception("Empty response body")
         val total    = body.contentLength()
         val dir      = File(context.externalCacheDir ?: context.cacheDir, "apk_downloads").also { it.mkdirs() }

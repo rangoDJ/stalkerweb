@@ -160,7 +160,11 @@ fun VodScreen(
                             last >= state.items.size - 4
                         }
                     }
-                    LaunchedEffect(shouldLoadMore) {
+                    // Keyed on page as well as the flag: when a page's items all
+                    // fit on screen the flag stays true, and an effect keyed only
+                    // on it would never re-fire — with nothing to scroll, paging
+                    // would stall there permanently.
+                    LaunchedEffect(shouldLoadMore, state.page) {
                         if (shouldLoadMore && state.hasMore && !state.loadingItems) viewModel.loadMore()
                     }
                     LazyVerticalGrid(

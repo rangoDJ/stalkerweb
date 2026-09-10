@@ -14,7 +14,7 @@ Self-hosted IPTV web app that replicates [Kodi's pvr.stalker](https://github.com
 - ❤️ **Favorites** — star channels, organize into custom drag-and-drop groups, with inline group editor.
 - 📅 **EPG Guide** — with scrollable timeline, configurable lookahead (6h–48h), and built-in player integration.
 - 🔞 **Parental Lock** — toggleable filtering for adult content across all pages.
-- 📱 **Android App** — companion Kotlin/Compose app with auto-update support (API 26+).
+- 📱 **Android & Android TV Apps** — companion Kotlin/Compose app, built for phones and for leanback TV, with auto-update and in-app crash reports (API 26+).
 - ▶️ **HLS.js Video Player** — HLS playback with auto-recovery, native fallback for MP4/TS, fullscreen, volume, and keyboard shortcuts (`Space` play/pause, `F` fullscreen, `M` mute, arrow keys channel surf).
 - 🖼️ **Logo Matching** — automatic channel logo lookup via `iptv-org` with manual override support.
 - 🔁 **STBEmu Backup Export/Import** — export a profile as a ready-to-import STBEmu JSON, or import an STBEmu backup file (including multi-profile files, with a picker) straight into StalkerWeb.
@@ -59,10 +59,36 @@ The container includes:
 
 ## Android App
 
-StalkerWeb includes a companion Android app for native playback.
-- **Auto-Update**: The app automatically checks GitHub for new releases.
-- **Installation**: Download the latest APK from the [Releases](https://github.com/rangoDJ/stalkerweb/releases) page.
-- **Parental Lock**: Inherits settings from the web UI to hide restricted categories.
+Every release ships two APKs — one for phones/tablets and one for Android TV. They
+share a single Kotlin/Compose codebase and differ only in launcher, input model and
+a few platform features. Their application ids differ
+(`com.stalkerweb.android` and `com.stalkerweb.android.tv`), so both can be installed
+side by side on the same device.
+
+- **Installation** — download `stalkerweb-mobile-<version>.apk` or
+  `stalkerweb-tv-<version>.apk` from the [Releases](https://github.com/rangoDJ/stalkerweb/releases)
+  page. Requires Android 8.0 (API 26) or newer.
+- **Setup** — point the app at your StalkerWeb server address; it can be changed
+  later from the settings button on the channel list.
+- **Portal connection** — portals are set up in the web UI. The app connects using
+  the saved profiles it reads back from the server, with no manual portal/MAC entry
+  and no portal credentials stored on the device.
+- **Live TV** — channel list with search, genre chips, favorites, now/next EPG on
+  each row, and a recently-watched row.
+- **VOD & Series** — categories, search, seasons and episodes, and a prompt to play
+  the next episode when one finishes.
+- **Per-channel stream override** — pin a specific stream URL for a channel that
+  won't play through the proxy.
+- **Sleep timer**.
+- **Genre filtering** — the active profile's disabled genres are applied to the
+  channel and group lists, matching the web UI.
+- **Auto-update** — checks GitHub Releases and installs the new APK in place.
+- **Crash reports** — an uncaught crash is recorded and shown on the next launch
+  with copy/share, so a failure on a TV across the room can be reported without
+  needing `adb`.
+
+**Phone and tablet only:** Google Cast and picture-in-picture.
+**TV only:** leanback launcher entry, D-pad focus handling and overscan-safe padding.
 
 ## Security
 

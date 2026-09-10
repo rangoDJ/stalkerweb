@@ -126,9 +126,15 @@ class ChannelViewModel(private val repository: ChannelRepository) : ViewModel() 
                 val notConnected = e is HttpException && e.code() == 503
                 // Keep showing cached channels if we have them; only surface a hard
                 // error when there's nothing to display.
+                // Report the disconnect even when a cached list is on screen.
+                // Gating this on an empty list meant returning users saw a
+                // perfectly normal channel list backed by a dead portal, where
+                // every channel failed at playback with a generic error and
+                // nothing pointed at the cause. The screen keeps showing the
+                // cache and puts a banner over it instead.
                 _state.value = _state.value.copy(
                     loading            = false,
-                    portalNotConnected = notConnected && _state.value.channels.isEmpty(),
+                    portalNotConnected = notConnected,
                     error              = if (!notConnected && _state.value.channels.isEmpty()) e.message else null,
                 )
             }

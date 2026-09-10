@@ -43,11 +43,15 @@ fun ChannelScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val isTV  = rememberIsTV()
+    // ChannelUiState.displayed filters the full channel list on every access and
+    // caches nothing, so reading it per row cost O(rows x channels) per frame on
+    // large portals. Evaluate it once per state change instead.
+    val displayed = remember(state) { state.displayed }
     val firstItemFocusRequester = remember { FocusRequester() }
 
     // On TV, push initial focus into the channel list so the remote is immediately useful
-    LaunchedEffect(state.loading, isTV) {
-        if (isTV && !state.loading && state.displayed.isNotEmpty()) {
+    LaunchedEffect(state.loading, isTV, displayed.isNotEmpty()) {
+        if (isTV && !state.loading && displayed.isNotEmpty()) {
             try { firstItemFocusRequester.requestFocus() } catch (_: Exception) {}
         }
     }
@@ -155,7 +159,7 @@ fun ChannelScreen(
                 state.loading -> {
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
                 }
-                state.portalNotConnected -> {
+                state.portalNotConnected && state.channels.isEmpty() -> {
                     Column(
                         Modifier.align(Alignment.Center).padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -200,7 +204,7 @@ fun ChannelScreen(
                         Button(onClick = viewModel::load) { Text("Retry") }
                     }
                 }
-                state.displayed.isEmpty() -> {
+                displayed.isEmpty() -> {
                     Column(
                         Modifier.align(Alignment.Center),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -218,59 +222,86 @@ fun ChannelScreen(
                     }
                 }
                 else -> {
-                    LazyColumn {
-                        // Continue watching row
-                        if (state.showRecent) {
-                            item(key = "recent_header") {
-                                Text(
-                                    "Continue watching",
-                                    style    = MaterialTheme.typography.labelMedium,
-                                    color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
-                                    modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp),
+                    Column {
+                        // The list below is a cached snapshot from before the portal
+                        // dropped — say so, rather than letting it pass for live data.
+                        if (state.portalNotConnected) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.errorContainer)
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Icon(
+                                    Icons.Default.Router, null,
+                                    Modifier.size(18.dp),
+                                    tint = MaterialTheme.colorScheme.onErrorContainer,
                                 )
+                                Text(
+                                    "Portal not connected — showing cached channels.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = onOpenPortal) { Text("Connect") }
                             }
-                            item(key = "recent_row") {
-                                LazyRow(
-                                    contentPadding       = PaddingValues(horizontal = 12.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                    modifier             = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                                ) {
-                                    items(state.recentChannels, key = { "r_${it.uniqueId}" }) { recent ->
-                                        RecentChannelChip(
-                                            recent    = recent,
-                                            logoUrl   = state.logoMap[recent.uniqueId] ?: recent.logoUrl,
-                                            onClick   = {
-                                                val ch = state.channels.find { it.uniqueId == recent.uniqueId }
-                                                if (ch != null) onSelectChannel(ch)
-                                            },
-                                        )
+                        }
+                        LazyColumn {
+                            // Continue watching row
+                            if (state.showRecent) {
+                                item(key = "recent_header") {
+                                    Text(
+                                        "Continue watching",
+                                        style    = MaterialTheme.typography.labelMedium,
+                                        color    = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                                        modifier = Modifier.padding(start = 12.dp, top = 12.dp, bottom = 4.dp),
+                                    )
+                                }
+                                item(key = "recent_row") {
+                                    LazyRow(
+                                        contentPadding       = PaddingValues(horizontal = 12.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier             = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                                    ) {
+                                        items(state.recentChannels, key = { "r_${it.uniqueId}" }) { recent ->
+                                            RecentChannelChip(
+                                                recent    = recent,
+                                                logoUrl   = state.logoMap[recent.uniqueId] ?: recent.logoUrl,
+                                                onClick   = {
+                                                    val ch = state.channels.find { it.uniqueId == recent.uniqueId }
+                                                    if (ch != null) onSelectChannel(ch)
+                                                },
+                                            )
+                                        }
                                     }
                                 }
+                                item(key = "recent_divider") {
+                                    HorizontalDivider(
+                                        thickness = 0.5.dp,
+                                        color     = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+                                    )
+                                }
                             }
-                            item(key = "recent_divider") {
+
+                            items(displayed, key = { it.uniqueId }) { channel ->
+                                val isFirst = channel == displayed.firstOrNull()
+                                ChannelRow(
+                                    channel          = channel,
+                                    logoUrl          = state.logoMap[channel.uniqueId],
+                                    isFavorite       = channel.uniqueId in state.favoriteIds,
+                                    nowNext          = state.nowNext[channel.uniqueId],
+                                    onClick          = { onSelectChannel(channel) },
+                                    onToggleFavorite = { viewModel.toggleFavorite(channel) },
+                                    isTV             = isTV,
+                                    focusRequester   = if (isFirst) firstItemFocusRequester else null,
+                                )
                                 HorizontalDivider(
                                     thickness = 0.5.dp,
                                     color     = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
                                 )
                             }
-                        }
-
-                        items(state.displayed, key = { it.uniqueId }) { channel ->
-                            val isFirst = channel == state.displayed.first()
-                            ChannelRow(
-                                channel          = channel,
-                                logoUrl          = state.logoMap[channel.uniqueId],
-                                isFavorite       = channel.uniqueId in state.favoriteIds,
-                                nowNext          = state.nowNext[channel.uniqueId],
-                                onClick          = { onSelectChannel(channel) },
-                                onToggleFavorite = { viewModel.toggleFavorite(channel) },
-                                isTV             = isTV,
-                                focusRequester   = if (isFirst) firstItemFocusRequester else null,
-                            )
-                            HorizontalDivider(
-                                thickness = 0.5.dp,
-                                color     = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
-                            )
                         }
                     }
                 }

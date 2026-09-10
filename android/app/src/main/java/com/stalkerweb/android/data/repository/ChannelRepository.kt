@@ -18,6 +18,9 @@ import com.stalkerweb.android.data.api.VodItemsResponse
 import com.stalkerweb.android.data.api.VodSeason
 import com.stalkerweb.android.data.prefs.AppPrefs
 import com.stalkerweb.android.data.prefs.WatchedChannel
+import android.os.SystemClock
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** A resolved live stream: its absolute URL and the engine hint for the player. */
 data class StreamInfo(val url: String, val type: String)
@@ -45,6 +48,7 @@ class ChannelRepository(private val prefs: AppPrefs) {
         if (normalized != prefs.serverUrl) prefs.clearChannelCache()
         prefs.serverUrl = normalized
         api = runCatching { StalkerApi.create(normalized) }.getOrNull()
+        invalidateDisabledGenres()
     }
 
     fun getServerUrl(): String? = prefs.serverUrl
@@ -109,7 +113,7 @@ class ChannelRepository(private val prefs: AppPrefs) {
     // ── Portal management ─────────────────────────────────────────────────────
 
     suspend fun disconnectPortal(): PortalActionResponse =
-        requireApi().disconnectPortal()
+        requireApi().disconnectPortal().also { invalidateDisabledGenres() }
 
     suspend fun reconnectPortal(): PortalActionResponse =
         requireApi().reconnectPortal()
@@ -124,6 +128,7 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     suspend fun setActiveProfile(id: String?) =
         runCatching { requireApi().setActiveProfile(SetActiveProfileRequest(id)) }
+            .also { invalidateDisabledGenres() }
 
     /** Connects using a saved profile and marks it active — mirrors the web
      *  Setup page's "connect from a saved profile" flow, which posts the whole
@@ -156,18 +161,36 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     /** Disabled-genre names for the currently active profile — channels/groups
      *  in this set are hidden, same as the web UI's per-profile genre filter
-     *  (backend never filters these; every client applies it independently). */
-    private suspend fun getDisabledGenres(): Set<String> =
-        runCatching {
+     *  (backend never filters these; every client applies it independently).
+     *
+     *  Briefly cached behind a mutex because getChannels() and getGroups() both
+     *  need it and run concurrently: without this, one channel-list load fetched
+     *  the (large) profiles payload twice. The mutex makes the second caller wait
+     *  for the first rather than duplicating the request, and the short TTL keeps
+     *  it fresh; anything that changes the active profile clears it outright. */
+    private suspend fun getDisabledGenres(): Set<String> = genresMutex.withLock {
+        val now = SystemClock.elapsedRealtime()
+        disabledGenresCache?.let { (cachedAt, genres) ->
+            if (now - cachedAt < DISABLED_GENRES_TTL_MS) return@withLock genres
+        }
+        val fresh = runCatching {
             val resp = requireApi().getProfiles()
             resp.profiles.find { it.id == resp.activeProfileId }?.disabledGenres?.toSet() ?: emptySet()
         }.getOrDefault(emptySet())
+        disabledGenresCache = now to fresh
+        fresh
+    }
+
+    private fun invalidateDisabledGenres() { disabledGenresCache = null }
 
     suspend fun getChannels(): List<Channel> {
         val channels = requireApi().getChannels().channels
         val disabled = getDisabledGenres()
-        val filtered = if (disabled.isEmpty()) channels
-                       else channels.filter { it.genre == null || it.genre !in disabled }
+        val filtered = (if (disabled.isEmpty()) channels
+                        else channels.filter { it.genre == null || it.genre !in disabled })
+            // The channel and player lists key by uniqueId; a portal returning the
+            // same id twice would crash them with "Key was already used".
+            .distinctBy { it.uniqueId }
         prefs.cacheChannels(filtered)
         return filtered
     }
@@ -268,6 +291,13 @@ class ChannelRepository(private val prefs: AppPrefs) {
 
     fun getWatched(): List<WatchedChannel> = prefs.getWatchedChannels()
 
+    private val genresMutex = Mutex()
+    private var disabledGenresCache: Pair<Long, Set<String>>? = null
+
     private fun requireApi(): StalkerApi =
         api ?: throw IllegalStateException("No server URL configured")
+
+    private companion object {
+        const val DISABLED_GENRES_TTL_MS = 15_000L
+    }
 }

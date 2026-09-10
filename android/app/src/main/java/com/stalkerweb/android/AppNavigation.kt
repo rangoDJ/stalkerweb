@@ -1,6 +1,6 @@
 package com.stalkerweb.android
 
-import java.net.URLEncoder
+import android.net.Uri
 
 sealed class Screen(val route: String) {
     object Setup    : Screen("setup")
@@ -8,7 +8,7 @@ sealed class Screen(val route: String) {
     object Portal   : Screen("portal")
     object Player   : Screen("player/{channelId}/{channelName}") {
         fun go(channelId: String, channelName: String): String {
-            val encodedName = URLEncoder.encode(channelName, "UTF-8")
+            val encodedName = Uri.encode(channelName)
             return "player/$channelId/$encodedName"
         }
     }
@@ -24,7 +24,7 @@ sealed class Screen(val route: String) {
             episodeId: String = "",
             title: String = "",
         ): String {
-            fun e(s: String) = URLEncoder.encode(s, "UTF-8")
+            fun e(s: String) = Uri.encode(s)
             return "vodplayer?videoId=${e(videoId)}&cmd=${e(cmd)}&series=${e(series)}" +
                 "&seasonId=${e(seasonId)}&episodeId=${e(episodeId)}&title=${e(title)}"
         }
